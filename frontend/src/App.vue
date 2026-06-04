@@ -2,8 +2,8 @@
   <main class="app-shell">
     <header class="topbar">
       <div>
-        <h1>路线优化工作台</h1>
-        <p>公司路线、规划点位、流水点位与优化预览</p>
+        <h1>路线与岗位工作台</h1>
+        <p>公司路线与岗位、规划点位、流水点位与优化预览</p>
       </div>
       <div class="date-filter">
         <label>
@@ -24,7 +24,7 @@
         <strong>{{ companies.length }}</strong>
       </div>
       <div>
-        <span>路线</span>
+        <span>{{ currentTypeName }}</span>
         <strong>{{ routes.length }}</strong>
       </div>
       <div>
@@ -58,9 +58,22 @@
       </aside>
 
       <section class="panel route-panel">
-        <div class="panel-head">
-          <h2>规划路线</h2>
-          <span class="muted">{{ selectedCompany?.depName || '请选择公司' }}</span>
+        <div class="route-panel-head">
+          <div class="panel-head">
+            <h2>{{ currentTypeName }}列表</h2>
+            <span class="muted">{{ selectedCompany?.depName || '请选择公司' }}</span>
+          </div>
+          <div class="type-segment" aria-label="数据类型">
+            <button
+              v-for="option in dataTypeOptions"
+              :key="option.value"
+              :class="{ active: dataType === option.value }"
+              :disabled="loading"
+              @click="changeDataType(option.value)"
+            >
+              {{ option.label }}
+            </button>
+          </div>
         </div>
         <div class="list route-list">
           <button
@@ -71,24 +84,27 @@
             @click="selectRoute(route)"
           >
             <span>{{ route.routeName || route.id }}</span>
-            <small>ID {{ route.id }}</small>
+            <small>{{ route.dataTypeName || currentTypeName }} ID {{ route.id }}</small>
           </button>
+          <div v-if="selectedCompany && routes.length === 0" class="empty">
+            暂无{{ currentTypeName }}
+          </div>
         </div>
       </section>
 
       <section class="detail-stack">
         <section class="panel">
           <div class="panel-head">
-            <h2>路线概览</h2>
+            <h2>{{ currentTypeName }}概览</h2>
             <button @click="previewOptimize" :disabled="!selectedRoute || loading">优化预览</button>
           </div>
           <div v-if="selectedRoute" class="route-overview">
             <div>
-              <span>路线名称</span>
+              <span>{{ currentTypeName }}名称</span>
               <strong>{{ selectedRoute.routeName || selectedRoute.id }}</strong>
             </div>
             <div>
-              <span>路线ID</span>
+              <span>{{ currentTypeName }}ID</span>
               <strong>{{ selectedRoute.id }}</strong>
             </div>
             <div>
@@ -100,7 +116,7 @@
               <strong>{{ planPoints.length }}</strong>
             </div>
           </div>
-          <div v-else class="empty">选择一家公司和路线后查看详情</div>
+          <div v-else class="empty">选择一家公司和{{ currentTypeName }}后查看详情</div>
         </section>
 
         <section class="panel split-panel">
@@ -114,6 +130,9 @@
                 <small>{{ point.facilityTypeName || '-' }}</small>
               </li>
             </ol>
+            <div v-if="selectedRoute && planPoints.length === 0" class="empty">
+              该{{ currentTypeName }}暂无规划点位
+            </div>
           </div>
           <div>
             <div class="panel-head compact">
@@ -143,6 +162,9 @@
                   </tr>
                 </tbody>
               </table>
+            </div>
+            <div v-if="selectedRoute && records.length === 0" class="empty">
+              该{{ currentTypeName }}暂无流水记录
             </div>
           </div>
         </section>
@@ -197,8 +219,13 @@ const selectedRoute = ref(null)
 const selectedRecord = ref(null)
 
 const companyKeyword = ref('')
+const dataType = ref(0)
 const loading = ref(false)
 const error = ref('')
+const dataTypeOptions = [
+  { label: '路线', value: 0 },
+  { label: '岗位', value: 1 }
+]
 
 const today = new Date()
 const start = new Date()
@@ -218,6 +245,7 @@ const filteredCompanies = computed(() => {
     )
   })
 })
+const currentTypeName = computed(() => (dataType.value === 1 ? '岗位' : '路线'))
 
 onMounted(loadCompanies)
 
@@ -237,15 +265,27 @@ async function loadCompanies() {
 
 async function selectCompany(company) {
   selectedCompany.value = company
-  selectedRoute.value = null
-  selectedRecord.value = null
+  clearSelection()
   routes.value = []
-  records.value = []
-  planPoints.value = []
-  recordPoints.value = []
-  optimization.value = null
+  await loadRoutes()
+}
+
+async function changeDataType(value) {
+  if (dataType.value === value) return
+  dataType.value = value
+  clearSelection()
+  routes.value = []
+  if (selectedCompany.value) {
+    await loadRoutes()
+  }
+}
+
+async function loadRoutes() {
+  if (!selectedCompany.value) return
   await withLoading(async () => {
-    routes.value = await api(`/api/companies/${company.id}/routes`)
+    routes.value = await api(
+      `/api/companies/${selectedCompany.value.id}/routes?dataType=${dataType.value}`
+    )
   })
 }
 
@@ -294,10 +334,19 @@ async function reloadCurrent() {
   if (selectedRoute.value) {
     await selectRoute(selectedRoute.value)
   } else if (selectedCompany.value) {
-    await selectCompany(selectedCompany.value)
+    await loadRoutes()
   } else {
     await loadCompanies()
   }
+}
+
+function clearSelection() {
+  selectedRoute.value = null
+  selectedRecord.value = null
+  records.value = []
+  planPoints.value = []
+  recordPoints.value = []
+  optimization.value = null
 }
 
 async function withLoading(fn) {

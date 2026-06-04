@@ -33,17 +33,27 @@ public class RouteQueryService {
         return jdbcTemplate.queryForList(sql);
     }
 
-    public List<Map<String, Object>> routes(String unitId) {
+    public List<Map<String, Object>> routes(String unitId, Integer dataType) {
+        int queryDataType = dataType == null ? 0 : dataType;
+        if (queryDataType != 0 && queryDataType != 1) {
+            throw new IllegalArgumentException("dataType must be 0 or 1");
+        }
+        String dataTypeCondition = queryDataType == 1
+                ? "data_type = 1"
+                : "(data_type = 0 OR data_type IS NULL)";
         String sql = "SELECT id, name AS routeName, department_id AS unitId, department_name AS unitName, " +
-                "frequency_name AS frequencyName, work_begin_time AS workBeginTime, work_end_time AS workEndTime " +
+                "frequency_name AS frequencyName, work_begin_time AS workBeginTime, work_end_time AS workEndTime, " +
+                "CASE WHEN data_type = 1 THEN 1 ELSE 0 END AS dataType, " +
+                "CASE WHEN data_type = 1 THEN '岗位' ELSE '路线' END AS dataTypeName " +
                 "FROM ljszy_route_info " +
-                "WHERE been_deleted = 0 AND department_id = ? AND (data_type = 0 OR data_type IS NULL) " +
+                "WHERE been_deleted = 0 AND department_id = ? AND " + dataTypeCondition + " " +
                 "ORDER BY name, id";
         List<Map<String, Object>> rows = jdbcTemplate.queryForList(sql, unitId);
-        if (!rows.isEmpty()) {
+        if (!rows.isEmpty() || queryDataType == 1) {
             return rows;
         }
-        String fallback = "SELECT route_id AS id, MAX(route_name) AS routeName, unit_id AS unitId, COUNT(*) AS recordCount " +
+        String fallback = "SELECT route_id AS id, MAX(route_name) AS routeName, unit_id AS unitId, " +
+                "COUNT(*) AS recordCount, 0 AS dataType, '路线' AS dataTypeName " +
                 "FROM ljszy_route_record WHERE been_deleted = 0 AND unit_id = ? AND route_id IS NOT NULL " +
                 "GROUP BY route_id, unit_id ORDER BY routeName, route_id";
         return jdbcTemplate.queryForList(fallback, unitId);

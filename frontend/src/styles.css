@@ -152,6 +152,36 @@ button:disabled {
   font-size: 16px;
 }
 
+.route-panel-head {
+  border-bottom: 1px solid #e3e9ef;
+}
+
+.route-panel-head .panel-head {
+  border-bottom: 0;
+}
+
+.type-segment {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 4px;
+  margin: 0 12px 12px;
+  padding: 3px;
+  border-radius: 7px;
+  background: #edf2f7;
+}
+
+.type-segment button {
+  height: 30px;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+}
+
+.type-segment button.active {
+  background: #1565c0;
+  color: #fff;
+}
+
 .panel-head input {
   width: 130px;
 }
