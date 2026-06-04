@@ -48,15 +48,7 @@ public class RouteQueryService {
                 "FROM ljszy_route_info " +
                 "WHERE been_deleted = 0 AND department_id = ? AND " + dataTypeCondition + " " +
                 "ORDER BY name, id";
-        List<Map<String, Object>> rows = jdbcTemplate.queryForList(sql, unitId);
-        if (!rows.isEmpty() || queryDataType == 1) {
-            return rows;
-        }
-        String fallback = "SELECT route_id AS id, MAX(route_name) AS routeName, unit_id AS unitId, " +
-                "COUNT(*) AS recordCount, 0 AS dataType, '路线' AS dataTypeName " +
-                "FROM ljszy_route_record WHERE been_deleted = 0 AND unit_id = ? AND route_id IS NOT NULL " +
-                "GROUP BY route_id, unit_id ORDER BY routeName, route_id";
-        return jdbcTemplate.queryForList(fallback, unitId);
+        return jdbcTemplate.queryForList(sql, unitId);
     }
 
     public List<Map<String, Object>> routePlanPoints(Long routeId) {
