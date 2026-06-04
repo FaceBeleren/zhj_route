@@ -15,6 +15,14 @@ frontend/dist/
 logs/
 *.log
 
+# Python analysis runtime outputs
+__pycache__/
+*.py[cod]
+analysis/route_conformance/*_out/
+analysis/route_conformance/out_*/
+analysis/route_conformance/last/
+analysis/route_conformance/*.csv
+
 # OS
 .DS_Store
 Thumbs.db

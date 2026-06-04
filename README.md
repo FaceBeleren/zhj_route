@@ -6,6 +6,8 @@ Route planning demo with a Spring Boot backend and Vue frontend.
 
 - `backend`: Spring Boot API. It connects to the existing `ljszy_new` database and cross-schema `cloud_management`.
 - `frontend`: Vue 3 demo page. It displays companies, routes, route records, and an optimization preview.
+- `analysis/route_conformance`: Migrated Python scripts for route-flow and conformance analysis.
+- `docs/ljszy-route-data.md`: Confirmed route tables, query conventions, and algorithm integration notes.
 
 ## Backend
 
