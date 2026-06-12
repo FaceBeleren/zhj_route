@@ -350,6 +350,13 @@ return routes + unassigned
 - 支持真实道路 polyline。
 - 前端展示路线指标和折线。
 
+当前实现状态：
+
+- 已返回优化后路线的分段距离、估算时长和直线 path；
+- 已返回可供前端绘制预览的 polyline 点列；
+- 前端已展示优化后点位和分段距离；
+- 尚未接入 `ljszy_odpair_pool` 和百度真实道路 polyline。
+
 ### 阶段 4：多路线 MVP
 
 - 加车辆输入。

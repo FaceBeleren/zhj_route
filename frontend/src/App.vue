@@ -208,6 +208,19 @@
                 <div class="sequence">
                   <span v-for="point in optimization.optimizedSequence" :key="point">{{ point }}</span>
                 </div>
+                <ol v-if="optimization.points?.length" class="optimized-points">
+                  <li v-for="point in optimization.points" :key="point.facilityId">
+                    <span>{{ point.facilityName || point.facilityId }}</span>
+                    <small>{{ point.role }}</small>
+                  </li>
+                </ol>
+                <div v-if="optimization.segments?.length" class="segment-list">
+                  <div v-for="segment in optimization.segments" :key="segment.order" class="segment-row">
+                    <span>{{ segment.fromFacilityName || segment.fromFacilityId }}</span>
+                    <span>{{ segment.toFacilityName || segment.toFacilityId }}</span>
+                    <strong>{{ formatDistance(segment.distance) }}</strong>
+                  </div>
+                </div>
               </div>
               <div v-else class="empty">点击“优化预览”生成单路线优化结果</div>
             </div>

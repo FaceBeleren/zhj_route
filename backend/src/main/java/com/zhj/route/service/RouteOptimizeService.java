@@ -43,6 +43,8 @@ public class RouteOptimizeService {
         result.put("savedDistance", round(optimization.getSavedDistance()));
         result.put("savedRate", round(optimization.getSavedRate()));
         result.put("points", pointViews(optimization.getOptimizedPoints()));
+        result.put("segments", segmentViews(optimization.getOptimizedPoints(), speedKmh(request)));
+        result.put("polyline", polyline(optimization.getOptimizedPoints()));
         return result;
     }
 
@@ -92,6 +94,74 @@ public class RouteOptimizeService {
             views.add(view);
         }
         return views;
+    }
+
+    private List<Map<String, Object>> segmentViews(List<RoutePoint> points, double speedKmh) {
+        List<Map<String, Object>> segments = new ArrayList<Map<String, Object>>();
+        for (int i = 0; i < points.size() - 1; i++) {
+            RoutePoint from = points.get(i);
+            RoutePoint to = points.get(i + 1);
+            double distance = singleRouteOptimizer.distance(from, to);
+            Map<String, Object> segment = new HashMap<String, Object>();
+            segment.put("order", i + 1);
+            segment.put("fromFacilityId", from.getFacilityId());
+            segment.put("fromFacilityName", from.getFacilityName());
+            segment.put("toFacilityId", to.getFacilityId());
+            segment.put("toFacilityName", to.getFacilityName());
+            segment.put("distance", round(distance));
+            segment.put("durationMinutes", round(minutes(distance, speedKmh)));
+            segment.put("path", path(from, to));
+            segments.add(segment);
+        }
+        return segments;
+    }
+
+    private List<Map<String, Object>> polyline(List<RoutePoint> points) {
+        List<Map<String, Object>> line = new ArrayList<Map<String, Object>>();
+        for (RoutePoint point : points) {
+            if (point.hasCoordinate()) {
+                line.add(coordinate(point));
+            }
+        }
+        return line;
+    }
+
+    private List<Map<String, Object>> path(RoutePoint from, RoutePoint to) {
+        List<Map<String, Object>> path = new ArrayList<Map<String, Object>>();
+        if (from.hasCoordinate()) {
+            path.add(coordinate(from));
+        }
+        if (to.hasCoordinate()) {
+            path.add(coordinate(to));
+        }
+        return path;
+    }
+
+    private Map<String, Object> coordinate(RoutePoint point) {
+        Map<String, Object> coordinate = new HashMap<String, Object>();
+        coordinate.put("facilityId", point.getFacilityId());
+        coordinate.put("longitude", point.getLongitude());
+        coordinate.put("latitude", point.getLatitude());
+        return coordinate;
+    }
+
+    private double minutes(double distanceMeters, double speedKmh) {
+        if (speedKmh <= 0D) {
+            return 0D;
+        }
+        return distanceMeters / (speedKmh * 1000D) * 60D;
+    }
+
+    private double speedKmh(Map<String, Object> request) {
+        Object value = request.get("speedKmh");
+        if (value == null) {
+            return 20D;
+        }
+        Double speed = toDouble(value);
+        if (speed == null || speed <= 0D) {
+            return 20D;
+        }
+        return speed;
     }
 
     private Long toLong(Object value) {

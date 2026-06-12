@@ -36,7 +36,7 @@ public class SingleRouteOptimizer {
         return new RouteOptimizationResult(original, optimized, totalDistance(original), totalDistance(optimized));
     }
 
-    private double totalDistance(List<RoutePoint> points) {
+    public double totalDistance(List<RoutePoint> points) {
         double total = 0D;
         for (int i = 0; i < points.size() - 1; i++) {
             total += distance(points.get(i), points.get(i + 1));
@@ -44,7 +44,7 @@ public class SingleRouteOptimizer {
         return total;
     }
 
-    private double distance(RoutePoint a, RoutePoint b) {
+    public double distance(RoutePoint a, RoutePoint b) {
         if (!a.hasCoordinate() || !b.hasCoordinate()) {
             return 0D;
         }
