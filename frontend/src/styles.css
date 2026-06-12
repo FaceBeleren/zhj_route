@@ -455,9 +455,15 @@ tbody tr.active {
   font-size: 12px;
 }
 
+.route-plot-head > div {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
 .legend {
   position: relative;
-  margin-left: 14px;
+  margin-left: 12px;
   color: #536274;
 }
 
@@ -480,15 +486,54 @@ tbody tr.active {
   background: #1769c2;
 }
 
+.plot-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: #536274;
+  cursor: pointer;
+}
+
+.plot-toggle input {
+  margin: 0;
+}
+
+.plot-card {
+  border: 1px solid #e1e8f2;
+  border-radius: 8px;
+  padding: 8px;
+  background: #fff;
+}
+
+.plot-card.wide {
+  margin-bottom: 10px;
+}
+
+.plot-title {
+  margin-bottom: 6px;
+  color: #536274;
+  font-size: 12px;
+}
+
+.plot-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
 .route-plot svg {
   width: 100%;
-  height: 220px;
+  height: 170px;
   display: block;
   background:
     linear-gradient(#edf2f7 1px, transparent 1px),
     linear-gradient(90deg, #edf2f7 1px, transparent 1px);
   background-size: 10% 10%;
   border-radius: 6px;
+}
+
+.plot-grid svg {
+  height: 150px;
 }
 
 .plot-line {
@@ -501,10 +546,12 @@ tbody tr.active {
 .plot-line.original {
   stroke: #d85c5c;
   stroke-dasharray: 3 2;
+  opacity: 0.82;
 }
 
 .plot-line.optimized {
   stroke: #1769c2;
+  opacity: 0.92;
 }
 
 .route-plot circle {
@@ -519,6 +566,12 @@ tbody tr.active {
   paint-order: stroke;
   stroke: #fff;
   stroke-width: 1px;
+}
+
+@media (max-width: 980px) {
+  .plot-grid {
+    grid-template-columns: 1fr;
+  }
 }
 
 .optimized-points {
