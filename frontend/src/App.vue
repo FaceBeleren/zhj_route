@@ -3,7 +3,7 @@
     <header class="topbar">
       <div>
         <h1>路线与岗位工作台</h1>
-        <p>公司路线与岗位、规划点位、流水点位与优化预览</p>
+        <p>公司路线与岗位、规划点位、流水点位、吻合度评分与优化预览</p>
       </div>
       <div class="date-filter">
         <label>
@@ -18,186 +18,365 @@
       </div>
     </header>
 
-    <section class="summary-strip">
-      <div>
-        <span>公司</span>
-        <strong>{{ companies.length }}</strong>
-      </div>
-      <div>
-        <span>{{ currentTypeName }}</span>
-        <strong>{{ routes.length }}</strong>
-      </div>
-      <div>
-        <span>流水</span>
-        <strong>{{ records.length }}</strong>
-      </div>
-      <div>
-        <span>规划点位</span>
-        <strong>{{ planPoints.length }}</strong>
-      </div>
-    </section>
+    <nav class="view-tabs" aria-label="功能视图">
+      <button :class="{ active: currentView === 'workbench' }" @click="currentView = 'workbench'">
+        路线工作台
+      </button>
+      <button :class="{ active: currentView === 'score' }" @click="currentView = 'score'">
+        路线评分
+      </button>
+    </nav>
 
-    <section class="workspace">
-      <aside class="panel company-panel">
-        <div class="panel-head">
-          <h2>项目公司</h2>
-          <input v-model="companyKeyword" placeholder="搜索公司" />
+    <template v-if="currentView === 'workbench'">
+      <section class="summary-strip">
+        <div>
+          <span>公司</span>
+          <strong>{{ companies.length }}</strong>
         </div>
-        <div class="list">
-          <button
-            v-for="company in filteredCompanies"
-            :key="company.id"
-            class="list-item"
-            :class="{ active: selectedCompany?.id === company.id }"
-            @click="selectCompany(company)"
-          >
-            <span>{{ company.depName || company.id }}</span>
-            <small>{{ company.depCode || '-' }}</small>
-          </button>
+        <div>
+          <span>{{ currentTypeName }}</span>
+          <strong>{{ routes.length }}</strong>
         </div>
-      </aside>
-
-      <section class="panel route-panel">
-        <div class="route-panel-head">
-          <div class="panel-head">
-            <h2>{{ currentTypeName }}列表</h2>
-            <span class="muted">{{ selectedCompany?.depName || '请选择公司' }}</span>
-          </div>
-          <div class="type-segment" aria-label="数据类型">
-            <button
-              v-for="option in dataTypeOptions"
-              :key="option.value"
-              :class="{ active: dataType === option.value }"
-              :disabled="loading"
-              @click="changeDataType(option.value)"
-            >
-              {{ option.label }}
-            </button>
-          </div>
+        <div>
+          <span>流水</span>
+          <strong>{{ records.length }}</strong>
         </div>
-        <div class="list route-list">
-          <button
-            v-for="route in routes"
-            :key="route.id"
-            class="list-item"
-            :class="{ active: selectedRoute?.id === route.id }"
-            @click="selectRoute(route)"
-          >
-            <span>{{ route.routeName || route.id }}</span>
-            <small>{{ route.dataTypeName || currentTypeName }} ID {{ route.id }}</small>
-          </button>
-          <div v-if="selectedCompany && routes.length === 0" class="empty">
-            暂无{{ currentTypeName }}
-          </div>
+        <div>
+          <span>规划点位</span>
+          <strong>{{ planPoints.length }}</strong>
         </div>
       </section>
 
-      <section class="detail-stack">
-        <section class="panel">
+      <section class="workspace">
+        <aside class="panel company-panel">
           <div class="panel-head">
-            <h2>{{ currentTypeName }}概览</h2>
-            <button @click="previewOptimize" :disabled="!selectedRoute || loading">优化预览</button>
+            <h2>项目公司</h2>
+            <input v-model="companyKeyword" placeholder="搜索公司" />
           </div>
-          <div v-if="selectedRoute" class="route-overview">
-            <div>
-              <span>{{ currentTypeName }}名称</span>
-              <strong>{{ selectedRoute.routeName || selectedRoute.id }}</strong>
+          <div class="list">
+            <button
+              v-for="company in filteredCompanies"
+              :key="company.id"
+              class="list-item"
+              :class="{ active: selectedCompany?.id === company.id }"
+              @click="selectCompany(company)"
+            >
+              <span>{{ company.depName || company.id }}</span>
+              <small>{{ company.depCode || '-' }}</small>
+            </button>
+          </div>
+        </aside>
+
+        <section class="panel route-panel">
+          <div class="route-panel-head">
+            <div class="panel-head">
+              <h2>{{ currentTypeName }}列表</h2>
+              <span class="muted">{{ selectedCompany?.depName || '请选择公司' }}</span>
             </div>
-            <div>
-              <span>{{ currentTypeName }}ID</span>
-              <strong>{{ selectedRoute.id }}</strong>
-            </div>
-            <div>
-              <span>流水数</span>
-              <strong>{{ records.length }}</strong>
-            </div>
-            <div>
-              <span>规划点位数</span>
-              <strong>{{ planPoints.length }}</strong>
+            <div class="type-segment" aria-label="数据类型">
+              <button
+                v-for="option in dataTypeOptions"
+                :key="option.value"
+                :class="{ active: dataType === option.value }"
+                :disabled="loading"
+                @click="changeDataType(option.value)"
+              >
+                {{ option.label }}
+              </button>
             </div>
           </div>
-          <div v-else class="empty">选择一家公司和{{ currentTypeName }}后查看详情</div>
+          <div class="list route-list">
+            <button
+              v-for="route in routes"
+              :key="route.id"
+              class="list-item"
+              :class="{ active: selectedRoute?.id === route.id }"
+              @click="selectRoute(route)"
+            >
+              <span>{{ route.routeName || route.id }}</span>
+              <small>{{ route.dataTypeName || currentTypeName }} ID {{ route.id }}</small>
+            </button>
+            <div v-if="selectedCompany && routes.length === 0" class="empty">
+              暂无{{ currentTypeName }}
+            </div>
+          </div>
         </section>
 
-        <section class="panel split-panel">
-          <div>
-            <div class="panel-head compact">
-              <h2>规划点位</h2>
+        <section class="detail-stack">
+          <section class="panel">
+            <div class="panel-head">
+              <h2>{{ currentTypeName }}概览</h2>
+              <button @click="previewOptimize" :disabled="!selectedRoute || loading">优化预览</button>
             </div>
-            <ol class="point-list">
-              <li v-for="point in planPoints" :key="point.facilityId">
-                <span>{{ point.facilityName || point.facilityId }}</span>
-                <small>{{ point.facilityTypeName || '-' }}</small>
-              </li>
-            </ol>
-            <div v-if="selectedRoute && planPoints.length === 0" class="empty">
-              该{{ currentTypeName }}暂无规划点位
+            <div v-if="selectedRoute" class="route-overview">
+              <div>
+                <span>{{ currentTypeName }}名称</span>
+                <strong>{{ selectedRoute.routeName || selectedRoute.id }}</strong>
+              </div>
+              <div>
+                <span>{{ currentTypeName }}ID</span>
+                <strong>{{ selectedRoute.id }}</strong>
+              </div>
+              <div>
+                <span>流水数</span>
+                <strong>{{ records.length }}</strong>
+              </div>
+              <div>
+                <span>规划点位数</span>
+                <strong>{{ planPoints.length }}</strong>
+              </div>
             </div>
+            <div v-else class="empty">选择一家公司和{{ currentTypeName }}后查看详情</div>
+          </section>
+
+          <section class="panel split-panel">
+            <div>
+              <div class="panel-head compact">
+                <h2>规划点位</h2>
+              </div>
+              <ol class="point-list">
+                <li v-for="point in planPoints" :key="point.facilityId">
+                  <span>{{ point.facilityName || point.facilityId }}</span>
+                  <small>{{ point.facilityTypeName || '-' }}</small>
+                </li>
+              </ol>
+              <div v-if="selectedRoute && planPoints.length === 0" class="empty">
+                该{{ currentTypeName }}暂无规划点位
+              </div>
+            </div>
+            <div>
+              <div class="panel-head compact">
+                <h2>流水记录</h2>
+              </div>
+              <div class="table-wrap">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>流水ID</th>
+                      <th>车辆</th>
+                      <th>开始时间</th>
+                      <th>终端频次</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr
+                      v-for="record in records"
+                      :key="record.id"
+                      :class="{ active: selectedRecord?.id === record.id }"
+                      @click="selectRecord(record)"
+                    >
+                      <td>{{ record.id }}</td>
+                      <td>{{ record.carCode || '-' }}</td>
+                      <td>{{ formatDate(record.carStartTime) }}</td>
+                      <td>{{ record.terminalFrequency ?? '-' }}</td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+              <div v-if="selectedRoute && records.length === 0" class="empty">
+                该{{ currentTypeName }}暂无流水记录
+              </div>
+            </div>
+          </section>
+
+          <section class="panel split-panel lower">
+            <div>
+              <div class="panel-head compact">
+                <h2>流水点位</h2>
+                <span class="muted">{{ selectedRecord ? `流水 ${selectedRecord.id}` : '未选择流水' }}</span>
+              </div>
+              <ol class="point-list">
+                <li v-for="point in recordPoints" :key="point.id">
+                  <span>{{ point.facilityName || point.facilityId }}</span>
+                  <small>{{ formatDate(point.entryPointTime || point.createTime) }}</small>
+                </li>
+              </ol>
+            </div>
+            <div>
+              <div class="panel-head compact">
+                <h2>优化预览</h2>
+              </div>
+              <div v-if="optimization" class="optimization-box">
+                <strong>{{ optimization.status }}</strong>
+                <p>{{ optimization.message }}</p>
+                <div class="sequence">
+                  <span v-for="point in optimization.optimizedSequence" :key="point">{{ point }}</span>
+                </div>
+              </div>
+              <div v-else class="empty">点击“优化预览”生成占位结果</div>
+            </div>
+          </section>
+        </section>
+      </section>
+    </template>
+
+    <template v-else>
+      <section class="score-shell">
+        <aside class="panel score-company-panel">
+          <div class="panel-head">
+            <h2>评分公司</h2>
+            <input v-model="companyKeyword" placeholder="搜索公司" />
           </div>
-          <div>
-            <div class="panel-head compact">
-              <h2>流水记录</h2>
+          <div class="score-actions">
+            <button @click="selectAllScoreCompanies" :disabled="loading">全选当前</button>
+            <button @click="clearScoreCompanies" :disabled="loading">清空</button>
+          </div>
+          <div class="list">
+            <button
+              v-for="company in filteredCompanies"
+              :key="company.id"
+              class="list-item with-check"
+              :class="{ active: scoreCompanyIds.includes(String(company.id)) }"
+              @click="toggleScoreCompany(company)"
+            >
+              <span>{{ company.depName || company.id }}</span>
+              <small>{{ company.depCode || '-' }}</small>
+            </button>
+          </div>
+        </aside>
+
+        <section class="score-main">
+          <section class="summary-strip score-summary">
+            <div>
+              <span>已选公司</span>
+              <strong>{{ scoreCompanyIds.length }}</strong>
             </div>
-            <div class="table-wrap">
+            <div>
+              <span>已评分公司</span>
+              <strong>{{ companyScores.length }}</strong>
+            </div>
+            <div>
+              <span>选中公司路线</span>
+              <strong>{{ routeScores.length }}</strong>
+            </div>
+            <div>
+              <span>选中路线流水</span>
+              <strong>{{ tripScores.length }}</strong>
+            </div>
+          </section>
+
+          <section class="panel">
+            <div class="panel-head">
+              <h2>公司综合评分</h2>
+              <button @click="loadCompanyScores" :disabled="loading || scoreCompanyIds.length === 0">
+                打分
+              </button>
+            </div>
+            <div class="score-hint">
+              默认口径：F1 权重 0.6，LCS 权重 0.4；实际点位过滤 facility_match_type=0 且 is_route_facility=1。
+            </div>
+            <div class="table-wrap score-table">
               <table>
                 <thead>
                   <tr>
-                    <th>流水ID</th>
-                    <th>车辆</th>
-                    <th>开始时间</th>
-                    <th>终端频次</th>
+                    <th>公司</th>
+                    <th>路线数</th>
+                    <th>有流水路线</th>
+                    <th>流水数</th>
+                    <th>不同指纹</th>
+                    <th>平均F1</th>
+                    <th>平均LCS</th>
+                    <th>综合得分</th>
                   </tr>
                 </thead>
                 <tbody>
                   <tr
-                    v-for="record in records"
-                    :key="record.id"
-                    :class="{ active: selectedRecord?.id === record.id }"
-                    @click="selectRecord(record)"
+                    v-for="row in companyScores"
+                    :key="row.unitId"
+                    :class="{ active: selectedScoreCompany?.unitId === row.unitId }"
+                    @click="selectScoreCompany(row)"
                   >
-                    <td>{{ record.id }}</td>
-                    <td>{{ record.carCode || '-' }}</td>
-                    <td>{{ formatDate(record.carStartTime) }}</td>
-                    <td>{{ record.terminalFrequency ?? '-' }}</td>
+                    <td>
+                      <strong>{{ row.unitName || row.unitId }}</strong>
+                      <small>{{ row.depCode || row.unitId }}</small>
+                    </td>
+                    <td>{{ row.routeCount }}</td>
+                    <td>{{ row.routeWithTripCount }}</td>
+                    <td>{{ row.tripCount }}</td>
+                    <td>{{ row.distinctFingerprintCount }}</td>
+                    <td>{{ pct(row.avgF1) }}</td>
+                    <td>{{ pct(row.avgLcsRatio) }}</td>
+                    <td><strong>{{ pct(row.companyOverallScore) }}</strong></td>
                   </tr>
                 </tbody>
               </table>
             </div>
-            <div v-if="selectedRoute && records.length === 0" class="empty">
-              该{{ currentTypeName }}暂无流水记录
-            </div>
-          </div>
-        </section>
+            <div v-if="companyScores.length === 0" class="empty">选择公司后点击“打分”</div>
+          </section>
 
-        <section class="panel split-panel lower">
-          <div>
-            <div class="panel-head compact">
-              <h2>流水点位</h2>
-              <span class="muted">{{ selectedRecord ? `流水 ${selectedRecord.id}` : '未选择流水' }}</span>
-            </div>
-            <ol class="point-list">
-              <li v-for="point in recordPoints" :key="point.id">
-                <span>{{ point.facilityName || point.facilityId }}</span>
-                <small>{{ formatDate(point.entryPointTime || point.createTime) }}</small>
-              </li>
-            </ol>
-          </div>
-          <div>
-            <div class="panel-head compact">
-              <h2>优化预览</h2>
-            </div>
-            <div v-if="optimization" class="optimization-box">
-              <strong>{{ optimization.status }}</strong>
-              <p>{{ optimization.message }}</p>
-              <div class="sequence">
-                <span v-for="point in optimization.optimizedSequence" :key="point">{{ point }}</span>
+          <section class="panel score-drilldown">
+            <div>
+              <div class="panel-head compact">
+                <h2>路线评分</h2>
+                <span class="muted">{{ selectedScoreCompany?.unitName || '未选择公司' }}</span>
+              </div>
+              <div class="table-wrap">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>路线</th>
+                      <th>规划点</th>
+                      <th>流水</th>
+                      <th>指纹</th>
+                      <th>平均得分</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr
+                      v-for="row in routeScores"
+                      :key="row.routeId"
+                      :class="{ active: selectedScoreRoute?.routeId === row.routeId }"
+                      @click="selectScoreRoute(row)"
+                    >
+                      <td>
+                        <strong>{{ row.routeName || row.routeId }}</strong>
+                        <small>ID {{ row.routeId }}</small>
+                      </td>
+                      <td>{{ row.planPointCount }}</td>
+                      <td>{{ row.tripCount }}</td>
+                      <td>{{ row.distinctFingerprintCount }}</td>
+                      <td><strong>{{ pct(row.avgOverall) }}</strong></td>
+                    </tr>
+                  </tbody>
+                </table>
               </div>
             </div>
-            <div v-else class="empty">点击“优化预览”生成占位结果</div>
-          </div>
+            <div>
+              <div class="panel-head compact">
+                <h2>流水明细</h2>
+                <span class="muted">{{ selectedScoreRoute ? `路线 ${selectedScoreRoute.routeId}` : '未选择路线' }}</span>
+              </div>
+              <div class="table-wrap">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>流水</th>
+                      <th>车辆</th>
+                      <th>开始时间</th>
+                      <th>规划/实际</th>
+                      <th>F1</th>
+                      <th>LCS</th>
+                      <th>得分</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr v-for="row in tripScores" :key="row.routeRecordId">
+                      <td>{{ row.routeRecordId }}</td>
+                      <td>{{ row.carCode || '-' }}</td>
+                      <td>{{ formatDate(row.carStartTime) }}</td>
+                      <td>{{ row.planPointCount }} / {{ row.actualPointCount }}</td>
+                      <td>{{ pct(row.f1) }}</td>
+                      <td>{{ pct(row.lcsRatio) }}</td>
+                      <td><strong>{{ pct(row.overall) }}</strong></td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </section>
         </section>
       </section>
-    </section>
+    </template>
 
     <div v-if="error" class="toast error">{{ error }}</div>
     <div v-if="loading" class="toast">加载中...</div>
@@ -207,12 +386,20 @@
 <script setup>
 import { computed, onMounted, reactive, ref } from 'vue'
 
+const currentView = ref('workbench')
 const companies = ref([])
 const routes = ref([])
 const records = ref([])
 const planPoints = ref([])
 const recordPoints = ref([])
 const optimization = ref(null)
+
+const companyScores = ref([])
+const routeScores = ref([])
+const tripScores = ref([])
+const scoreCompanyIds = ref([])
+const selectedScoreCompany = ref(null)
+const selectedScoreRoute = ref(null)
 
 const selectedCompany = ref(null)
 const selectedRoute = ref(null)
@@ -330,7 +517,77 @@ async function previewOptimize() {
   })
 }
 
+function toggleScoreCompany(company) {
+  const id = String(company.id)
+  if (scoreCompanyIds.value.includes(id)) {
+    scoreCompanyIds.value = scoreCompanyIds.value.filter((item) => item !== id)
+  } else {
+    scoreCompanyIds.value = [...scoreCompanyIds.value, id]
+  }
+}
+
+function selectAllScoreCompanies() {
+  scoreCompanyIds.value = filteredCompanies.value.map((company) => String(company.id))
+}
+
+function clearScoreCompanies() {
+  scoreCompanyIds.value = []
+  companyScores.value = []
+  routeScores.value = []
+  tripScores.value = []
+  selectedScoreCompany.value = null
+  selectedScoreRoute.value = null
+}
+
+async function loadCompanyScores() {
+  await withLoading(async () => {
+    const params = new URLSearchParams({
+      unitIds: scoreCompanyIds.value.join(','),
+      startDate: filters.startDate,
+      endDate: filters.endDate
+    })
+    companyScores.value = await api(`/api/conformance/companies/score?${params}`)
+    routeScores.value = []
+    tripScores.value = []
+    selectedScoreCompany.value = null
+    selectedScoreRoute.value = null
+  })
+}
+
+async function selectScoreCompany(row) {
+  selectedScoreCompany.value = row
+  selectedScoreRoute.value = null
+  tripScores.value = []
+  await withLoading(async () => {
+    const params = new URLSearchParams({
+      startDate: filters.startDate,
+      endDate: filters.endDate
+    })
+    routeScores.value = await api(`/api/conformance/companies/${row.unitId}/routes?${params}`)
+  })
+}
+
+async function selectScoreRoute(row) {
+  selectedScoreRoute.value = row
+  await withLoading(async () => {
+    const params = new URLSearchParams({
+      unitId: row.unitId,
+      startDate: filters.startDate,
+      endDate: filters.endDate
+    })
+    tripScores.value = await api(`/api/conformance/routes/${row.routeId}/trips?${params}`)
+  })
+}
+
 async function reloadCurrent() {
+  if (currentView.value === 'score') {
+    if (scoreCompanyIds.value.length > 0) {
+      await loadCompanyScores()
+    } else {
+      await loadCompanies()
+    }
+    return
+  }
   if (selectedRoute.value) {
     await selectRoute(selectedRoute.value)
   } else if (selectedCompany.value) {
@@ -368,5 +625,10 @@ function toDateInput(value) {
 function formatDate(value) {
   if (!value) return '-'
   return String(value).replace('T', ' ').slice(0, 19)
+}
+
+function pct(value) {
+  const n = Number(value || 0)
+  return `${(n * 100).toFixed(1)}%`
 }
 </script>

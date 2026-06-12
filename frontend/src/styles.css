@@ -84,6 +84,28 @@ button:disabled {
   color: #fff;
 }
 
+.view-tabs {
+  display: inline-grid;
+  grid-template-columns: repeat(2, minmax(120px, 1fr));
+  gap: 4px;
+  margin-bottom: 14px;
+  padding: 3px;
+  border-radius: 8px;
+  background: #dfe7ef;
+}
+
+.view-tabs button {
+  height: 34px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+}
+
+.view-tabs button.active {
+  background: #1565c0;
+  color: #fff;
+}
+
 .summary-strip {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
@@ -117,6 +139,62 @@ button:disabled {
   grid-template-columns: 280px 300px minmax(0, 1fr);
   gap: 14px;
   align-items: start;
+}
+
+.score-shell {
+  display: grid;
+  grid-template-columns: 330px minmax(0, 1fr);
+  gap: 14px;
+  align-items: start;
+}
+
+.score-company-panel {
+  height: calc(100vh - 198px);
+  display: flex;
+  flex-direction: column;
+}
+
+.score-actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  padding: 10px 12px;
+  border-bottom: 1px solid #e3e9ef;
+}
+
+.score-actions button {
+  height: 32px;
+  border-radius: 6px;
+}
+
+.score-main {
+  display: grid;
+  gap: 14px;
+}
+
+.score-summary {
+  margin-bottom: 0;
+}
+
+.score-hint {
+  padding: 10px 14px;
+  border-bottom: 1px solid #e3e9ef;
+  color: #637083;
+  font-size: 13px;
+}
+
+.score-table {
+  max-height: 360px;
+}
+
+.score-drilldown {
+  display: grid;
+  grid-template-columns: minmax(420px, 0.9fr) minmax(520px, 1.1fr);
+  min-height: 360px;
+}
+
+.score-drilldown > div + div {
+  border-left: 1px solid #e3e9ef;
 }
 
 .panel {
@@ -219,6 +297,15 @@ button:disabled {
   white-space: nowrap;
 }
 
+.list-item.with-check {
+  grid-template-columns: 1fr;
+  border-left: 3px solid transparent;
+}
+
+.list-item.with-check.active {
+  border-left-color: #1565c0;
+}
+
 .list-item small {
   color: #718096;
 }
@@ -287,6 +374,16 @@ td {
   white-space: nowrap;
 }
 
+td strong,
+td small {
+  display: block;
+}
+
+td small {
+  color: #718096;
+  margin-top: 2px;
+}
+
 th {
   position: sticky;
   top: 0;
@@ -350,8 +447,14 @@ tbody tr.active {
     grid-template-columns: 1fr;
   }
 
+  .score-shell,
+  .score-drilldown {
+    grid-template-columns: 1fr;
+  }
+
   .company-panel,
-  .route-panel {
+  .route-panel,
+  .score-company-panel {
     height: auto;
     max-height: 320px;
   }
@@ -363,6 +466,11 @@ tbody tr.active {
   }
 
   .split-panel > div + div {
+    border-left: 0;
+    border-top: 1px solid #e3e9ef;
+  }
+
+  .score-drilldown > div + div {
     border-left: 0;
     border-top: 1px solid #e3e9ef;
   }
