@@ -199,11 +199,17 @@
               <div v-if="optimization" class="optimization-box">
                 <strong>{{ optimization.status }}</strong>
                 <p>{{ optimization.message }}</p>
+                <div class="optimization-metrics">
+                  <span>点位 {{ optimization.pointCount || 0 }}</span>
+                  <span>原距离 {{ formatDistance(optimization.originalDistance) }}</span>
+                  <span>优化后 {{ formatDistance(optimization.optimizedDistance) }}</span>
+                  <span>节省 {{ formatDistance(optimization.savedDistance) }}</span>
+                </div>
                 <div class="sequence">
                   <span v-for="point in optimization.optimizedSequence" :key="point">{{ point }}</span>
                 </div>
               </div>
-              <div v-else class="empty">点击“优化预览”生成占位结果</div>
+              <div v-else class="empty">点击“优化预览”生成单路线优化结果</div>
             </div>
           </section>
         </section>
@@ -630,5 +636,13 @@ function formatDate(value) {
 function pct(value) {
   const n = Number(value || 0)
   return `${(n * 100).toFixed(1)}%`
+}
+
+function formatDistance(value) {
+  const n = Number(value || 0)
+  if (n >= 1000) {
+    return `${(n / 1000).toFixed(2)} km`
+  }
+  return `${n.toFixed(0)} m`
 }
 </script>

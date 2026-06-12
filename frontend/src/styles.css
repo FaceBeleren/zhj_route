@@ -408,6 +408,22 @@ tbody tr.active {
   color: #536274;
 }
 
+.optimization-metrics {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  margin: 12px 0;
+}
+
+.optimization-metrics span {
+  border: 1px solid #e1e8f2;
+  border-radius: 6px;
+  padding: 8px;
+  color: #24364b;
+  background: #f8fafc;
+  font-size: 12px;
+}
+
 .sequence {
   display: flex;
   flex-wrap: wrap;

@@ -9,7 +9,6 @@ import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
-import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -96,22 +95,6 @@ public class RouteQueryService {
                 "WHERE fr.been_deleted = 0 AND fr.route_record_id = ? " +
                 "ORDER BY COALESCE(fr.entry_point_time, fr.create_time), fr.id";
         return jdbcTemplate.queryForList(sql, recordId);
-    }
-
-    public Map<String, Object> optimizePreview(Map<String, Object> request) {
-        Map<String, Object> result = new HashMap<String, Object>();
-        Object routeId = request.get("routeId");
-        List<Map<String, Object>> planPoints = routePlanPoints(Long.valueOf(String.valueOf(routeId)));
-        List<Object> sequence = new ArrayList<Object>();
-        for (Map<String, Object> point : planPoints) {
-            sequence.add(point.get("facilityId"));
-        }
-        result.put("routeId", routeId);
-        result.put("status", "DEMO");
-        result.put("message", "当前为占位优化结果：先返回原规划点位顺序，后续在这里接入真实算法。");
-        result.put("optimizedSequence", sequence);
-        result.put("pointCount", sequence.size());
-        return result;
     }
 
     private Map<String, Object> findRouteRecord(Long recordId) {
