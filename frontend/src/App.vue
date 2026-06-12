@@ -208,6 +208,31 @@
                 <div class="sequence">
                   <span v-for="point in optimization.optimizedSequence" :key="point">{{ point }}</span>
                 </div>
+                <div v-if="routePlot" class="route-plot">
+                  <div class="route-plot-head">
+                    <strong>坐标模拟</strong>
+                    <div>
+                      <span class="legend original">原路线</span>
+                      <span class="legend optimized">优化后</span>
+                    </div>
+                  </div>
+                  <svg viewBox="0 0 100 100" role="img" aria-label="路线坐标模拟">
+                    <polyline
+                      v-if="routePlot.originalLine"
+                      :points="routePlot.originalLine"
+                      class="plot-line original"
+                    />
+                    <polyline
+                      v-if="routePlot.optimizedLine"
+                      :points="routePlot.optimizedLine"
+                      class="plot-line optimized"
+                    />
+                    <g v-for="point in routePlot.points" :key="point.facilityId">
+                      <circle :cx="point.x" :cy="point.y" r="2.2" />
+                      <text :x="point.x + 2.8" :y="point.y - 2">{{ point.label }}</text>
+                    </g>
+                  </svg>
+                </div>
                 <ol v-if="optimization.points?.length" class="optimized-points">
                   <li v-for="point in optimization.points" :key="point.facilityId">
                     <span>{{ point.facilityName || point.facilityId }}</span>
@@ -452,6 +477,7 @@ const filteredCompanies = computed(() => {
   })
 })
 const currentTypeName = computed(() => (dataType.value === 1 ? '岗位' : '路线'))
+const routePlot = computed(() => buildRoutePlot(planPoints.value, optimization.value?.points || []))
 
 onMounted(loadCompanies)
 
@@ -657,5 +683,57 @@ function formatDistance(value) {
     return `${(n / 1000).toFixed(2)} km`
   }
   return `${n.toFixed(0)} m`
+}
+
+function buildRoutePlot(originalPoints, optimizedPoints) {
+  if (!originalPoints.length || !optimizedPoints.length) return null
+  const all = [...originalPoints, ...optimizedPoints]
+    .map((point) => ({
+      facilityId: point.facilityId,
+      facilityName: point.facilityName,
+      longitude: Number(point.longitude),
+      latitude: Number(point.latitude)
+    }))
+    .filter((point) => Number.isFinite(point.longitude) && Number.isFinite(point.latitude))
+  if (!all.length) return null
+
+  const centerLat = all.reduce((sum, point) => sum + point.latitude, 0) / all.length
+  const cosLat = Math.cos((centerLat * Math.PI) / 180)
+  const projected = all.map((point) => ({
+    ...point,
+    px: point.longitude * cosLat,
+    py: point.latitude
+  }))
+  const minX = Math.min(...projected.map((point) => point.px))
+  const maxX = Math.max(...projected.map((point) => point.px))
+  const minY = Math.min(...projected.map((point) => point.py))
+  const maxY = Math.max(...projected.map((point) => point.py))
+  const width = maxX - minX || 1
+  const height = maxY - minY || 1
+  const byId = new Map()
+  projected.forEach((point) => {
+    byId.set(String(point.facilityId), {
+      ...point,
+      x: 8 + ((point.px - minX) / width) * 84,
+      y: 92 - ((point.py - minY) / height) * 84
+    })
+  })
+
+  const originalRoute = originalPoints.map((point) => byId.get(String(point.facilityId))).filter(Boolean)
+  const optimizedRoute = optimizedPoints.map((point) => byId.get(String(point.facilityId))).filter(Boolean)
+  if (!originalRoute.length || !optimizedRoute.length) return null
+
+  return {
+    originalLine: toLine(originalRoute),
+    optimizedLine: toLine(optimizedRoute),
+    points: optimizedRoute.map((point, index) => ({
+      ...point,
+      label: index + 1
+    }))
+  }
+}
+
+function toLine(points) {
+  return points.map((point) => `${point.x.toFixed(2)},${point.y.toFixed(2)}`).join(' ')
 }
 </script>

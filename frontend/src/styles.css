@@ -438,6 +438,89 @@ tbody tr.active {
   font-size: 12px;
 }
 
+.route-plot {
+  margin-top: 12px;
+  border: 1px solid #e1e8f2;
+  border-radius: 8px;
+  padding: 10px;
+  background: #f8fafc;
+}
+
+.route-plot-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 8px;
+  font-size: 12px;
+}
+
+.legend {
+  position: relative;
+  margin-left: 14px;
+  color: #536274;
+}
+
+.legend::before {
+  content: "";
+  position: absolute;
+  left: -12px;
+  top: 50%;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  transform: translateY(-50%);
+}
+
+.legend.original::before {
+  background: #d85c5c;
+}
+
+.legend.optimized::before {
+  background: #1769c2;
+}
+
+.route-plot svg {
+  width: 100%;
+  height: 220px;
+  display: block;
+  background:
+    linear-gradient(#edf2f7 1px, transparent 1px),
+    linear-gradient(90deg, #edf2f7 1px, transparent 1px);
+  background-size: 10% 10%;
+  border-radius: 6px;
+}
+
+.plot-line {
+  fill: none;
+  stroke-width: 1.8;
+  stroke-linejoin: round;
+  stroke-linecap: round;
+}
+
+.plot-line.original {
+  stroke: #d85c5c;
+  stroke-dasharray: 3 2;
+}
+
+.plot-line.optimized {
+  stroke: #1769c2;
+}
+
+.route-plot circle {
+  fill: #24364b;
+  stroke: #fff;
+  stroke-width: 0.8;
+}
+
+.route-plot text {
+  fill: #24364b;
+  font-size: 4px;
+  paint-order: stroke;
+  stroke: #fff;
+  stroke-width: 1px;
+}
+
 .optimized-points {
   margin: 12px 0 0;
   padding-left: 20px;
