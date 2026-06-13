@@ -42,6 +42,12 @@ public class RouteOptimizeService {
         result.put("optimizedDistance", round(optimization.getOptimizedDistance()));
         result.put("savedDistance", round(optimization.getSavedDistance()));
         result.put("savedRate", round(optimization.getSavedRate()));
+        result.put("estimatedWeightKg", round(sumEstimatedWeight(points)));
+        result.put("estimatedVolumeLiter", round(sumEstimatedVolume(points)));
+        result.put("ratedCapacityKg", round(ratedCapacityKg(request)));
+        result.put("targetLoadRate", round(targetLoadRate(request)));
+        result.put("targetLoadWeightKg", round(ratedCapacityKg(request) * targetLoadRate(request)));
+        result.put("loadRate", loadRate(points, request));
         result.put("points", pointViews(optimization.getOptimizedPoints()));
         result.put("segments", segmentViews(optimization.getOptimizedPoints(), speedKmh(request)));
         result.put("polyline", polyline(optimization.getOptimizedPoints()));
@@ -56,7 +62,12 @@ public class RouteOptimizeService {
                     row.get("facilityName") == null ? null : String.valueOf(row.get("facilityName")),
                     toDouble(row.get("longitude")),
                     toDouble(row.get("latitude")),
-                    toInteger(row.get("orderNum"))));
+                    toInteger(row.get("orderNum")),
+                    toDouble(row.get("estimatedVolumeLiter")),
+                    toDouble(row.get("estimatedWeightKg")),
+                    row.get("containerInfo") == null ? null : String.valueOf(row.get("containerInfo")),
+                    toDouble(row.get("litersPerTon")),
+                    row.get("weightSource") == null ? null : String.valueOf(row.get("weightSource"))));
         }
         return points;
     }
@@ -90,6 +101,11 @@ public class RouteOptimizeService {
             view.put("longitude", point.getLongitude());
             view.put("latitude", point.getLatitude());
             view.put("originalOrder", point.getOriginalOrder());
+            view.put("estimatedVolumeLiter", round(valueOrZero(point.getEstimatedVolumeLiter())));
+            view.put("estimatedWeightKg", round(valueOrZero(point.getEstimatedWeightKg())));
+            view.put("containerInfo", point.getContainerInfo());
+            view.put("litersPerTon", point.getLitersPerTon());
+            view.put("weightSource", point.getWeightSource());
             view.put("role", i == 0 ? "START" : (i == points.size() - 1 ? "END" : "MIDDLE"));
             views.add(view);
         }
@@ -162,6 +178,44 @@ public class RouteOptimizeService {
             return 20D;
         }
         return speed;
+    }
+
+    private double ratedCapacityKg(Map<String, Object> request) {
+        Double value = toDouble(request.get("ratedCapacityKg"));
+        return value == null || value <= 0D ? 0D : value;
+    }
+
+    private double targetLoadRate(Map<String, Object> request) {
+        Double value = toDouble(request.get("targetLoadRate"));
+        return value == null || value <= 0D ? 0.9D : value;
+    }
+
+    private double loadRate(List<RoutePoint> points, Map<String, Object> request) {
+        double ratedCapacityKg = ratedCapacityKg(request);
+        if (ratedCapacityKg <= 0D) {
+            return 0D;
+        }
+        return round(sumEstimatedWeight(points) / ratedCapacityKg);
+    }
+
+    private double sumEstimatedWeight(List<RoutePoint> points) {
+        double total = 0D;
+        for (RoutePoint point : points) {
+            total += valueOrZero(point.getEstimatedWeightKg());
+        }
+        return total;
+    }
+
+    private double sumEstimatedVolume(List<RoutePoint> points) {
+        double total = 0D;
+        for (RoutePoint point : points) {
+            total += valueOrZero(point.getEstimatedVolumeLiter());
+        }
+        return total;
+    }
+
+    private double valueOrZero(Double value) {
+        return value == null ? 0D : value;
     }
 
     private Long toLong(Object value) {

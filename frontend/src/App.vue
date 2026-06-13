@@ -137,7 +137,10 @@
               <ol class="point-list">
                 <li v-for="point in planPoints" :key="point.facilityId">
                   <span>{{ point.facilityName || point.facilityId }}</span>
-                  <small>{{ point.facilityTypeName || '-' }}</small>
+                  <small>
+                    {{ point.facilityTypeName || '-' }} · {{ formatWeight(point.estimatedWeightKg) }}
+                    <template v-if="point.containerInfo"> · 桶 {{ point.containerInfo }}</template>
+                  </small>
                 </li>
               </ol>
               <div v-if="selectedRoute && planPoints.length === 0" class="empty">
@@ -204,6 +207,9 @@
                   <span>原距离 {{ formatDistance(optimization.originalDistance) }}</span>
                   <span>优化后 {{ formatDistance(optimization.optimizedDistance) }}</span>
                   <span>节省 {{ formatDistance(optimization.savedDistance) }}</span>
+                  <span>预计重量 {{ formatWeight(optimization.estimatedWeightKg) }}</span>
+                  <span>预计体积 {{ formatVolume(optimization.estimatedVolumeLiter) }}</span>
+                  <span>装载率 {{ formatLoadRate(optimization.loadRate) }}</span>
                 </div>
                 <div class="sequence">
                   <span v-for="point in optimization.optimizedSequence" :key="point">{{ point }}</span>
@@ -277,7 +283,10 @@
                 <ol v-if="optimization.points?.length" class="optimized-points">
                   <li v-for="point in optimization.points" :key="point.facilityId">
                     <span>{{ point.facilityName || point.facilityId }}</span>
-                    <small>{{ point.role }}</small>
+                    <small>
+                      {{ point.role }} · {{ formatWeight(point.estimatedWeightKg) }}
+                      <template v-if="point.containerInfo"> · 桶 {{ point.containerInfo }}</template>
+                    </small>
                   </li>
                 </ol>
                 <div v-if="optimization.segments?.length" class="segment-list">
@@ -725,6 +734,30 @@ function formatDistance(value) {
     return `${(n / 1000).toFixed(2)} km`
   }
   return `${n.toFixed(0)} m`
+}
+
+function formatWeight(value) {
+  const n = Number(value || 0)
+  if (!n) return '0 kg'
+  if (n >= 1000) {
+    return `${(n / 1000).toFixed(2)} t`
+  }
+  return `${n.toFixed(0)} kg`
+}
+
+function formatVolume(value) {
+  const n = Number(value || 0)
+  if (!n) return '0 L'
+  if (n >= 1000) {
+    return `${(n / 1000).toFixed(2)} m3`
+  }
+  return `${n.toFixed(0)} L`
+}
+
+function formatLoadRate(value) {
+  const n = Number(value || 0)
+  if (!n) return '-'
+  return `${(n * 100).toFixed(1)}%`
 }
 
 function buildRoutePlot(originalPoints, optimizedPoints) {
