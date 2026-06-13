@@ -198,6 +198,24 @@
             <div>
               <div class="panel-head compact">
                 <h2>优化预览</h2>
+                <div class="panel-actions">
+                  <button @click="previewOptimize" :disabled="!selectedRoute || loading">单路线</button>
+                  <button @click="previewMultiOptimize" :disabled="!selectedRoute || loading">多路线</button>
+                </div>
+              </div>
+              <div class="optimizer-controls">
+                <label>
+                  额定载重 kg
+                  <input v-model.number="optimizeOptions.ratedCapacityKg" type="number" min="1" step="100" />
+                </label>
+                <label>
+                  目标装载率
+                  <input v-model.number="optimizeOptions.targetLoadRate" type="number" min="0.1" max="1" step="0.05" />
+                </label>
+                <label>
+                  最大趟数
+                  <input v-model.number="optimizeOptions.maxRoutes" type="number" min="1" step="1" />
+                </label>
               </div>
               <div v-if="optimization" class="optimization-box">
                 <strong>{{ optimization.status }}</strong>
@@ -297,7 +315,41 @@
                   </div>
                 </div>
               </div>
-              <div v-else class="empty">点击“优化预览”生成单路线优化结果</div>
+              <div v-if="multiOptimization" class="optimization-box multi-route-box">
+                <strong>{{ multiOptimization.status }}</strong>
+                <p>{{ multiOptimization.message }}</p>
+                <div class="optimization-metrics">
+                  <span>路线 {{ multiOptimization.routeCount || 0 }}</span>
+                  <span>已分配 {{ multiOptimization.assignedPointCount || 0 }}</span>
+                  <span>未分配 {{ multiOptimization.unassignedPointCount || 0 }}</span>
+                  <span>已分配量 {{ formatWeight(multiOptimization.assignedWeightKg) }}</span>
+                  <span>未分配量 {{ formatWeight(multiOptimization.unassignedWeightKg) }}</span>
+                  <span>目标载重 {{ formatWeight(multiOptimization.targetLoadWeightKg) }}</span>
+                </div>
+                <div class="multi-routes">
+                  <article v-for="route in multiOptimization.routes" :key="route.routeNo" class="multi-route-card">
+                    <div>
+                      <strong>第 {{ route.routeNo }} 趟</strong>
+                      <small>
+                        {{ route.pointCount }} 点 · {{ formatWeight(route.estimatedWeightKg) }} ·
+                        {{ formatDistance(route.distance) }} · 装载率 {{ formatLoadRate(route.loadRate) }}
+                      </small>
+                    </div>
+                    <div class="sequence">
+                      <span v-for="point in route.sequence" :key="`${route.routeNo}-${point}`">{{ point }}</span>
+                    </div>
+                  </article>
+                </div>
+                <div v-if="multiOptimization.unassignedPoints?.length" class="unassigned-points">
+                  <strong>未分配点位</strong>
+                  <span v-for="point in multiOptimization.unassignedPoints" :key="point.facilityId">
+                    {{ point.facilityName || point.facilityId }}
+                  </span>
+                </div>
+              </div>
+              <div v-if="!optimization && !multiOptimization" class="empty">
+                点击“单路线”或“多路线”生成优化结果
+              </div>
             </div>
           </section>
         </section>
@@ -487,6 +539,7 @@ const records = ref([])
 const planPoints = ref([])
 const recordPoints = ref([])
 const optimization = ref(null)
+const multiOptimization = ref(null)
 
 const companyScores = ref([])
 const routeScores = ref([])
@@ -516,6 +569,11 @@ start.setDate(today.getDate() - 29)
 const filters = reactive({
   startDate: toDateInput(start),
   endDate: toDateInput(today)
+})
+const optimizeOptions = reactive({
+  ratedCapacityKg: 5000,
+  targetLoadRate: 0.9,
+  maxRoutes: 10
 })
 
 const filteredCompanies = computed(() => {
@@ -577,6 +635,7 @@ async function selectRoute(route) {
   selectedRecord.value = null
   recordPoints.value = []
   optimization.value = null
+  multiOptimization.value = null
   await withLoading(async () => {
     const params = new URLSearchParams({
       unitId: selectedCompany.value.id,
@@ -607,7 +666,23 @@ async function previewOptimize() {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         routeId: selectedRoute.value.id,
-        unitId: selectedCompany.value.id
+        unitId: selectedCompany.value.id,
+        ...optimizeOptions
+      })
+    })
+  })
+}
+
+async function previewMultiOptimize() {
+  if (!selectedRoute.value) return
+  await withLoading(async () => {
+    multiOptimization.value = await api('/api/optimize/multi-preview', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        routeId: selectedRoute.value.id,
+        unitId: selectedCompany.value.id,
+        ...optimizeOptions
       })
     })
   })
@@ -700,6 +775,7 @@ function clearSelection() {
   planPoints.value = []
   recordPoints.value = []
   optimization.value = null
+  multiOptimization.value = null
 }
 
 async function withLoading(fn) {

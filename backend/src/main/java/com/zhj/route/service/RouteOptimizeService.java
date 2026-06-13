@@ -54,6 +54,71 @@ public class RouteOptimizeService {
         return result;
     }
 
+    public Map<String, Object> optimizeMultiPreview(Map<String, Object> request) {
+        Object routeIdValue = request.get("routeId");
+        if (routeIdValue == null) {
+            throw new IllegalArgumentException("routeId is required");
+        }
+
+        Long routeId = Long.valueOf(String.valueOf(routeIdValue));
+        List<RoutePoint> points = toRoutePoints(routeQueryService.routePlanPoints(routeId));
+        List<Map<String, Object>> routes = new ArrayList<Map<String, Object>>();
+        List<RoutePoint> unassigned = new ArrayList<RoutePoint>();
+        double ratedCapacityKg = defaultedRatedCapacityKg(request);
+        double targetLoadRate = targetLoadRate(request);
+        double targetLoadWeightKg = ratedCapacityKg * targetLoadRate;
+        double maxCapacityKg = maxCapacityKg(request, ratedCapacityKg);
+        int maxRoutes = maxRoutes(request);
+
+        if (points.size() < 3) {
+            Map<String, Object> result = new HashMap<String, Object>();
+            result.put("routeId", routeId);
+            result.put("status", "UNCHANGED");
+            result.put("message", "该路线点位不足 3 个，无法拆分多路线。");
+            result.put("routes", routes);
+            result.put("unassignedPoints", pointViews(points));
+            result.put("unassignedPointCount", points.size());
+            return result;
+        }
+
+        RoutePoint start = points.get(0);
+        RoutePoint end = points.get(points.size() - 1);
+        List<RoutePoint> remaining = new ArrayList<RoutePoint>(points.subList(1, points.size() - 1));
+        int routeNo = 1;
+        while (!remaining.isEmpty() && routeNo <= maxRoutes) {
+            List<RoutePoint> route = buildCapacityRoute(start, end, remaining, targetLoadWeightKg, maxCapacityKg);
+            List<RoutePoint> collected = collectedPoints(route);
+            if (collected.isEmpty()) {
+                break;
+            }
+            remaining.removeAll(collected);
+            routes.add(multiRouteView(routeNo, route, request, ratedCapacityKg));
+            routeNo++;
+        }
+
+        unassigned.addAll(remaining);
+
+        Map<String, Object> result = new HashMap<String, Object>();
+        result.put("routeId", routeId);
+        result.put("status", unassigned.isEmpty() ? "DONE" : "PARTIAL");
+        result.put("message", "已按预计垃圾量和目标装载率生成多路线预览。当前版本暂用原路线首尾点作为起终点锚点，距离仍为点位直线距离。");
+        result.put("sourcePointCount", points.size());
+        result.put("candidatePointCount", points.size() - 2);
+        result.put("routeCount", routes.size());
+        result.put("assignedPointCount", points.size() - 2 - unassigned.size());
+        result.put("unassignedPointCount", unassigned.size());
+        result.put("estimatedWeightKg", round(sumEstimatedWeight(points)));
+        result.put("assignedWeightKg", round(sumAssignedWeight(routes)));
+        result.put("unassignedWeightKg", round(sumEstimatedWeight(unassigned)));
+        result.put("ratedCapacityKg", round(ratedCapacityKg));
+        result.put("targetLoadRate", round(targetLoadRate));
+        result.put("targetLoadWeightKg", round(targetLoadWeightKg));
+        result.put("maxCapacityKg", round(maxCapacityKg));
+        result.put("routes", routes);
+        result.put("unassignedPoints", pointViews(unassigned));
+        return result;
+    }
+
     private List<RoutePoint> toRoutePoints(List<Map<String, Object>> rows) {
         List<RoutePoint> points = new ArrayList<RoutePoint>();
         for (Map<String, Object> row : rows) {
@@ -110,6 +175,70 @@ public class RouteOptimizeService {
             views.add(view);
         }
         return views;
+    }
+
+    private List<RoutePoint> buildCapacityRoute(RoutePoint start, RoutePoint end, List<RoutePoint> remaining,
+                                                double targetLoadWeightKg, double maxCapacityKg) {
+        List<RoutePoint> route = new ArrayList<RoutePoint>();
+        route.add(start);
+        route.add(end);
+        List<RoutePoint> available = new ArrayList<RoutePoint>(remaining);
+        double load = 0D;
+
+        while (!available.isEmpty()) {
+            InsertChoice best = null;
+            for (RoutePoint candidate : available) {
+                double nextLoad = load + valueOrZero(candidate.getEstimatedWeightKg());
+                if (nextLoad > maxCapacityKg && load > 0D) {
+                    continue;
+                }
+                for (int segment = 0; segment < route.size() - 1; segment++) {
+                    RoutePoint previous = route.get(segment);
+                    RoutePoint next = route.get(segment + 1);
+                    double increase = singleRouteOptimizer.distance(previous, candidate)
+                            + singleRouteOptimizer.distance(candidate, next)
+                            - singleRouteOptimizer.distance(previous, next);
+                    if (best == null || increase < best.increase) {
+                        best = new InsertChoice(candidate, segment + 1, increase);
+                    }
+                }
+            }
+            if (best == null) {
+                break;
+            }
+            route.add(best.insertIndex, best.point);
+            available.remove(best.point);
+            load += valueOrZero(best.point.getEstimatedWeightKg());
+            if (targetLoadWeightKg > 0D && load >= targetLoadWeightKg) {
+                break;
+            }
+        }
+
+        return route;
+    }
+
+    private List<RoutePoint> collectedPoints(List<RoutePoint> route) {
+        if (route.size() <= 2) {
+            return new ArrayList<RoutePoint>();
+        }
+        return new ArrayList<RoutePoint>(route.subList(1, route.size() - 1));
+    }
+
+    private Map<String, Object> multiRouteView(int routeNo, List<RoutePoint> route, Map<String, Object> request,
+                                               double ratedCapacityKg) {
+        Map<String, Object> view = new HashMap<String, Object>();
+        double weight = sumEstimatedWeight(collectedPoints(route));
+        view.put("routeNo", routeNo);
+        view.put("pointCount", collectedPoints(route).size());
+        view.put("sequence", sequence(route));
+        view.put("estimatedWeightKg", round(weight));
+        view.put("estimatedVolumeLiter", round(sumEstimatedVolume(collectedPoints(route))));
+        view.put("loadRate", ratedCapacityKg <= 0D ? 0D : round(weight / ratedCapacityKg));
+        view.put("distance", round(singleRouteOptimizer.totalDistance(route)));
+        view.put("points", pointViews(route));
+        view.put("segments", segmentViews(route, speedKmh(request)));
+        view.put("polyline", polyline(route));
+        return view;
     }
 
     private List<Map<String, Object>> segmentViews(List<RoutePoint> points, double speedKmh) {
@@ -185,6 +314,27 @@ public class RouteOptimizeService {
         return value == null || value <= 0D ? 0D : value;
     }
 
+    private double defaultedRatedCapacityKg(Map<String, Object> request) {
+        double value = ratedCapacityKg(request);
+        return value <= 0D ? 5000D : value;
+    }
+
+    private double maxCapacityKg(Map<String, Object> request, double ratedCapacityKg) {
+        Double value = toDouble(request.get("maxCapacityKg"));
+        if (value == null || value <= 0D) {
+            return ratedCapacityKg;
+        }
+        return value;
+    }
+
+    private int maxRoutes(Map<String, Object> request) {
+        Integer value = toInteger(request.get("maxRoutes"));
+        if (value == null || value <= 0) {
+            return 10;
+        }
+        return value;
+    }
+
     private double targetLoadRate(Map<String, Object> request) {
         Double value = toDouble(request.get("targetLoadRate"));
         return value == null || value <= 0D ? 0.9D : value;
@@ -216,6 +366,14 @@ public class RouteOptimizeService {
 
     private double valueOrZero(Double value) {
         return value == null ? 0D : value;
+    }
+
+    private double sumAssignedWeight(List<Map<String, Object>> routes) {
+        double total = 0D;
+        for (Map<String, Object> route : routes) {
+            total += valueOrZero(toDouble(route.get("estimatedWeightKg")));
+        }
+        return total;
     }
 
     private Long toLong(Object value) {
@@ -257,5 +415,17 @@ public class RouteOptimizeService {
 
     private double round(double value) {
         return Math.round(value * 100D) / 100D;
+    }
+
+    private static class InsertChoice {
+        private final RoutePoint point;
+        private final int insertIndex;
+        private final double increase;
+
+        private InsertChoice(RoutePoint point, int insertIndex, double increase) {
+            this.point = point;
+            this.insertIndex = insertIndex;
+            this.increase = increase;
+        }
     }
 }

@@ -230,6 +230,17 @@ button:disabled {
   font-size: 16px;
 }
 
+.panel-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.panel-actions button {
+  height: 30px;
+  border-radius: 6px;
+  padding: 0 10px;
+}
+
 .route-panel-head {
   border-bottom: 1px solid #e3e9ef;
 }
@@ -408,6 +419,28 @@ tbody tr.active {
   color: #536274;
 }
 
+.optimizer-controls {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+  padding: 10px 12px;
+  border-bottom: 1px solid #e3e9ef;
+}
+
+.optimizer-controls label {
+  display: grid;
+  gap: 4px;
+  color: #536274;
+  font-size: 12px;
+}
+
+.optimizer-controls input {
+  height: 30px;
+  border: 1px solid #c8d3df;
+  border-radius: 6px;
+  padding: 0 8px;
+}
+
 .optimization-metrics {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -435,6 +468,50 @@ tbody tr.active {
   color: #135898;
   border-radius: 999px;
   padding: 4px 8px;
+  font-size: 12px;
+}
+
+.multi-route-box {
+  border-top: 1px solid #e3e9ef;
+}
+
+.multi-routes {
+  display: grid;
+  gap: 8px;
+}
+
+.multi-route-card {
+  display: grid;
+  gap: 8px;
+  border: 1px solid #e1e8f2;
+  border-radius: 8px;
+  padding: 10px;
+  background: #fbfdff;
+}
+
+.multi-route-card small {
+  display: block;
+  margin-top: 3px;
+  color: #718096;
+}
+
+.unassigned-points {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 12px;
+}
+
+.unassigned-points strong {
+  width: 100%;
+}
+
+.unassigned-points span {
+  border: 1px solid #e6d4aa;
+  border-radius: 999px;
+  padding: 4px 8px;
+  background: #fff8e6;
+  color: #76520b;
   font-size: 12px;
 }
 

@@ -66,6 +66,11 @@ public class RouteDataController {
         return routeOptimizeService.optimizePreview(request);
     }
 
+    @PostMapping("/optimize/multi-preview")
+    public Map<String, Object> optimizeMultiPreview(@RequestBody Map<String, Object> request) {
+        return routeOptimizeService.optimizeMultiPreview(request);
+    }
+
     @GetMapping("/conformance/companies/score")
     public List<Map<String, Object>> companyScores(
             @RequestParam(required = false) String unitIds,
