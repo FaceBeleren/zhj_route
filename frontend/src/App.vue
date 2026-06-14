@@ -22,6 +22,9 @@
       <button :class="{ active: currentView === 'workbench' }" @click="currentView = 'workbench'">
         路线工作台
       </button>
+      <button :class="{ active: currentView === 'multi' }" @click="currentView = 'multi'">
+        多路线生成
+      </button>
       <button :class="{ active: currentView === 'score' }" @click="currentView = 'score'">
         路线评分
       </button>
@@ -198,24 +201,6 @@
             <div>
               <div class="panel-head compact">
                 <h2>优化预览</h2>
-                <div class="panel-actions">
-                  <button @click="previewOptimize" :disabled="!selectedRoute || loading">单路线</button>
-                  <button @click="previewMultiOptimize" :disabled="!selectedRoute || loading">多路线</button>
-                </div>
-              </div>
-              <div class="optimizer-controls">
-                <label>
-                  额定载重 kg
-                  <input v-model.number="optimizeOptions.ratedCapacityKg" type="number" min="1" step="100" />
-                </label>
-                <label>
-                  目标装载率
-                  <input v-model.number="optimizeOptions.targetLoadRate" type="number" min="0.1" max="1" step="0.05" />
-                </label>
-                <label>
-                  最大趟数
-                  <input v-model.number="optimizeOptions.maxRoutes" type="number" min="1" step="1" />
-                </label>
               </div>
               <div v-if="optimization" class="optimization-box">
                 <strong>{{ optimization.status }}</strong>
@@ -315,7 +300,99 @@
                   </div>
                 </div>
               </div>
-              <div v-if="multiOptimization" class="optimization-box multi-route-box">
+              <div v-else class="empty">点击“优化预览”生成单路线优化结果</div>
+            </div>
+          </section>
+        </section>
+      </section>
+    </template>
+
+    <template v-else-if="currentView === 'multi'">
+      <section class="multi-shell">
+        <aside class="panel company-panel">
+          <div class="panel-head">
+            <h2>项目公司</h2>
+            <input v-model="companyKeyword" placeholder="搜索公司" />
+          </div>
+          <div class="list">
+            <button
+              v-for="company in filteredCompanies"
+              :key="company.id"
+              class="list-item"
+              :class="{ active: selectedMultiCompany?.id === company.id }"
+              @click="selectMultiCompany(company)"
+            >
+              <span>{{ company.depName || company.id }}</span>
+              <small>{{ company.depCode || '-' }}</small>
+            </button>
+          </div>
+        </aside>
+
+        <section class="multi-main">
+          <section class="panel">
+            <div class="panel-head">
+              <h2>多路线生成</h2>
+              <button @click="generateCompanyRoutes" :disabled="!selectedMultiCompany || loading">
+                生成路线
+              </button>
+            </div>
+            <div class="optimizer-controls">
+              <label>
+                额定载重 kg
+                <input v-model.number="optimizeOptions.ratedCapacityKg" type="number" min="1" step="100" />
+              </label>
+              <label>
+                目标装载率
+                <input v-model.number="optimizeOptions.targetLoadRate" type="number" min="0.1" max="1" step="0.05" />
+              </label>
+              <label>
+                最大趟数
+                <input v-model.number="optimizeOptions.maxRoutes" type="number" min="1" step="1" />
+              </label>
+            </div>
+            <div v-if="selectedMultiCompany" class="route-overview">
+              <div>
+                <span>公司</span>
+                <strong>{{ selectedMultiCompany.depName || selectedMultiCompany.id }}</strong>
+              </div>
+              <div>
+                <span>候选点位</span>
+                <strong>{{ companyPoints.length }}</strong>
+              </div>
+              <div>
+                <span>预计总量</span>
+                <strong>{{ formatWeight(companyPointWeight) }}</strong>
+              </div>
+              <div>
+                <span>目标单趟</span>
+                <strong>{{ formatWeight(optimizeOptions.ratedCapacityKg * optimizeOptions.targetLoadRate) }}</strong>
+              </div>
+            </div>
+            <div v-else class="empty">选择公司后读取点位池</div>
+          </section>
+
+          <section class="panel split-panel multi-layout">
+            <div>
+              <div class="panel-head compact">
+                <h2>公司点位池</h2>
+                <span class="muted">{{ companyPoints.length }} 个点</span>
+              </div>
+              <ol class="point-list">
+                <li v-for="point in companyPoints" :key="point.facilityId">
+                  <span>{{ point.facilityName || point.facilityId }}</span>
+                  <small>
+                    {{ point.facilityTypeName || '-' }} · {{ formatWeight(point.estimatedWeightKg) }}
+                    <template v-if="point.containerInfo"> · 桶 {{ point.containerInfo }}</template>
+                  </small>
+                </li>
+              </ol>
+            </div>
+            <div>
+              <div class="panel-head compact">
+                <h2>生成结果</h2>
+                <span class="muted">公司级多路线</span>
+              </div>
+              <div v-if="multiOptimization" class="optimization-box">
                 <strong>{{ multiOptimization.status }}</strong>
                 <p>{{ multiOptimization.message }}</p>
                 <div class="optimization-metrics">
@@ -347,9 +424,7 @@
                   </span>
                 </div>
               </div>
-              <div v-if="!optimization && !multiOptimization" class="empty">
-                点击“单路线”或“多路线”生成优化结果
-              </div>
+              <div v-else class="empty">设置载重参数后点击“生成路线”</div>
             </div>
           </section>
         </section>
@@ -538,6 +613,7 @@ const routes = ref([])
 const records = ref([])
 const planPoints = ref([])
 const recordPoints = ref([])
+const companyPoints = ref([])
 const optimization = ref(null)
 const multiOptimization = ref(null)
 
@@ -549,6 +625,7 @@ const selectedScoreCompany = ref(null)
 const selectedScoreRoute = ref(null)
 
 const selectedCompany = ref(null)
+const selectedMultiCompany = ref(null)
 const selectedRoute = ref(null)
 const selectedRecord = ref(null)
 
@@ -587,6 +664,9 @@ const filteredCompanies = computed(() => {
 })
 const currentTypeName = computed(() => (dataType.value === 1 ? '岗位' : '路线'))
 const routePlot = computed(() => buildRoutePlot(planPoints.value, optimization.value?.points || []))
+const companyPointWeight = computed(() =>
+  companyPoints.value.reduce((sum, point) => sum + Number(point.estimatedWeightKg || 0), 0)
+)
 
 onMounted(loadCompanies)
 
@@ -658,6 +738,15 @@ async function selectRecord(record) {
   })
 }
 
+async function selectMultiCompany(company) {
+  selectedMultiCompany.value = company
+  companyPoints.value = []
+  multiOptimization.value = null
+  await withLoading(async () => {
+    companyPoints.value = await api(`/api/companies/${company.id}/facilities`)
+  })
+}
+
 async function previewOptimize() {
   if (!selectedRoute.value) return
   await withLoading(async () => {
@@ -673,15 +762,14 @@ async function previewOptimize() {
   })
 }
 
-async function previewMultiOptimize() {
-  if (!selectedRoute.value) return
+async function generateCompanyRoutes() {
+  if (!selectedMultiCompany.value) return
   await withLoading(async () => {
     multiOptimization.value = await api('/api/optimize/multi-preview', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        routeId: selectedRoute.value.id,
-        unitId: selectedCompany.value.id,
+        unitId: selectedMultiCompany.value.id,
         ...optimizeOptions
       })
     })
@@ -754,6 +842,14 @@ async function reloadCurrent() {
   if (currentView.value === 'score') {
     if (scoreCompanyIds.value.length > 0) {
       await loadCompanyScores()
+    } else {
+      await loadCompanies()
+    }
+    return
+  }
+  if (currentView.value === 'multi') {
+    if (selectedMultiCompany.value) {
+      await selectMultiCompany(selectedMultiCompany.value)
     } else {
       await loadCompanies()
     }

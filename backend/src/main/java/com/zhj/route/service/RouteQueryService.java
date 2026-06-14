@@ -83,6 +83,38 @@ public class RouteQueryService {
         return jdbcTemplate.queryForList(sql, routeId);
     }
 
+    public List<Map<String, Object>> companyFacilityPoints(String unitId) {
+        String sql = "SELECT f.id AS facilityId, f.name AS facilityName, f.facility_type_name AS facilityTypeName, " +
+                "f.longitude_done AS longitude, f.latitude_done AS latitude, " +
+                "container.containerInfo AS containerInfo, " +
+                "IFNULL(container.estimatedVolumeLiter, 0) AS estimatedVolumeLiter, " +
+                "base.liters_per_ton AS litersPerTon, " +
+                "CASE " +
+                "WHEN container.estimatedVolumeLiter IS NULL OR container.estimatedVolumeLiter = 0 THEN 0 " +
+                "WHEN base.liters_per_ton IS NULL OR base.liters_per_ton = 0 THEN 0 " +
+                "ELSE ROUND(container.estimatedVolumeLiter * 1000 / base.liters_per_ton, 2) " +
+                "END AS estimatedWeightKg, " +
+                "CASE " +
+                "WHEN container.estimatedVolumeLiter IS NULL OR container.estimatedVolumeLiter = 0 THEN 'MISSING_CONTAINER' " +
+                "WHEN base.liters_per_ton IS NULL OR base.liters_per_ton = 0 THEN 'MISSING_LITERS_PER_TON' " +
+                "ELSE 'CONTAINER_ESTIMATE' " +
+                "END AS weightSource " +
+                "FROM ljszy_facility_info f " +
+                "LEFT JOIN (" +
+                "SELECT facility_id, " +
+                "GROUP_CONCAT(CONCAT(container_type, '/', container_count) ORDER BY id SEPARATOR ',') AS containerInfo, " +
+                "SUM(IFNULL(container_count, 0) * IFNULL(container_type, 0)) AS estimatedVolumeLiter " +
+                "FROM ljszy_facility_container_info " +
+                "WHERE been_deleted = 0 " +
+                "GROUP BY facility_id" +
+                ") container ON container.facility_id = f.id " +
+                "LEFT JOIN ljszy_base_config base ON base.unit_id = f.department_id AND base.been_deleted = 0 " +
+                "WHERE f.been_deleted = 0 AND f.department_id = ? " +
+                "AND f.longitude_done IS NOT NULL AND f.latitude_done IS NOT NULL " +
+                "ORDER BY f.name, f.id";
+        return jdbcTemplate.queryForList(sql, unitId);
+    }
+
     public List<Map<String, Object>> routeRecords(String unitId, Long routeId, String startDate, String endDate) {
         LocalDate start = parseOrDefaultStart(startDate);
         LocalDate end = parseOrDefaultEnd(endDate);

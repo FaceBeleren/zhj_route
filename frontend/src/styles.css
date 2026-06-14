@@ -86,7 +86,7 @@ button:disabled {
 
 .view-tabs {
   display: inline-grid;
-  grid-template-columns: repeat(2, minmax(120px, 1fr));
+  grid-template-columns: repeat(3, minmax(120px, 1fr));
   gap: 4px;
   margin-bottom: 14px;
   padding: 3px;
@@ -146,6 +146,18 @@ button:disabled {
   grid-template-columns: 330px minmax(0, 1fr);
   gap: 14px;
   align-items: start;
+}
+
+.multi-shell {
+  display: grid;
+  grid-template-columns: 310px minmax(0, 1fr);
+  gap: 14px;
+  align-items: start;
+}
+
+.multi-main {
+  display: grid;
+  gap: 14px;
 }
 
 .score-company-panel {
@@ -345,6 +357,10 @@ button:disabled {
 
 .split-panel.lower {
   min-height: 230px;
+}
+
+.split-panel.multi-layout {
+  min-height: 520px;
 }
 
 .point-list {
@@ -717,6 +733,7 @@ tbody tr.active {
     grid-template-columns: 1fr;
   }
 
+  .multi-shell,
   .score-shell,
   .score-drilldown {
     grid-template-columns: 1fr;

@@ -42,6 +42,11 @@ public class RouteDataController {
         return routeQueryService.routes(unitId, dataType);
     }
 
+    @GetMapping("/companies/{unitId}/facilities")
+    public List<Map<String, Object>> companyFacilityPoints(@PathVariable String unitId) {
+        return routeQueryService.companyFacilityPoints(unitId);
+    }
+
     @GetMapping("/routes/{routeId}/plan-points")
     public List<Map<String, Object>> routePlanPoints(@PathVariable Long routeId) {
         return routeQueryService.routePlanPoints(routeId);
