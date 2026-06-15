@@ -450,11 +450,13 @@ tbody tr.active {
   font-size: 12px;
 }
 
-.optimizer-controls input {
+.optimizer-controls input,
+.optimizer-controls select {
   height: 30px;
   border: 1px solid #c8d3df;
   border-radius: 6px;
   padding: 0 8px;
+  background: #fff;
 }
 
 .optimization-metrics {

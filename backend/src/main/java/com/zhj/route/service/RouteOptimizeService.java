@@ -339,7 +339,7 @@ public class RouteOptimizeService {
 
     private String buildMultiMessage(boolean companyMode) {
         if (companyMode) {
-            return "已按公司点位池、预计垃圾量和目标装载率生成多路线预览。当前版本使用临时起终点锚点和点位直线距离，尚未接入真实停车场、处理厂和道路 OD。";
+            return "已按公司点位池、预计垃圾量和目标装载率生成多路线预览。若公司维护了场站坐标，则使用传入的真实起终点；未传坐标时回退到点位中心，距离仍为点位直线距离。";
         }
         return "已按路线点位池、预计垃圾量和目标装载率生成多路线预览。当前版本暂用原路线首尾点作为起终点锚点，距离仍为点位直线距离。";
     }

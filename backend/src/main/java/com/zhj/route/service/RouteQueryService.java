@@ -9,6 +9,7 @@ import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -110,9 +111,28 @@ public class RouteQueryService {
                 ") container ON container.facility_id = f.id " +
                 "LEFT JOIN ljszy_base_config base ON base.unit_id = f.department_id AND base.been_deleted = 0 " +
                 "WHERE f.been_deleted = 0 AND f.department_id = ? " +
+                "AND f.facility_type = 6 " +
                 "AND f.longitude_done IS NOT NULL AND f.latitude_done IS NOT NULL " +
                 "ORDER BY f.name, f.id";
         return jdbcTemplate.queryForList(sql, unitId);
+    }
+
+    public Map<String, Object> companyRouteAnchors(String unitId) {
+        Map<String, Object> result = new HashMap<String, Object>();
+        List<Map<String, Object>> parkingLots = companyFacilitiesByType(unitId, 4);
+        List<Map<String, Object>> transferStations = companyFacilitiesByType(unitId, 2);
+        List<Map<String, Object>> disposalSites = companyFacilitiesByType(unitId, 5);
+        result.put("parkingLots", parkingLots);
+        result.put("transferStations", transferStations);
+        result.put("disposalSites", disposalSites);
+        result.put("configuredPairs", transferDisposalPairs(unitId));
+        result.put("defaultStart", parkingLots.isEmpty() ? null : parkingLots.get(0));
+        if (!disposalSites.isEmpty()) {
+            result.put("defaultEnd", disposalSites.get(0));
+        } else {
+            result.put("defaultEnd", transferStations.isEmpty() ? null : transferStations.get(0));
+        }
+        return result;
     }
 
     public List<Map<String, Object>> routeRecords(String unitId, Long routeId, String startDate, String endDate) {
@@ -162,6 +182,34 @@ public class RouteQueryService {
                 "WHERE table_schema = DATABASE() AND table_name = ? LIMIT 1";
         List<Map<String, Object>> rows = jdbcTemplate.queryForList(sql, tableName);
         return !rows.isEmpty();
+    }
+
+    private List<Map<String, Object>> companyFacilitiesByType(String unitId, int facilityType) {
+        String sql = "SELECT f.id AS facilityId, f.name AS facilityName, f.facility_type AS facilityType, " +
+                "f.facility_type_name AS facilityTypeName, f.longitude_done AS longitude, f.latitude_done AS latitude " +
+                "FROM ljszy_facility_info f " +
+                "WHERE f.been_deleted = 0 AND f.department_id = ? AND f.facility_type = ? " +
+                "AND f.longitude_done IS NOT NULL AND f.latitude_done IS NOT NULL " +
+                "ORDER BY f.name, f.id";
+        return jdbcTemplate.queryForList(sql, unitId, facilityType);
+    }
+
+    private List<Map<String, Object>> transferDisposalPairs(String unitId) {
+        if (!tableExists("ljszy_transfer_station_configuration")) {
+            return new ArrayList<Map<String, Object>>();
+        }
+        String sql = "SELECT c.id AS configId, c.unit_id AS unitId, " +
+                "c.transfer_station_id AS transferStationId, ts.name AS transferStationName, " +
+                "ts.longitude_done AS transferLongitude, ts.latitude_done AS transferLatitude, " +
+                "c.treatment_id AS disposalSiteId, ds.name AS disposalSiteName, " +
+                "ds.longitude_done AS disposalLongitude, ds.latitude_done AS disposalLatitude, " +
+                "c.treatment_distance AS treatmentDistance " +
+                "FROM ljszy_transfer_station_configuration c " +
+                "LEFT JOIN ljszy_facility_info ts ON ts.id = c.transfer_station_id AND ts.been_deleted = 0 " +
+                "LEFT JOIN ljszy_facility_info ds ON ds.id = c.treatment_id AND ds.been_deleted = 0 " +
+                "WHERE c.been_deleted = 0 AND c.unit_id = ? " +
+                "ORDER BY c.update_time DESC, c.id DESC";
+        return jdbcTemplate.queryForList(sql, unitId);
     }
 
     private LocalDate parseOrDefaultStart(String value) {

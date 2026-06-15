@@ -350,6 +350,24 @@
                 <input v-model.number="optimizeOptions.maxRoutes" type="number" min="1" step="1" />
               </label>
               <label>
+                起点场站
+                <select v-model="selectedStartAnchorKey" @change="applySelectedStartAnchor">
+                  <option value="">自动/手填</option>
+                  <option v-for="anchor in startAnchorOptions" :key="anchor.key" :value="anchor.key">
+                    {{ anchor.label }}
+                  </option>
+                </select>
+              </label>
+              <label>
+                终点场站
+                <select v-model="selectedEndAnchorKey" @change="applySelectedEndAnchor">
+                  <option value="">自动/手填</option>
+                  <option v-for="anchor in endAnchorOptions" :key="anchor.key" :value="anchor.key">
+                    {{ anchor.label }}
+                  </option>
+                </select>
+              </label>
+              <label>
                 起点经度
                 <input v-model.number="optimizeOptions.startLongitude" type="number" step="0.000001" placeholder="自动" />
               </label>
@@ -382,6 +400,10 @@
               <div>
                 <span>目标单趟</span>
                 <strong>{{ formatWeight(optimizeOptions.ratedCapacityKg * optimizeOptions.targetLoadRate) }}</strong>
+              </div>
+              <div>
+                <span>场站候选</span>
+                <strong>{{ routeAnchorCount }}</strong>
               </div>
             </div>
             <div v-else class="empty">选择公司后读取点位池</div>
@@ -632,6 +654,14 @@ const records = ref([])
 const planPoints = ref([])
 const recordPoints = ref([])
 const companyPoints = ref([])
+const companyAnchors = ref({
+  parkingLots: [],
+  transferStations: [],
+  disposalSites: [],
+  configuredPairs: [],
+  defaultStart: null,
+  defaultEnd: null
+})
 const optimization = ref(null)
 const multiOptimization = ref(null)
 
@@ -646,6 +676,8 @@ const selectedCompany = ref(null)
 const selectedMultiCompany = ref(null)
 const selectedRoute = ref(null)
 const selectedRecord = ref(null)
+const selectedStartAnchorKey = ref('')
+const selectedEndAnchorKey = ref('')
 
 const companyKeyword = ref('')
 const dataType = ref(0)
@@ -688,6 +720,20 @@ const currentTypeName = computed(() => (dataType.value === 1 ? '岗位' : '路�
 const routePlot = computed(() => buildRoutePlot(planPoints.value, optimization.value?.points || []))
 const companyPointWeight = computed(() =>
   companyPoints.value.reduce((sum, point) => sum + Number(point.estimatedWeightKg || 0), 0)
+)
+const startAnchorOptions = computed(() => [
+  ...anchorOptions(companyAnchors.value.parkingLots, '停车场', 'parking'),
+  ...anchorOptions(companyAnchors.value.transferStations, '中转站', 'transfer')
+])
+const endAnchorOptions = computed(() => [
+  ...anchorOptions(companyAnchors.value.disposalSites, '处置场', 'disposal'),
+  ...anchorOptions(companyAnchors.value.transferStations, '中转站', 'transfer')
+])
+const routeAnchorCount = computed(
+  () =>
+    (companyAnchors.value.parkingLots?.length || 0) +
+    (companyAnchors.value.transferStations?.length || 0) +
+    (companyAnchors.value.disposalSites?.length || 0)
 )
 
 onMounted(loadCompanies)
@@ -763,10 +809,94 @@ async function selectRecord(record) {
 async function selectMultiCompany(company) {
   selectedMultiCompany.value = company
   companyPoints.value = []
+  resetAnchors()
   multiOptimization.value = null
   await withLoading(async () => {
-    companyPoints.value = await api(`/api/companies/${company.id}/facilities`)
+    const [points, anchors] = await Promise.all([
+      api(`/api/companies/${company.id}/facilities`),
+      api(`/api/companies/${company.id}/route-anchors`)
+    ])
+    companyPoints.value = points
+    companyAnchors.value = normalizeAnchors(anchors)
+    applyDefaultAnchors()
   })
+}
+
+function resetAnchors() {
+  companyAnchors.value = {
+    parkingLots: [],
+    transferStations: [],
+    disposalSites: [],
+    configuredPairs: [],
+    defaultStart: null,
+    defaultEnd: null
+  }
+  selectedStartAnchorKey.value = ''
+  selectedEndAnchorKey.value = ''
+  optimizeOptions.startLongitude = null
+  optimizeOptions.startLatitude = null
+  optimizeOptions.endLongitude = null
+  optimizeOptions.endLatitude = null
+}
+
+function normalizeAnchors(anchors) {
+  return {
+    parkingLots: anchors?.parkingLots || [],
+    transferStations: anchors?.transferStations || [],
+    disposalSites: anchors?.disposalSites || [],
+    configuredPairs: anchors?.configuredPairs || [],
+    defaultStart: anchors?.defaultStart || null,
+    defaultEnd: anchors?.defaultEnd || null
+  }
+}
+
+function anchorOptions(items, typeName, typeKey) {
+  return (items || []).map((item) => ({
+    ...item,
+    key: `${typeKey}:${item.facilityId}`,
+    label: `${typeName} · ${item.facilityName || item.facilityId}`
+  }))
+}
+
+function findAnchor(key) {
+  return [...startAnchorOptions.value, ...endAnchorOptions.value].find((item) => item.key === key)
+}
+
+function keyForAnchor(anchor, typeKey) {
+  return anchor?.facilityId ? `${typeKey}:${anchor.facilityId}` : ''
+}
+
+function applyDefaultAnchors() {
+  if (companyAnchors.value.defaultStart) {
+    const typeKey = Number(companyAnchors.value.defaultStart.facilityType) === 2 ? 'transfer' : 'parking'
+    selectedStartAnchorKey.value = keyForAnchor(companyAnchors.value.defaultStart, typeKey)
+    applyAnchorToOptions(companyAnchors.value.defaultStart, 'start')
+  }
+  if (companyAnchors.value.defaultEnd) {
+    const typeKey = Number(companyAnchors.value.defaultEnd.facilityType) === 2 ? 'transfer' : 'disposal'
+    selectedEndAnchorKey.value = keyForAnchor(companyAnchors.value.defaultEnd, typeKey)
+    applyAnchorToOptions(companyAnchors.value.defaultEnd, 'end')
+  }
+}
+
+function applySelectedStartAnchor() {
+  applyAnchorToOptions(findAnchor(selectedStartAnchorKey.value), 'start')
+}
+
+function applySelectedEndAnchor() {
+  applyAnchorToOptions(findAnchor(selectedEndAnchorKey.value), 'end')
+}
+
+function applyAnchorToOptions(anchor, prefix) {
+  const longitudeKey = `${prefix}Longitude`
+  const latitudeKey = `${prefix}Latitude`
+  if (!anchor) {
+    optimizeOptions[longitudeKey] = null
+    optimizeOptions[latitudeKey] = null
+    return
+  }
+  optimizeOptions[longitudeKey] = Number(anchor.longitude)
+  optimizeOptions[latitudeKey] = Number(anchor.latitude)
 }
 
 async function previewOptimize() {
