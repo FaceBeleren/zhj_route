@@ -437,7 +437,7 @@ tbody tr.active {
 
 .optimizer-controls {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 8px;
   padding: 10px 12px;
   border-bottom: 1px solid #e3e9ef;
@@ -485,6 +485,13 @@ tbody tr.active {
   border-radius: 999px;
   padding: 4px 8px;
   font-size: 12px;
+}
+
+.route-point-sequence span {
+  max-width: 160px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .multi-route-box {
@@ -748,7 +755,8 @@ tbody tr.active {
 
   .split-panel,
   .route-overview,
-  .summary-strip {
+  .summary-strip,
+  .optimizer-controls {
     grid-template-columns: 1fr;
   }
 

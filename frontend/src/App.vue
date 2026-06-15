@@ -349,6 +349,22 @@
                 最大趟数
                 <input v-model.number="optimizeOptions.maxRoutes" type="number" min="1" step="1" />
               </label>
+              <label>
+                起点经度
+                <input v-model.number="optimizeOptions.startLongitude" type="number" step="0.000001" placeholder="自动" />
+              </label>
+              <label>
+                起点纬度
+                <input v-model.number="optimizeOptions.startLatitude" type="number" step="0.000001" placeholder="自动" />
+              </label>
+              <label>
+                终点经度
+                <input v-model.number="optimizeOptions.endLongitude" type="number" step="0.000001" placeholder="自动" />
+              </label>
+              <label>
+                终点纬度
+                <input v-model.number="optimizeOptions.endLatitude" type="number" step="0.000001" placeholder="自动" />
+              </label>
             </div>
             <div v-if="selectedMultiCompany" class="route-overview">
               <div>
@@ -412,8 +428,10 @@
                         {{ formatDistance(route.distance) }} · 装载率 {{ formatLoadRate(route.loadRate) }}
                       </small>
                     </div>
-                    <div class="sequence">
-                      <span v-for="point in route.sequence" :key="`${route.routeNo}-${point}`">{{ point }}</span>
+                    <div class="sequence route-point-sequence">
+                      <span v-for="point in route.points" :key="`${route.routeNo}-${point.order}-${point.facilityId}`">
+                        {{ point.facilityName || point.facilityId }}
+                      </span>
                     </div>
                   </article>
                 </div>
@@ -650,7 +668,11 @@ const filters = reactive({
 const optimizeOptions = reactive({
   ratedCapacityKg: 5000,
   targetLoadRate: 0.9,
-  maxRoutes: 10
+  maxRoutes: 10,
+  startLongitude: null,
+  startLatitude: null,
+  endLongitude: null,
+  endLatitude: null
 })
 
 const filteredCompanies = computed(() => {
