@@ -2,8 +2,8 @@
   <main class="app-shell">
     <header class="topbar">
       <div>
-        <h1>路线与岗位工作台</h1>
-        <p>公司路线与岗位、规划点位、流水点位、吻合度评分与优化预览</p>
+        <h1>路线分析</h1>
+        <p>查看公司路线与岗位，分析规划点位、流水点位、评分结果与优化预览</p>
       </div>
       <div class="date-filter">
         <label>
@@ -20,7 +20,7 @@
 
     <nav class="view-tabs" aria-label="功能视图">
       <button :class="{ active: currentView === 'workbench' }" @click="currentView = 'workbench'">
-        路线工作台
+        路线详情
       </button>
       <button :class="{ active: currentView === 'multi' }" @click="currentView = 'multi'">
         多路线生成
