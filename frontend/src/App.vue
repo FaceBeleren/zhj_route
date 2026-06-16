@@ -650,7 +650,12 @@
                     </tr>
                   </thead>
                   <tbody>
-                    <tr v-for="row in tripScores" :key="row.routeRecordId">
+                    <tr
+                      v-for="row in tripScores"
+                      :key="row.routeRecordId"
+                      :class="{ active: selectedScoreTrip?.routeRecordId === row.routeRecordId }"
+                      @click="selectScoreTrip(row)"
+                    >
                       <td>{{ row.routeRecordId }}</td>
                       <td>{{ row.carCode || '-' }}</td>
                       <td>{{ formatDate(row.carStartTime) }}</td>
@@ -663,6 +668,60 @@
                 </table>
               </div>
             </div>
+          </section>
+
+          <section class="panel score-explain-panel">
+            <div class="panel-head compact">
+              <h2>评分解释</h2>
+              <span class="muted">
+                {{ scoreExplanation ? `流水 ${scoreExplanation.routeRecordId}` : '选择一条流水后查看' }}
+              </span>
+            </div>
+            <div v-if="scoreExplanation" class="score-explain">
+              <div class="explain-metrics">
+                <span>准确率 {{ pct(scoreExplanation.precision) }}</span>
+                <span>召回率 {{ pct(scoreExplanation.recall) }}</span>
+                <span>F1 {{ pct(scoreExplanation.f1) }}</span>
+                <span>LCS {{ scoreExplanation.lcsLen }} / {{ pct(scoreExplanation.lcsRatio) }}</span>
+                <span>综合 {{ pct(scoreExplanation.overall) }}</span>
+              </div>
+              <div class="explain-legend">
+                <span class="explain-dot lcs"></span>最长顺序重合
+                <span class="explain-dot hit"></span>点位命中但顺序偏离
+                <span class="explain-dot miss"></span>未命中
+              </div>
+              <div class="score-sequence-grid">
+                <div>
+                  <h3>规划路线</h3>
+                  <ol class="score-sequence-list">
+                    <li
+                      v-for="point in scoreExplanation.planPoints"
+                      :key="`plan-${point.order}-${point.facilityId}`"
+                      :class="scorePointClass(point)"
+                    >
+                      <span>{{ point.order }}</span>
+                      <strong>{{ point.facilityName || point.facilityId }}</strong>
+                      <small>ID {{ point.facilityId }}</small>
+                    </li>
+                  </ol>
+                </div>
+                <div>
+                  <h3>实际流水</h3>
+                  <ol class="score-sequence-list">
+                    <li
+                      v-for="point in scoreExplanation.actualPoints"
+                      :key="`actual-${point.order}-${point.facilityId}`"
+                      :class="scorePointClass(point)"
+                    >
+                      <span>{{ point.order }}</span>
+                      <strong>{{ point.facilityName || point.facilityId }}</strong>
+                      <small>ID {{ point.facilityId }}</small>
+                    </li>
+                  </ol>
+                </div>
+              </div>
+            </div>
+            <div v-else class="empty">先选择公司并打分，再点击某条路线下的一条流水。</div>
           </section>
         </section>
       </section>
@@ -697,9 +756,11 @@ const multiOptimization = ref(null)
 const companyScores = ref([])
 const routeScores = ref([])
 const tripScores = ref([])
+const scoreExplanation = ref(null)
 const scoreCompanyIds = ref([])
 const selectedScoreCompany = ref(null)
 const selectedScoreRoute = ref(null)
+const selectedScoreTrip = ref(null)
 
 const selectedCompany = ref(null)
 const selectedMultiCompany = ref(null)
@@ -1041,8 +1102,10 @@ function clearScoreCompanies() {
   companyScores.value = []
   routeScores.value = []
   tripScores.value = []
+  scoreExplanation.value = null
   selectedScoreCompany.value = null
   selectedScoreRoute.value = null
+  selectedScoreTrip.value = null
 }
 
 async function loadCompanyScores() {
@@ -1055,14 +1118,18 @@ async function loadCompanyScores() {
     companyScores.value = await api(`/api/conformance/companies/score?${params}`)
     routeScores.value = []
     tripScores.value = []
+    scoreExplanation.value = null
     selectedScoreCompany.value = null
     selectedScoreRoute.value = null
+    selectedScoreTrip.value = null
   })
 }
 
 async function selectScoreCompany(row) {
   selectedScoreCompany.value = row
   selectedScoreRoute.value = null
+  selectedScoreTrip.value = null
+  scoreExplanation.value = null
   tripScores.value = []
   await withLoading(async () => {
     const params = new URLSearchParams({
@@ -1075,6 +1142,8 @@ async function selectScoreCompany(row) {
 
 async function selectScoreRoute(row) {
   selectedScoreRoute.value = row
+  selectedScoreTrip.value = null
+  scoreExplanation.value = null
   await withLoading(async () => {
     const params = new URLSearchParams({
       unitId: row.unitId,
@@ -1083,6 +1152,28 @@ async function selectScoreRoute(row) {
     })
     tripScores.value = await api(`/api/conformance/routes/${row.routeId}/trips?${params}`)
   })
+}
+
+async function selectScoreTrip(row) {
+  selectedScoreTrip.value = row
+  await withLoading(async () => {
+    const params = new URLSearchParams({
+      unitId: row.unitId,
+      startDate: filters.startDate,
+      endDate: filters.endDate
+    })
+    scoreExplanation.value = await api(
+      `/api/conformance/routes/${row.routeId}/trips/${row.routeRecordId}/explain?${params}`
+    )
+  })
+}
+
+function scorePointClass(point) {
+  return {
+    'is-lcs': point.inLcs,
+    'is-hit': point.matched && !point.inLcs,
+    'is-miss': !point.matched
+  }
 }
 
 async function reloadCurrent() {

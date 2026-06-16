@@ -117,6 +117,51 @@ public class RouteConformanceService {
         return rows;
     }
 
+    public Map<String, Object> tripExplanation(String unitId, Long routeId, Long recordId, String startDate, String endDate) {
+        LocalDate start = parseOrDefaultStart(startDate);
+        LocalDate end = parseOrDefaultEnd(endDate);
+        ScoreContext context = buildContext(unitId, start, end, routeId);
+        List<Long> plan = context.planSequences.containsKey(routeId)
+                ? context.planSequences.get(routeId)
+                : new ArrayList<Long>();
+        List<Long> actual = context.actualSequences.containsKey(recordId)
+                ? context.actualSequences.get(recordId)
+                : new ArrayList<Long>();
+        ScoreMetrics metrics = scorePair(plan, actual);
+        Set<String> lcsPairs = lcsIndexPairs(plan, actual);
+        Set<Long> planSet = new HashSet<Long>(plan);
+        Set<Long> actualSet = new HashSet<Long>(actual);
+        Map<Long, String> names = fetchFacilityNames(plan, actual);
+
+        RouteRecord selectedRecord = null;
+        for (RouteRecord record : context.records) {
+            if (record.id != null && record.id.equals(recordId)) {
+                selectedRecord = record;
+                break;
+            }
+        }
+
+        Map<String, Object> result = new LinkedHashMap<String, Object>();
+        result.put("unitId", unitId);
+        result.put("routeId", routeId);
+        result.put("routeName", context.routeNames.get(routeId));
+        result.put("routeRecordId", recordId);
+        if (selectedRecord != null) {
+            result.put("carCode", selectedRecord.carCode);
+            result.put("carStartTime", selectedRecord.carStartTime);
+            result.put("carEndTime", selectedRecord.carEndTime);
+        }
+        result.put("precision", round(metrics.precision));
+        result.put("recall", round(metrics.recall));
+        result.put("f1", round(metrics.f1));
+        result.put("lcsLen", metrics.lcsLen);
+        result.put("lcsRatio", round(metrics.lcsRatio));
+        result.put("overall", round(metrics.overall));
+        result.put("planPoints", explanationPoints(plan, actualSet, names, lcsPairs, true));
+        result.put("actualPoints", explanationPoints(actual, planSet, names, lcsPairs, false));
+        return result;
+    }
+
     private Map<String, Object> scoreCompany(String unitId, Map<String, Object> company, LocalDate start, LocalDate end) {
         ScoreContext context = buildContext(unitId, start, end, null);
         List<Double> f1Values = new ArrayList<Double>();
@@ -447,6 +492,84 @@ public class RouteConformanceService {
             }
         }
         return dp[b.size()];
+    }
+
+    private Set<String> lcsIndexPairs(List<Long> plan, List<Long> actual) {
+        Set<String> pairs = new HashSet<String>();
+        if (plan.isEmpty() || actual.isEmpty()) {
+            return pairs;
+        }
+        int[][] dp = new int[plan.size() + 1][actual.size() + 1];
+        for (int i = plan.size() - 1; i >= 0; i--) {
+            for (int j = actual.size() - 1; j >= 0; j--) {
+                if (plan.get(i).equals(actual.get(j))) {
+                    dp[i][j] = dp[i + 1][j + 1] + 1;
+                } else {
+                    dp[i][j] = Math.max(dp[i + 1][j], dp[i][j + 1]);
+                }
+            }
+        }
+        int i = 0;
+        int j = 0;
+        while (i < plan.size() && j < actual.size()) {
+            if (plan.get(i).equals(actual.get(j))) {
+                pairs.add(i + ":" + j);
+                i++;
+                j++;
+            } else if (dp[i + 1][j] >= dp[i][j + 1]) {
+                i++;
+            } else {
+                j++;
+            }
+        }
+        return pairs;
+    }
+
+    private List<Map<String, Object>> explanationPoints(List<Long> sequence, Set<Long> otherSet, Map<Long, String> names,
+                                                        Set<String> lcsPairs, boolean planSide) {
+        List<Map<String, Object>> rows = new ArrayList<Map<String, Object>>();
+        for (int i = 0; i < sequence.size(); i++) {
+            Long facilityId = sequence.get(i);
+            boolean inLcs = false;
+            for (String pair : lcsPairs) {
+                String[] parts = pair.split(":");
+                int planIndex = Integer.parseInt(parts[0]);
+                int actualIndex = Integer.parseInt(parts[1]);
+                if ((planSide && planIndex == i) || (!planSide && actualIndex == i)) {
+                    inLcs = true;
+                    break;
+                }
+            }
+            Map<String, Object> row = new LinkedHashMap<String, Object>();
+            row.put("order", i + 1);
+            row.put("facilityId", facilityId);
+            row.put("facilityName", names.containsKey(facilityId) ? names.get(facilityId) : String.valueOf(facilityId));
+            row.put("matched", otherSet.contains(facilityId));
+            row.put("inLcs", inLcs);
+            rows.add(row);
+        }
+        return rows;
+    }
+
+    private Map<Long, String> fetchFacilityNames(List<Long> plan, List<Long> actual) {
+        Set<Long> ids = new HashSet<Long>();
+        ids.addAll(plan);
+        ids.addAll(actual);
+        Map<Long, String> out = new HashMap<Long, String>();
+        if (ids.isEmpty()) {
+            return out;
+        }
+        List<Long> idList = new ArrayList<Long>(ids);
+        for (List<Long> part : chunks(idList, 800)) {
+            String sql = "SELECT id, name FROM ljszy_facility_info WHERE id IN (" + placeholders(part.size()) + ")";
+            List<Map<String, Object>> rows = jdbcTemplate.queryForList(sql, part.toArray());
+            for (Map<String, Object> row : rows) {
+                if (row.get("id") != null) {
+                    out.put(asLong(row.get("id")), row.get("name") == null ? "" : String.valueOf(row.get("name")));
+                }
+            }
+        }
+        return out;
     }
 
     private boolean tableExists(String tableName) {

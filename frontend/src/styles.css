@@ -602,6 +602,122 @@ tbody tr.active {
   font-size: 12px;
 }
 
+.score-explain-panel {
+  margin-top: 14px;
+}
+
+.score-explain {
+  padding: 14px;
+}
+
+.explain-metrics,
+.explain-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+
+.explain-metrics span {
+  border: 1px solid #e1e8f2;
+  border-radius: 6px;
+  padding: 7px 9px;
+  background: #f8fafc;
+  color: #24364b;
+  font-size: 12px;
+}
+
+.explain-legend {
+  margin-top: 10px;
+  color: #536274;
+  font-size: 12px;
+}
+
+.explain-dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  display: inline-block;
+}
+
+.explain-dot.lcs {
+  background: #1f8a5b;
+}
+
+.explain-dot.hit {
+  background: #1769c2;
+}
+
+.explain-dot.miss {
+  background: #9aa8b5;
+}
+
+.score-sequence-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+  margin-top: 12px;
+}
+
+.score-sequence-grid h3 {
+  margin: 0 0 8px;
+  font-size: 14px;
+}
+
+.score-sequence-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  max-height: 360px;
+  overflow: auto;
+  border: 1px solid #e1e8f2;
+  border-radius: 8px;
+}
+
+.score-sequence-list li {
+  display: grid;
+  grid-template-columns: 34px minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: center;
+  padding: 8px 10px;
+  border-bottom: 1px solid #edf1f5;
+}
+
+.score-sequence-list li:last-child {
+  border-bottom: 0;
+}
+
+.score-sequence-list li > span {
+  color: #718096;
+  font-variant-numeric: tabular-nums;
+}
+
+.score-sequence-list strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.score-sequence-list small {
+  color: #718096;
+}
+
+.score-sequence-list li.is-lcs {
+  background: #eaf7f0;
+  border-left: 3px solid #1f8a5b;
+}
+
+.score-sequence-list li.is-hit {
+  background: #eef6ff;
+  border-left: 3px solid #1769c2;
+}
+
+.score-sequence-list li.is-miss {
+  background: #f7f9fb;
+  color: #6b7785;
+  border-left: 3px solid #9aa8b5;
+}
+
 .route-plot {
   margin-top: 12px;
   border: 1px solid #e1e8f2;

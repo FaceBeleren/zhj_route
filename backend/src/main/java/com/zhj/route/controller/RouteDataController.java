@@ -105,4 +105,14 @@ public class RouteDataController {
             @RequestParam(required = false) String endDate) {
         return routeConformanceService.tripScores(unitId, routeId, startDate, endDate);
     }
+
+    @GetMapping("/conformance/routes/{routeId}/trips/{recordId}/explain")
+    public Map<String, Object> tripExplanation(
+            @PathVariable Long routeId,
+            @PathVariable Long recordId,
+            @RequestParam String unitId,
+            @RequestParam(required = false) String startDate,
+            @RequestParam(required = false) String endDate) {
+        return routeConformanceService.tripExplanation(unitId, routeId, recordId, startDate, endDate);
+    }
 }
