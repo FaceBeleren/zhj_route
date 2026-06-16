@@ -7,9 +7,11 @@ import org.springframework.stereotype.Service;
 
 import java.math.BigDecimal;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 @Service
 public class RouteOptimizeService {
@@ -67,6 +69,7 @@ public class RouteOptimizeService {
         List<RoutePoint> sourcePoints = toRoutePoints(companyMode
                 ? routeQueryService.companyFacilityPoints(unitId)
                 : routeQueryService.routePlanPoints(routeId));
+        sourcePoints = filterByRequestedFacilities(sourcePoints, request);
         List<Map<String, Object>> routes = new ArrayList<Map<String, Object>>();
         List<RoutePoint> unassigned = new ArrayList<RoutePoint>();
         double ratedCapacityKg = defaultedRatedCapacityKg(request);
@@ -162,6 +165,23 @@ public class RouteOptimizeService {
                     row.get("weightSource") == null ? null : String.valueOf(row.get("weightSource"))));
         }
         return points;
+    }
+
+    private List<RoutePoint> filterByRequestedFacilities(List<RoutePoint> points, Map<String, Object> request) {
+        if (!request.containsKey("facilityIds")) {
+            return points;
+        }
+        Set<Long> facilityIds = toLongSet(request.get("facilityIds"));
+        if (facilityIds.isEmpty()) {
+            return new ArrayList<RoutePoint>();
+        }
+        List<RoutePoint> filtered = new ArrayList<RoutePoint>();
+        for (RoutePoint point : points) {
+            if (point.getFacilityId() != null && facilityIds.contains(point.getFacilityId())) {
+                filtered.add(point);
+            }
+        }
+        return filtered;
     }
 
     private String buildMessage(List<RoutePoint> points) {
@@ -463,6 +483,31 @@ public class RouteOptimizeService {
             return ((Number) value).longValue();
         }
         return Long.valueOf(String.valueOf(value));
+    }
+
+    private Set<Long> toLongSet(Object value) {
+        Set<Long> values = new HashSet<Long>();
+        if (value == null) {
+            return values;
+        }
+        if (value instanceof Iterable<?>) {
+            for (Object item : (Iterable<?>) value) {
+                if (item != null) {
+                    values.add(toLong(item));
+                }
+            }
+            return values;
+        }
+        String text = String.valueOf(value);
+        if (text.trim().isEmpty()) {
+            return values;
+        }
+        for (String item : text.split(",")) {
+            if (!item.trim().isEmpty()) {
+                values.add(Long.valueOf(item.trim()));
+            }
+        }
+        return values;
     }
 
     private Integer toInteger(Object value) {

@@ -370,6 +370,10 @@ button:disabled {
   overflow: auto;
 }
 
+.point-list.selectable {
+  padding-left: 14px;
+}
+
 .point-list li {
   padding: 6px 0;
 }
@@ -380,6 +384,64 @@ button:disabled {
 
 .point-list small {
   color: #718096;
+}
+
+.point-toolbar {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: center;
+  padding: 10px 14px 0;
+}
+
+.point-toolbar input {
+  height: 30px;
+  border: 1px solid #c8d3df;
+  border-radius: 6px;
+  padding: 0 8px;
+}
+
+.inline-check,
+.point-select-row {
+  display: flex;
+  align-items: center;
+}
+
+.inline-check {
+  gap: 5px;
+  color: #536274;
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.point-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 8px 14px 0;
+}
+
+.point-actions button {
+  border: 1px solid #c8d3df;
+  background: #fff;
+  color: #24364b;
+  height: 28px;
+  border-radius: 6px;
+  padding: 0 9px;
+  font-size: 12px;
+}
+
+.point-actions button:disabled {
+  color: #9aa8b5;
+  background: #f5f7fa;
+}
+
+.point-select-row {
+  gap: 8px;
+}
+
+.point-select-row > span {
+  min-width: 0;
 }
 
 .table-wrap {

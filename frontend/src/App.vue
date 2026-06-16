@@ -332,7 +332,10 @@
           <section class="panel">
             <div class="panel-head">
               <h2>多路线生成</h2>
-              <button @click="generateCompanyRoutes" :disabled="!selectedMultiCompany || loading">
+              <button
+                @click="generateCompanyRoutes"
+                :disabled="!selectedMultiCompany || selectedCompanyPointCount === 0 || loading"
+              >
                 生成路线
               </button>
             </div>
@@ -391,11 +394,11 @@
               </div>
               <div>
                 <span>候选点位</span>
-                <strong>{{ companyPoints.length }}</strong>
+                <strong>{{ selectedCompanyPointCount }} / {{ companyPoints.length }}</strong>
               </div>
               <div>
                 <span>预计总量</span>
-                <strong>{{ formatWeight(companyPointWeight) }}</strong>
+                <strong>{{ formatWeight(selectedCompanyPointWeight) }}</strong>
               </div>
               <div>
                 <span>目标单趟</span>
@@ -413,15 +416,41 @@
             <div>
               <div class="panel-head compact">
                 <h2>公司点位池</h2>
-                <span class="muted">{{ companyPoints.length }} 个点</span>
+                <span class="muted">{{ selectedCompanyPointCount }} / {{ companyPoints.length }} 个点</span>
               </div>
-              <ol class="point-list">
-                <li v-for="point in companyPoints" :key="point.facilityId">
-                  <span>{{ point.facilityName || point.facilityId }}</span>
-                  <small>
-                    {{ point.facilityTypeName || '-' }} · {{ formatWeight(point.estimatedWeightKg) }}
-                    <template v-if="point.containerInfo"> · 桶 {{ point.containerInfo }}</template>
-                  </small>
+              <div class="point-toolbar">
+                <input v-model="pointKeyword" placeholder="搜索点位、桶信息" />
+                <label class="inline-check">
+                  <input v-model="showSelectedOnly" type="checkbox" />
+                  只看已选
+                </label>
+              </div>
+              <div class="point-actions">
+                <button @click="selectVisibleCompanyPoints" :disabled="companyPointVisibleList.length === 0">
+                  选中筛选
+                </button>
+                <button @click="unselectVisibleCompanyPoints" :disabled="companyPointVisibleList.length === 0">
+                  排除筛选
+                </button>
+                <button @click="selectAllCompanyPoints" :disabled="companyPoints.length === 0">全选</button>
+                <button @click="clearCompanyPointSelection" :disabled="selectedCompanyPointCount === 0">清空</button>
+              </div>
+              <ol class="point-list selectable">
+                <li v-for="point in companyPointVisibleList" :key="point.facilityId">
+                  <label class="point-select-row">
+                    <input
+                      type="checkbox"
+                      :checked="isCompanyPointSelected(point.facilityId)"
+                      @change="toggleCompanyPoint(point.facilityId)"
+                    />
+                    <span>
+                      <strong>{{ point.facilityName || point.facilityId }}</strong>
+                      <small>
+                        {{ point.facilityTypeName || '-' }} · {{ formatWeight(point.estimatedWeightKg) }}
+                        <template v-if="point.containerInfo"> · 桶 {{ point.containerInfo }}</template>
+                      </small>
+                    </span>
+                  </label>
                 </li>
               </ol>
             </div>
@@ -678,12 +707,15 @@ const selectedRoute = ref(null)
 const selectedRecord = ref(null)
 const selectedStartAnchorKey = ref('')
 const selectedEndAnchorKey = ref('')
+const selectedCompanyPointIds = ref(new Set())
 
 const companyKeyword = ref('')
+const pointKeyword = ref('')
 const dataType = ref(0)
 const loading = ref(false)
 const error = ref('')
 const showPlotLabels = ref(false)
+const showSelectedOnly = ref(false)
 const dataTypeOptions = [
   { label: '路线', value: 0 },
   { label: '岗位', value: 1 }
@@ -718,8 +750,26 @@ const filteredCompanies = computed(() => {
 })
 const currentTypeName = computed(() => (dataType.value === 1 ? '岗位' : '路线'))
 const routePlot = computed(() => buildRoutePlot(planPoints.value, optimization.value?.points || []))
-const companyPointWeight = computed(() =>
-  companyPoints.value.reduce((sum, point) => sum + Number(point.estimatedWeightKg || 0), 0)
+const selectedCompanyPoints = computed(() =>
+  companyPoints.value.filter((point) => isCompanyPointSelected(point.facilityId))
+)
+const selectedCompanyPointCount = computed(() => selectedCompanyPointIds.value.size)
+const selectedCompanyPointWeight = computed(() =>
+  selectedCompanyPoints.value.reduce((sum, point) => sum + Number(point.estimatedWeightKg || 0), 0)
+)
+const companyPointVisibleList = computed(() =>
+  companyPoints.value.filter((point) => {
+    if (showSelectedOnly.value && !isCompanyPointSelected(point.facilityId)) {
+      return false
+    }
+    const keyword = pointKeyword.value.trim().toLowerCase()
+    if (!keyword) {
+      return true
+    }
+    return [point.facilityName, point.facilityId, point.facilityTypeName, point.containerInfo].some((value) =>
+      String(value || '').toLowerCase().includes(keyword)
+    )
+  })
 )
 const startAnchorOptions = computed(() => [
   ...anchorOptions(companyAnchors.value.parkingLots, '停车场', 'parking'),
@@ -809,6 +859,9 @@ async function selectRecord(record) {
 async function selectMultiCompany(company) {
   selectedMultiCompany.value = company
   companyPoints.value = []
+  pointKeyword.value = ''
+  showSelectedOnly.value = false
+  selectedCompanyPointIds.value = new Set()
   resetAnchors()
   multiOptimization.value = null
   await withLoading(async () => {
@@ -817,9 +870,50 @@ async function selectMultiCompany(company) {
       api(`/api/companies/${company.id}/route-anchors`)
     ])
     companyPoints.value = points
+    selectAllCompanyPoints()
     companyAnchors.value = normalizeAnchors(anchors)
     applyDefaultAnchors()
   })
+}
+
+function isCompanyPointSelected(facilityId) {
+  return selectedCompanyPointIds.value.has(String(facilityId))
+}
+
+function toggleCompanyPoint(facilityId) {
+  const next = new Set(selectedCompanyPointIds.value)
+  const id = String(facilityId)
+  if (next.has(id)) {
+    next.delete(id)
+  } else {
+    next.add(id)
+  }
+  selectedCompanyPointIds.value = next
+  multiOptimization.value = null
+}
+
+function selectAllCompanyPoints() {
+  selectedCompanyPointIds.value = new Set(companyPoints.value.map((point) => String(point.facilityId)))
+  multiOptimization.value = null
+}
+
+function clearCompanyPointSelection() {
+  selectedCompanyPointIds.value = new Set()
+  multiOptimization.value = null
+}
+
+function selectVisibleCompanyPoints() {
+  const next = new Set(selectedCompanyPointIds.value)
+  companyPointVisibleList.value.forEach((point) => next.add(String(point.facilityId)))
+  selectedCompanyPointIds.value = next
+  multiOptimization.value = null
+}
+
+function unselectVisibleCompanyPoints() {
+  const next = new Set(selectedCompanyPointIds.value)
+  companyPointVisibleList.value.forEach((point) => next.delete(String(point.facilityId)))
+  selectedCompanyPointIds.value = next
+  multiOptimization.value = null
 }
 
 function resetAnchors() {
@@ -922,6 +1016,7 @@ async function generateCompanyRoutes() {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         unitId: selectedMultiCompany.value.id,
+        facilityIds: Array.from(selectedCompanyPointIds.value),
         ...optimizeOptions
       })
     })
