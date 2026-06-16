@@ -641,11 +641,11 @@ tbody tr.active {
 }
 
 .explain-dot.lcs {
-  background: #1f8a5b;
+  background: #0f7a3b;
 }
 
 .explain-dot.hit {
-  background: #1769c2;
+  background: #8a4b00;
 }
 
 .explain-dot.miss {
@@ -703,19 +703,19 @@ tbody tr.active {
 }
 
 .score-sequence-list li.is-lcs {
-  background: #eaf7f0;
-  border-left: 3px solid #1f8a5b;
+  background: #d8f3df;
+  border-left: 4px solid #0f7a3b;
 }
 
 .score-sequence-list li.is-hit {
-  background: #eef6ff;
-  border-left: 3px solid #1769c2;
+  background: #ffe8bf;
+  border-left: 4px solid #8a4b00;
 }
 
 .score-sequence-list li.is-miss {
   background: #f7f9fb;
   color: #6b7785;
-  border-left: 3px solid #9aa8b5;
+  border-left: 4px solid #9aa8b5;
 }
 
 .route-plot {
