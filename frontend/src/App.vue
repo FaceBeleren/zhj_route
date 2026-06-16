@@ -427,10 +427,10 @@
               </div>
               <div class="point-actions">
                 <button @click="selectVisibleCompanyPoints" :disabled="companyPointVisibleList.length === 0">
-                  选中筛选
+                  选中当前结果
                 </button>
                 <button @click="unselectVisibleCompanyPoints" :disabled="companyPointVisibleList.length === 0">
-                  排除筛选
+                  排除当前结果
                 </button>
                 <button @click="selectAllCompanyPoints" :disabled="companyPoints.length === 0">全选</button>
                 <button @click="clearCompanyPointSelection" :disabled="selectedCompanyPointCount === 0">清空</button>
