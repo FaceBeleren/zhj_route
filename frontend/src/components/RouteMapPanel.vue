@@ -106,6 +106,7 @@ const props = defineProps({
 })
 
 const BAIDU_MAP_AK = import.meta.env.VITE_BAIDU_MAP_AK || ''
+const BAIDU_SCRIPT_TIMEOUT_MS = 8000
 let baiduMapLoader = null
 
 const mapEl = ref(null)
@@ -227,13 +228,32 @@ function loadBaiduMap() {
   baiduMapLoader = new Promise((resolve, reject) => {
     const callback = `initBaiduMap_${Date.now()}`
     const script = document.createElement('script')
-    window[callback] = () => {
-      resolve(window.BMap)
+    let settled = false
+    const fail = (message) => {
+      if (settled) return
+      settled = true
+      clearTimeout(timer)
       delete window[callback]
+      baiduMapLoader = null
+      script.remove()
+      reject(new Error(message))
+    }
+    const timer = window.setTimeout(() => {
+      fail('脚本加载超时')
+    }, BAIDU_SCRIPT_TIMEOUT_MS)
+    window[callback] = () => {
+      if (settled) return
+      if (!window.BMap) {
+        fail('脚本加载后未发现 BMap')
+        return
+      }
+      settled = true
+      clearTimeout(timer)
+      delete window[callback]
+      resolve(window.BMap)
     }
     script.onerror = () => {
-      delete window[callback]
-      reject(new Error('脚本加载失败'))
+      fail('脚本加载失败')
     }
     script.src = `https://api.map.baidu.com/api?v=3.0&ak=${encodeURIComponent(BAIDU_MAP_AK)}&callback=${callback}`
     document.head.appendChild(script)
