@@ -220,6 +220,7 @@
                 <RouteMapPanel
                   :original-points="planPoints"
                   :optimized-points="optimization.points || []"
+                  :optimized-segments="optimization.segments || []"
                 />
                 <ol v-if="optimization.points?.length" class="optimized-points">
                   <li v-for="point in optimization.points" :key="point.facilityId">

@@ -16,10 +16,12 @@ import java.util.Set;
 @Service
 public class RouteOptimizeService {
     private final RouteQueryService routeQueryService;
+    private final RouteMapPathService routeMapPathService;
     private final SingleRouteOptimizer singleRouteOptimizer = new SingleRouteOptimizer();
 
-    public RouteOptimizeService(RouteQueryService routeQueryService) {
+    public RouteOptimizeService(RouteQueryService routeQueryService, RouteMapPathService routeMapPathService) {
         this.routeQueryService = routeQueryService;
+        this.routeMapPathService = routeMapPathService;
     }
 
     public Map<String, Object> optimizePreview(Map<String, Object> request) {
@@ -294,7 +296,10 @@ public class RouteOptimizeService {
         for (int i = 0; i < points.size() - 1; i++) {
             RoutePoint from = points.get(i);
             RoutePoint to = points.get(i + 1);
-            double distance = singleRouteOptimizer.distance(from, to);
+            RouteMapPathService.ResolvedPath resolvedPath = routeMapPathService.resolve(from, to);
+            double distance = resolvedPath.getDistanceMeters() == null
+                    ? singleRouteOptimizer.distance(from, to)
+                    : resolvedPath.getDistanceMeters();
             Map<String, Object> segment = new HashMap<String, Object>();
             segment.put("order", i + 1);
             segment.put("fromFacilityId", from.getFacilityId());
@@ -302,8 +307,11 @@ public class RouteOptimizeService {
             segment.put("toFacilityId", to.getFacilityId());
             segment.put("toFacilityName", to.getFacilityName());
             segment.put("distance", round(distance));
-            segment.put("durationMinutes", round(minutes(distance, speedKmh)));
-            segment.put("path", path(from, to));
+            segment.put("durationMinutes", round(resolvedPath.getDurationSeconds() == null
+                    ? minutes(distance, speedKmh)
+                    : resolvedPath.getDurationSeconds() / 60D));
+            segment.put("pathSource", resolvedPath.getSource());
+            segment.put("path", resolvedPath.getPath());
             segments.add(segment);
         }
         return segments;
@@ -317,17 +325,6 @@ public class RouteOptimizeService {
             }
         }
         return line;
-    }
-
-    private List<Map<String, Object>> path(RoutePoint from, RoutePoint to) {
-        List<Map<String, Object>> path = new ArrayList<Map<String, Object>>();
-        if (from.hasCoordinate()) {
-            path.add(coordinate(from));
-        }
-        if (to.hasCoordinate()) {
-            path.add(coordinate(to));
-        }
-        return path;
     }
 
     private Map<String, Object> coordinate(RoutePoint point) {

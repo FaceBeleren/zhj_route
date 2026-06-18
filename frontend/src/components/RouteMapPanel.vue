@@ -86,6 +86,10 @@ const props = defineProps({
   optimizedPoints: {
     type: Array,
     default: () => []
+  },
+  optimizedSegments: {
+    type: Array,
+    default: () => []
   }
 })
 
@@ -100,8 +104,13 @@ let mapInstance = null
 
 const originalLinePoints = computed(() => normalizeRoutePoints(props.originalPoints))
 const optimizedLinePoints = computed(() => normalizeRoutePoints(props.optimizedPoints))
-const allPoints = computed(() => {
-  const points = [...originalLinePoints.value, ...optimizedLinePoints.value]
+const optimizedGeometryPoints = computed(() => pathCoordinatesFromSegments(props.optimizedSegments, optimizedLinePoints.value))
+const markerPoints = computed(() => uniquePoints([...originalLinePoints.value, ...optimizedLinePoints.value]))
+const extentPoints = computed(() => uniquePoints([...markerPoints.value, ...optimizedGeometryPoints.value]))
+const allPoints = computed(() => extentPoints.value)
+const routePlot = computed(() => buildRoutePlot(originalLinePoints.value, optimizedLinePoints.value))
+
+function uniquePoints(points) {
   const seen = new Set()
   return points.filter((point) => {
     const key = point.facilityId == null ? `${point.longitude},${point.latitude}` : String(point.facilityId)
@@ -109,8 +118,7 @@ const allPoints = computed(() => {
     seen.add(key)
     return true
   })
-})
-const routePlot = computed(() => buildRoutePlot(originalLinePoints.value, optimizedLinePoints.value))
+}
 
 onMounted(() => {
   renderMap()
@@ -123,7 +131,7 @@ onBeforeUnmount(() => {
 })
 
 watch(
-  () => [props.originalPoints, props.optimizedPoints],
+  () => [props.originalPoints, props.optimizedPoints, props.optimizedSegments],
   () => renderMap(),
   { deep: true }
 )
@@ -161,8 +169,8 @@ function drawBaiduMap(BMap) {
   mapInstance.enableScrollWheelZoom(true)
 
   drawPolyline(BMap, originalLinePoints.value, '#d84f4f', 4, 0.8, 'dashed')
-  drawPolyline(BMap, optimizedLinePoints.value, '#1f6fca', 5, 0.9, 'solid')
-  allPoints.value.forEach((point, index) => {
+  drawPolyline(BMap, optimizedGeometryPoints.value, '#1f6fca', 5, 0.9, 'solid')
+  markerPoints.value.forEach((point, index) => {
     const marker = new BMap.Marker(new BMap.Point(point.longitude, point.latitude))
     marker.setTitle(point.facilityName || String(point.facilityId || index + 1))
     mapInstance.addOverlay(marker)
@@ -229,6 +237,25 @@ function normalizeRoutePoints(points) {
       label: String(index + 1)
     }))
     .filter((point) => Number.isFinite(point.longitude) && Number.isFinite(point.latitude))
+}
+
+function pathCoordinatesFromSegments(segments, fallbackPoints) {
+  const path = []
+  segments.forEach((segment) => {
+    const segmentPath = normalizeRoutePoints(segment.path || [])
+    segmentPath.forEach((point, index) => {
+      const previous = path[path.length - 1]
+      if (index === 0 && previous && sameCoordinate(previous, point)) {
+        return
+      }
+      path.push(point)
+    })
+  })
+  return path.length >= 2 ? path : fallbackPoints
+}
+
+function sameCoordinate(a, b) {
+  return Math.abs(a.longitude - b.longitude) < 0.000001 && Math.abs(a.latitude - b.latitude) < 0.000001
 }
 
 function centerPoint(points) {
