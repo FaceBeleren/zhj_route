@@ -574,6 +574,14 @@ tbody tr.active {
   border-radius: 8px;
   padding: 10px;
   background: #fbfdff;
+  cursor: pointer;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.multi-route-card:hover,
+.multi-route-card.active {
+  border-color: #1f6fca;
+  box-shadow: 0 0 0 2px rgba(31, 111, 202, 0.12);
 }
 
 .multi-route-card small {

@@ -410,7 +410,13 @@
                   <span>目标载重 {{ formatWeight(multiOptimization.targetLoadWeightKg) }}</span>
                 </div>
                 <div class="multi-routes">
-                  <article v-for="route in multiOptimization.routes" :key="route.routeNo" class="multi-route-card">
+                  <article
+                    v-for="route in multiOptimization.routes"
+                    :key="route.routeNo"
+                    class="multi-route-card"
+                    :class="{ active: selectedMultiRouteNo === route.routeNo }"
+                    @click="selectedMultiRouteNo = route.routeNo"
+                  >
                     <div>
                       <strong>第 {{ route.routeNo }} 趟</strong>
                       <small>
@@ -425,6 +431,14 @@
                     </div>
                   </article>
                 </div>
+                <RouteMapPanel
+                  v-if="selectedMultiRoute"
+                  :original-points="[]"
+                  :optimized-points="selectedMultiRoute.points || []"
+                  :optimized-segments="selectedMultiRoute.segments || []"
+                  :show-original="false"
+                  optimized-label="生成路线"
+                />
                 <div v-if="multiOptimization.unassignedPoints?.length" class="unassigned-points">
                   <strong>未分配点位</strong>
                   <span v-for="point in multiOptimization.unassignedPoints" :key="point.facilityId">
@@ -706,6 +720,7 @@ const selectedCompany = ref(null)
 const selectedMultiCompany = ref(null)
 const selectedRoute = ref(null)
 const selectedRecord = ref(null)
+const selectedMultiRouteNo = ref(null)
 const selectedStartAnchorKey = ref('')
 const selectedEndAnchorKey = ref('')
 const selectedCompanyPointIds = ref(new Set())
@@ -756,6 +771,13 @@ const selectedCompanyPointCount = computed(() => selectedCompanyPointIds.value.s
 const selectedCompanyPointWeight = computed(() =>
   selectedCompanyPoints.value.reduce((sum, point) => sum + Number(point.estimatedWeightKg || 0), 0)
 )
+const selectedMultiRoute = computed(() => {
+  if (!multiOptimization.value?.routes?.length) {
+    return null
+  }
+  return multiOptimization.value.routes.find((route) => route.routeNo === selectedMultiRouteNo.value)
+    || multiOptimization.value.routes[0]
+})
 const companyPointVisibleList = computed(() =>
   companyPoints.value.filter((point) => {
     if (showSelectedOnly.value && !isCompanyPointSelected(point.facilityId)) {
@@ -832,7 +854,7 @@ async function selectRoute(route) {
   selectedRecord.value = null
   recordPoints.value = []
   optimization.value = null
-  multiOptimization.value = null
+  clearMultiOptimization()
   await withLoading(async () => {
     const params = new URLSearchParams({
       unitId: selectedCompany.value.id,
@@ -862,7 +884,7 @@ async function selectMultiCompany(company) {
   showSelectedOnly.value = false
   selectedCompanyPointIds.value = new Set()
   resetAnchors()
-  multiOptimization.value = null
+  clearMultiOptimization()
   await withLoading(async () => {
     const [points, anchors] = await Promise.all([
       api(`/api/companies/${company.id}/facilities`),
@@ -888,31 +910,36 @@ function toggleCompanyPoint(facilityId) {
     next.add(id)
   }
   selectedCompanyPointIds.value = next
-  multiOptimization.value = null
+  clearMultiOptimization()
 }
 
 function selectAllCompanyPoints() {
   selectedCompanyPointIds.value = new Set(companyPoints.value.map((point) => String(point.facilityId)))
-  multiOptimization.value = null
+  clearMultiOptimization()
 }
 
 function clearCompanyPointSelection() {
   selectedCompanyPointIds.value = new Set()
-  multiOptimization.value = null
+  clearMultiOptimization()
 }
 
 function selectVisibleCompanyPoints() {
   const next = new Set(selectedCompanyPointIds.value)
   companyPointVisibleList.value.forEach((point) => next.add(String(point.facilityId)))
   selectedCompanyPointIds.value = next
-  multiOptimization.value = null
+  clearMultiOptimization()
 }
 
 function unselectVisibleCompanyPoints() {
   const next = new Set(selectedCompanyPointIds.value)
   companyPointVisibleList.value.forEach((point) => next.delete(String(point.facilityId)))
   selectedCompanyPointIds.value = next
+  clearMultiOptimization()
+}
+
+function clearMultiOptimization() {
   multiOptimization.value = null
+  selectedMultiRouteNo.value = null
 }
 
 function resetAnchors() {
@@ -1019,6 +1046,7 @@ async function generateCompanyRoutes() {
         ...optimizeOptions
       })
     })
+    selectedMultiRouteNo.value = multiOptimization.value?.routes?.[0]?.routeNo || null
   })
 }
 
@@ -1147,7 +1175,7 @@ function clearSelection() {
   planPoints.value = []
   recordPoints.value = []
   optimization.value = null
-  multiOptimization.value = null
+  clearMultiOptimization()
 }
 
 async function withLoading(fn) {

@@ -6,8 +6,8 @@
         <small>{{ mapStatus }}</small>
       </div>
       <div class="route-map-actions">
-        <span class="legend original">原路线</span>
-        <span class="legend optimized">优化后</span>
+        <span v-if="showOriginal" class="legend original">{{ originalLabel }}</span>
+        <span class="legend optimized">{{ optimizedLabel }}</span>
         <label class="plot-toggle">
           <input v-model="labelsVisible" type="checkbox" />
           序号
@@ -22,7 +22,7 @@
         <div class="plot-title">坐标预览</div>
         <svg viewBox="0 0 100 100" role="img" aria-label="路线坐标预览叠加对比">
           <polyline
-            v-if="routePlot.compare.originalLine"
+            v-if="showOriginal && routePlot.compare.originalLine"
             :points="routePlot.compare.originalLine"
             class="plot-line original"
           />
@@ -42,8 +42,8 @@
         </svg>
       </div>
       <div class="plot-grid">
-        <div class="plot-card">
-          <div class="plot-title">原路线顺序</div>
+        <div v-if="showOriginal" class="plot-card">
+          <div class="plot-title">{{ originalLabel }}顺序</div>
           <svg viewBox="0 0 100 100" role="img" aria-label="原路线坐标预览">
             <polyline :points="routePlot.original.line" class="plot-line original" />
             <g v-for="point in routePlot.original.points" :key="point.key">
@@ -57,7 +57,7 @@
           </svg>
         </div>
         <div class="plot-card">
-          <div class="plot-title">优化后顺序</div>
+          <div class="plot-title">{{ optimizedLabel }}顺序</div>
           <svg viewBox="0 0 100 100" role="img" aria-label="优化后路线坐标预览">
             <polyline :points="routePlot.optimized.line" class="plot-line optimized" />
             <g v-for="point in routePlot.optimized.points" :key="point.key">
@@ -90,6 +90,18 @@ const props = defineProps({
   optimizedSegments: {
     type: Array,
     default: () => []
+  },
+  showOriginal: {
+    type: Boolean,
+    default: true
+  },
+  originalLabel: {
+    type: String,
+    default: '原路线'
+  },
+  optimizedLabel: {
+    type: String,
+    default: '优化后'
   }
 })
 
@@ -102,7 +114,7 @@ const mapStatus = ref('未配置百度地图 AK 时使用坐标预览')
 const labelsVisible = ref(false)
 let mapInstance = null
 
-const originalLinePoints = computed(() => normalizeRoutePoints(props.originalPoints))
+const originalLinePoints = computed(() => (props.showOriginal ? normalizeRoutePoints(props.originalPoints) : []))
 const optimizedLinePoints = computed(() => normalizeRoutePoints(props.optimizedPoints))
 const optimizedGeometryPoints = computed(() => pathCoordinatesFromSegments(props.optimizedSegments, optimizedLinePoints.value))
 const markerPoints = computed(() => uniquePoints([...originalLinePoints.value, ...optimizedLinePoints.value]))
@@ -168,7 +180,9 @@ function drawBaiduMap(BMap) {
   mapInstance.centerAndZoom(new BMap.Point(center.longitude, center.latitude), zoomLevel(allPoints.value))
   mapInstance.enableScrollWheelZoom(true)
 
-  drawPolyline(BMap, originalLinePoints.value, '#d84f4f', 4, 0.8, 'dashed')
+  if (props.showOriginal) {
+    drawPolyline(BMap, originalLinePoints.value, '#d84f4f', 4, 0.8, 'dashed')
+  }
   drawPolyline(BMap, optimizedGeometryPoints.value, '#1f6fca', 5, 0.9, 'solid')
   markerPoints.value.forEach((point, index) => {
     const marker = new BMap.Marker(new BMap.Point(point.longitude, point.latitude))
@@ -285,7 +299,7 @@ function zoomLevel(points) {
 }
 
 function buildRoutePlot(originalPoints, optimizedPoints) {
-  if (originalPoints.length === 0 || optimizedPoints.length === 0) return null
+  if (originalPoints.length === 0 && optimizedPoints.length === 0) return null
   const bounds = boundsFor([...originalPoints, ...optimizedPoints])
   const original = projectRoute(originalPoints, bounds)
   const optimized = projectRoute(optimizedPoints, bounds)
