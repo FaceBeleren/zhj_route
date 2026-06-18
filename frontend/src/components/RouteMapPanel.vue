@@ -158,7 +158,7 @@ async function renderMap() {
   }
   if (!BAIDU_MAP_AK) {
     baiduReady.value = false
-    mapStatus.value = '未配置百度地图 AK，当前展示坐标预览'
+    mapStatus.value = `未配置百度地图 AK，当前展示坐标预览；路径来源：${pathSourceSummary()}`
     return
   }
 
@@ -168,10 +168,10 @@ async function renderMap() {
     await nextTick()
     const BMap = await loadBaiduMap()
     drawBaiduMap(BMap)
-    mapStatus.value = '百度地图直线连点，下一步可替换为道路 OD 路径'
+    mapStatus.value = `百度地图展示；路径来源：${pathSourceSummary()}`
   } catch (error) {
     baiduReady.value = false
-    mapStatus.value = `百度地图加载失败，已回退坐标预览：${error.message}`
+    mapStatus.value = `百度地图加载失败，已回退坐标预览：${error.message}；路径来源：${pathSourceSummary()}`
   }
 }
 
@@ -290,6 +290,18 @@ function pathCoordinatesFromSegments(segments, fallbackPoints) {
 
 function sameCoordinate(a, b) {
   return Math.abs(a.longitude - b.longitude) < 0.000001 && Math.abs(a.latitude - b.latitude) < 0.000001
+}
+
+function pathSourceSummary() {
+  const sources = new Set((props.optimizedSegments || []).map((segment) => segment.pathSource || 'DIRECT'))
+  if (sources.size === 0) return '直线回退'
+  return Array.from(sources).map(pathSourceLabel).join('/')
+}
+
+function pathSourceLabel(source) {
+  if (source === 'OD_CACHE') return 'OD缓存道路折线'
+  if (source === 'BAIDU_ONLINE') return '百度在线道路折线'
+  return '直线回退'
 }
 
 function centerPoint(points) {
