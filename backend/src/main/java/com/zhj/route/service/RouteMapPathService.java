@@ -66,6 +66,21 @@ public class RouteMapPathService {
         return directPath(from, to);
     }
 
+    public Map<String, Object> preview(Map<String, Object> request) {
+        RoutePoint from = previewPoint(request, "from");
+        RoutePoint to = previewPoint(request, "to");
+        ResolvedPath resolvedPath = resolve(from, to);
+        Map<String, Object> result = new HashMap<String, Object>();
+        result.put("fromFacilityId", from.getFacilityId());
+        result.put("toFacilityId", to.getFacilityId());
+        result.put("pathSource", resolvedPath.getSource());
+        result.put("distanceMeters", resolvedPath.getDistanceMeters());
+        result.put("durationSeconds", resolvedPath.getDurationSeconds());
+        result.put("pathPointCount", resolvedPath.getPath().size());
+        result.put("pathSample", resolvedPath.getPath().subList(0, Math.min(5, resolvedPath.getPath().size())));
+        return result;
+    }
+
     public Map<String, Object> status() {
         Map<String, Object> status = new HashMap<String, Object>();
         status.put("onlineRouteEnabled", onlineRouteEnabled);
@@ -316,6 +331,34 @@ public class RouteMapPathService {
             return null;
         }
         return Double.valueOf(text);
+    }
+
+    private RoutePoint previewPoint(Map<String, Object> request, String prefix) {
+        return new RoutePoint(
+                toLong(request.get(prefix + "FacilityId")),
+                null,
+                toDouble(request.get(prefix + "Longitude")),
+                toDouble(request.get(prefix + "Latitude")),
+                null,
+                null,
+                null,
+                null,
+                null,
+                "PREVIEW");
+    }
+
+    private Long toLong(Object value) {
+        if (value == null) {
+            return null;
+        }
+        if (value instanceof Number) {
+            return ((Number) value).longValue();
+        }
+        String text = String.valueOf(value).trim();
+        if (text.isEmpty()) {
+            return null;
+        }
+        return Long.valueOf(text);
     }
 
     private String sign(Map<String, String> params) {

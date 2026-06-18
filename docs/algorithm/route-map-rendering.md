@@ -66,6 +66,16 @@ app:
 - `百度在线`：本段路线在线请求百度成功，并已尝试写回缓存。
 - `直线回退`：本段没有可用道路折线，当前只是两点直连。
 
+也可以直接验证某两个点位的路径解析：
+
+```bash
+curl -X POST http://localhost:8088/api/route-map/preview \
+  -H "Content-Type: application/json" \
+  -d "{\"fromFacilityId\":1,\"fromLongitude\":116.1,\"fromLatitude\":39.9,\"toFacilityId\":2,\"toLongitude\":116.2,\"toLatitude\":39.95}"
+```
+
+返回中的 `pathSource`、`distanceMeters`、`durationSeconds`、`pathPointCount` 可用于判断是否命中 OD 缓存或百度在线。
+
 如果地图没有显示真实道路，按顺序检查：
 
 1. 顶部 `地图底图` 是否已配置；否则只能看坐标预览。

@@ -90,6 +90,11 @@ public class RouteDataController {
         return routeMapPathService.status();
     }
 
+    @PostMapping("/route-map/preview")
+    public Map<String, Object> routeMapPreview(@RequestBody Map<String, Object> request) {
+        return routeMapPathService.preview(request);
+    }
+
     @GetMapping("/conformance/companies/score")
     public List<Map<String, Object>> companyScores(
             @RequestParam(required = false) String unitIds,
