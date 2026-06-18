@@ -34,6 +34,7 @@ public class RouteOptimizeService {
         List<Map<String, Object>> planRows = routeQueryService.routePlanPoints(routeId);
         List<RoutePoint> points = toRoutePoints(planRows);
         RouteOptimizationResult optimization = singleRouteOptimizer.optimize(points);
+        List<Map<String, Object>> originalSegments = segmentViews(optimization.getOriginalPoints(), speedKmh(request));
         List<Map<String, Object>> segments = segmentViews(optimization.getOptimizedPoints(), speedKmh(request));
 
         Map<String, Object> result = new HashMap<String, Object>();
@@ -47,6 +48,8 @@ public class RouteOptimizeService {
         result.put("optimizedDistance", round(optimization.getOptimizedDistance()));
         result.put("savedDistance", round(optimization.getSavedDistance()));
         result.put("savedRate", round(optimization.getSavedRate()));
+        result.put("originalPathDistance", round(sumSegmentDistance(originalSegments)));
+        result.put("originalPathDurationMinutes", round(sumSegmentDuration(originalSegments)));
         result.put("estimatedWeightKg", round(sumEstimatedWeight(points)));
         result.put("estimatedVolumeLiter", round(sumEstimatedVolume(points)));
         result.put("ratedCapacityKg", round(ratedCapacityKg(request)));
@@ -56,6 +59,7 @@ public class RouteOptimizeService {
         result.put("pathDistance", round(sumSegmentDistance(segments)));
         result.put("pathDurationMinutes", round(sumSegmentDuration(segments)));
         result.put("points", pointViews(optimization.getOptimizedPoints()));
+        result.put("originalSegments", originalSegments);
         result.put("segments", segments);
         result.put("polyline", polyline(optimization.getOptimizedPoints()));
         return result;

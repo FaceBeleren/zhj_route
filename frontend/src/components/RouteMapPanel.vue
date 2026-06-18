@@ -87,6 +87,10 @@ const props = defineProps({
     type: Array,
     default: () => []
   },
+  originalSegments: {
+    type: Array,
+    default: () => []
+  },
   optimizedSegments: {
     type: Array,
     default: () => []
@@ -117,9 +121,10 @@ let mapInstance = null
 
 const originalLinePoints = computed(() => (props.showOriginal ? normalizeRoutePoints(props.originalPoints) : []))
 const optimizedLinePoints = computed(() => normalizeRoutePoints(props.optimizedPoints))
+const originalGeometryPoints = computed(() => pathCoordinatesFromSegments(props.originalSegments, originalLinePoints.value))
 const optimizedGeometryPoints = computed(() => pathCoordinatesFromSegments(props.optimizedSegments, optimizedLinePoints.value))
 const markerPoints = computed(() => uniquePoints([...originalLinePoints.value, ...optimizedLinePoints.value]))
-const extentPoints = computed(() => uniquePoints([...markerPoints.value, ...optimizedGeometryPoints.value]))
+const extentPoints = computed(() => uniquePoints([...markerPoints.value, ...originalGeometryPoints.value, ...optimizedGeometryPoints.value]))
 const allPoints = computed(() => extentPoints.value)
 const routePlot = computed(() => buildRoutePlot(originalLinePoints.value, optimizedLinePoints.value))
 
@@ -144,7 +149,7 @@ onBeforeUnmount(() => {
 })
 
 watch(
-  () => [props.originalPoints, props.optimizedPoints, props.optimizedSegments],
+  () => [props.originalPoints, props.optimizedPoints, props.originalSegments, props.optimizedSegments],
   () => renderMap(),
   { deep: true }
 )
@@ -182,7 +187,7 @@ function drawBaiduMap(BMap) {
   mapInstance.enableScrollWheelZoom(true)
 
   if (props.showOriginal) {
-    drawPolyline(BMap, originalLinePoints.value, '#d84f4f', 4, 0.8, 'dashed')
+    drawPolyline(BMap, originalGeometryPoints.value, '#d84f4f', 4, 0.8, 'dashed')
   }
   drawPolyline(BMap, optimizedGeometryPoints.value, '#1f6fca', 5, 0.9, 'solid')
   markerPoints.value.forEach((point, index) => {

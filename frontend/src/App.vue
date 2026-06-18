@@ -234,6 +234,7 @@
                   <span>原距离 {{ formatDistance(optimization.originalDistance) }}</span>
                   <span>优化后 {{ formatDistance(optimization.optimizedDistance) }}</span>
                   <span>节省 {{ formatDistance(optimization.savedDistance) }}</span>
+                  <span>原道路 {{ formatDistance(optimization.originalPathDistance) }}</span>
                   <span>道路距离 {{ formatDistance(optimization.pathDistance) }}</span>
                   <span>道路耗时 {{ formatDuration(optimization.pathDurationMinutes) }}</span>
                   <span>预计重量 {{ formatWeight(optimization.estimatedWeightKg) }}</span>
@@ -247,6 +248,7 @@
                 <RouteMapPanel
                   :original-points="planPoints"
                   :optimized-points="optimization.points || []"
+                  :original-segments="optimization.originalSegments || []"
                   :optimized-segments="optimization.segments || []"
                 />
                 <ol v-if="optimization.points?.length" class="optimized-points">
