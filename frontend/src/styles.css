@@ -718,12 +718,57 @@ tbody tr.active {
   border-left: 4px solid #9aa8b5;
 }
 
-.route-plot {
+.route-map-panel {
   margin-top: 12px;
   border: 1px solid #e1e8f2;
   border-radius: 8px;
   padding: 10px;
   background: #f8fafc;
+}
+
+.route-map-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 8px;
+  font-size: 12px;
+}
+
+.route-map-head > div:first-child {
+  display: grid;
+  gap: 2px;
+}
+
+.route-map-head small {
+  color: #718096;
+  line-height: 1.4;
+}
+
+.route-map-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  white-space: nowrap;
+}
+
+.baidu-route-map {
+  width: 100%;
+  height: 360px;
+  border: 1px solid #d8e2ef;
+  border-radius: 8px;
+  overflow: hidden;
+  background: #eef3f8;
+}
+
+.route-plot {
+  margin-top: 0;
+}
+
+.fallback-plot {
+  border: 0;
+  padding: 0;
+  background: transparent;
 }
 
 .route-plot-head {
@@ -849,6 +894,18 @@ tbody tr.active {
 }
 
 @media (max-width: 980px) {
+  .route-map-head {
+    display: grid;
+  }
+
+  .route-map-actions {
+    flex-wrap: wrap;
+  }
+
+  .baidu-route-map {
+    height: 300px;
+  }
+
   .plot-grid {
     grid-template-columns: 1fr;
   }

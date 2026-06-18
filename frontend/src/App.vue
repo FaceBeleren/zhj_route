@@ -217,72 +217,10 @@
                 <div class="sequence">
                   <span v-for="point in optimization.optimizedSequence" :key="point">{{ point }}</span>
                 </div>
-                <div v-if="routePlot" class="route-plot">
-                  <div class="route-plot-head">
-                    <strong>坐标模拟</strong>
-                    <div>
-                      <span class="legend original">原路线</span>
-                      <span class="legend optimized">优化后</span>
-                      <label class="plot-toggle">
-                        <input v-model="showPlotLabels" type="checkbox" />
-                        序号
-                      </label>
-                    </div>
-                  </div>
-                  <div class="plot-card wide">
-                    <div class="plot-title">叠加对比</div>
-                    <svg viewBox="0 0 100 100" role="img" aria-label="路线坐标模拟叠加对比">
-                      <polyline
-                        v-if="routePlot.compare.originalLine"
-                        :points="routePlot.compare.originalLine"
-                        class="plot-line original"
-                      />
-                      <polyline
-                        v-if="routePlot.compare.optimizedLine"
-                        :points="routePlot.compare.optimizedLine"
-                        class="plot-line optimized"
-                      />
-                      <g v-for="point in routePlot.compare.points" :key="point.facilityId">
-                        <circle :cx="point.x" :cy="point.y" r="2.2">
-                          <title>{{ plotPointTitle(point) }}</title>
-                        </circle>
-                        <text v-if="point.labelAlways || showPlotLabels" :x="point.x + 2.8" :y="point.y - 2">
-                          {{ point.label }}
-                        </text>
-                      </g>
-                    </svg>
-                  </div>
-                  <div class="plot-grid">
-                    <div class="plot-card">
-                      <div class="plot-title">原路线顺序</div>
-                      <svg viewBox="0 0 100 100" role="img" aria-label="原路线坐标模拟">
-                        <polyline :points="routePlot.original.line" class="plot-line original" />
-                        <g v-for="point in routePlot.original.points" :key="point.facilityId">
-                          <circle :cx="point.x" :cy="point.y" r="2.2">
-                            <title>{{ plotPointTitle(point) }}</title>
-                          </circle>
-                          <text v-if="point.labelAlways || showPlotLabels" :x="point.x + 2.8" :y="point.y - 2">
-                            {{ point.label }}
-                          </text>
-                        </g>
-                      </svg>
-                    </div>
-                    <div class="plot-card">
-                      <div class="plot-title">优化后顺序</div>
-                      <svg viewBox="0 0 100 100" role="img" aria-label="优化后路线坐标模拟">
-                        <polyline :points="routePlot.optimized.line" class="plot-line optimized" />
-                        <g v-for="point in routePlot.optimized.points" :key="point.facilityId">
-                          <circle :cx="point.x" :cy="point.y" r="2.2">
-                            <title>{{ plotPointTitle(point) }}</title>
-                          </circle>
-                          <text v-if="point.labelAlways || showPlotLabels" :x="point.x + 2.8" :y="point.y - 2">
-                            {{ point.label }}
-                          </text>
-                        </g>
-                      </svg>
-                    </div>
-                  </div>
-                </div>
+                <RouteMapPanel
+                  :original-points="planPoints"
+                  :optimized-points="optimization.points || []"
+                />
                 <ol v-if="optimization.points?.length" class="optimized-points">
                   <li v-for="point in optimization.points" :key="point.facilityId">
                     <span>{{ point.facilityName || point.facilityId }}</span>
@@ -734,6 +672,7 @@
 
 <script setup>
 import { computed, onMounted, reactive, ref } from 'vue'
+import RouteMapPanel from './components/RouteMapPanel.vue'
 
 const currentView = ref('workbench')
 const companies = ref([])
@@ -775,7 +714,6 @@ const pointKeyword = ref('')
 const dataType = ref(0)
 const loading = ref(false)
 const error = ref('')
-const showPlotLabels = ref(false)
 const showSelectedOnly = ref(false)
 const dataTypeOptions = [
   { label: '路线', value: 0 },
@@ -810,7 +748,6 @@ const filteredCompanies = computed(() => {
   })
 })
 const currentTypeName = computed(() => (dataType.value === 1 ? '岗位' : '路线'))
-const routePlot = computed(() => buildRoutePlot(planPoints.value, optimization.value?.points || []))
 const selectedCompanyPoints = computed(() =>
   companyPoints.value.filter((point) => isCompanyPointSelected(point.facilityId))
 )
@@ -1270,87 +1207,4 @@ function formatLoadRate(value) {
   return `${(n * 100).toFixed(1)}%`
 }
 
-function buildRoutePlot(originalPoints, optimizedPoints) {
-  if (!originalPoints.length || !optimizedPoints.length) return null
-  const originalRoute = normalizePlotPoints(originalPoints)
-  const optimizedRoute = normalizePlotPoints(optimizedPoints)
-  if (!originalRoute.length || !optimizedRoute.length) return null
-  const compare = projectRoutes([originalRoute, optimizedRoute])
-  const original = projectRoute(originalRoute)
-  const optimized = projectRoute(optimizedRoute)
-
-  return {
-    compare: {
-      originalLine: toLine(compare[0]),
-      optimizedLine: toLine(compare[1]),
-      points: labelPlotPoints(compare[1])
-    },
-    original: {
-      line: toLine(original),
-      points: labelPlotPoints(original)
-    },
-    optimized: {
-      line: toLine(optimized),
-      points: labelPlotPoints(optimized)
-    }
-  }
-}
-
-function normalizePlotPoints(points) {
-  return points
-    .map((point) => ({
-      facilityId: point.facilityId,
-      facilityName: point.facilityName,
-      longitude: Number(point.longitude),
-      latitude: Number(point.latitude)
-    }))
-    .filter((point) => Number.isFinite(point.longitude) && Number.isFinite(point.latitude))
-}
-
-function projectRoute(points) {
-  return projectRoutes([points])[0]
-}
-
-function projectRoutes(routes) {
-  const all = routes.flat()
-  const centerLat = all.reduce((sum, point) => sum + point.latitude, 0) / all.length
-  const cosLat = Math.cos((centerLat * Math.PI) / 180)
-  const projected = all.map((point) => ({
-    ...point,
-    px: point.longitude * cosLat,
-    py: point.latitude
-  }))
-  const minX = Math.min(...projected.map((point) => point.px))
-  const maxX = Math.max(...projected.map((point) => point.px))
-  const minY = Math.min(...projected.map((point) => point.py))
-  const maxY = Math.max(...projected.map((point) => point.py))
-  const width = maxX - minX || 1
-  const height = maxY - minY || 1
-  let offset = 0
-  return routes.map((route) => {
-    const mapped = projected.slice(offset, offset + route.length).map((point) => ({
-      ...point,
-      x: 8 + ((point.px - minX) / width) * 84,
-      y: 92 - ((point.py - minY) / height) * 84
-    }))
-    offset += route.length
-    return mapped
-  })
-}
-
-function labelPlotPoints(points) {
-  return points.map((point, index) => ({
-    ...point,
-    label: index + 1,
-    labelAlways: index === 0 || index === points.length - 1
-  }))
-}
-
-function toLine(points) {
-  return points.map((point) => `${point.x.toFixed(2)},${point.y.toFixed(2)}`).join(' ')
-}
-
-function plotPointTitle(point) {
-  return `${point.label}. ${point.facilityName || point.facilityId}\n经度 ${point.longitude}\n纬度 ${point.latitude}`
-}
 </script>
