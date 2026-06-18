@@ -30,6 +30,21 @@
       </button>
     </nav>
 
+    <section class="map-status-strip">
+      <span :class="{ ok: frontendMapAkConfigured, warn: !frontendMapAkConfigured }">
+        地图底图 {{ frontendMapAkConfigured ? '已配置' : '未配置' }}
+      </span>
+      <span :class="{ ok: routeMapStatus?.onlineRouteEnabled, warn: !routeMapStatus?.onlineRouteEnabled }">
+        百度补算 {{ routeMapStatus?.onlineRouteEnabled ? '已开启' : '未开启' }}
+      </span>
+      <span :class="{ ok: routeMapStatus?.baiduAkConfigured, warn: !routeMapStatus?.baiduAkConfigured }">
+        后端AK {{ routeMapStatus?.baiduAkConfigured ? '已配置' : '未配置' }}
+      </span>
+      <span :class="{ ok: routeMapStatus?.baiduSkConfigured, neutral: !routeMapStatus?.baiduSkConfigured }">
+        SN {{ routeMapStatus?.baiduSkConfigured ? '已配置' : '未配置' }}
+      </span>
+    </section>
+
     <template v-if="currentView === 'workbench'">
       <section class="summary-strip">
         <div>
@@ -711,6 +726,7 @@ const companyAnchors = ref({
 })
 const optimization = ref(null)
 const multiOptimization = ref(null)
+const routeMapStatus = ref(null)
 
 const companyScores = ref([])
 const routeScores = ref([])
@@ -736,6 +752,7 @@ const dataType = ref(0)
 const loading = ref(false)
 const error = ref('')
 const showSelectedOnly = ref(false)
+const frontendMapAkConfigured = Boolean(import.meta.env.VITE_BAIDU_MAP_AK)
 const dataTypeOptions = [
   { label: '路线', value: 0 },
   { label: '岗位', value: 1 }
@@ -812,7 +829,9 @@ const routeAnchorCount = computed(
     (companyAnchors.value.disposalSites?.length || 0)
 )
 
-onMounted(loadCompanies)
+onMounted(async () => {
+  await Promise.all([loadCompanies(), loadRouteMapStatus()])
+})
 
 async function api(path, options) {
   const response = await fetch(path, options)
@@ -826,6 +845,14 @@ async function loadCompanies() {
   await withLoading(async () => {
     companies.value = await api('/api/companies')
   })
+}
+
+async function loadRouteMapStatus() {
+  try {
+    routeMapStatus.value = await api('/api/route-map/status')
+  } catch (e) {
+    routeMapStatus.value = null
+  }
 }
 
 async function selectCompany(company) {
@@ -1148,6 +1175,7 @@ function scorePointClass(point) {
 }
 
 async function reloadCurrent() {
+  await loadRouteMapStatus()
   if (currentView.value === 'score') {
     if (scoreCompanyIds.value.length > 0) {
       await loadCompanyScores()

@@ -54,6 +54,16 @@ public class RouteMapPathService {
         return directPath(from, to);
     }
 
+    public Map<String, Object> status() {
+        Map<String, Object> status = new HashMap<String, Object>();
+        status.put("onlineRouteEnabled", onlineRouteEnabled);
+        status.put("baiduAkConfigured", !isBlank(baiduAk));
+        status.put("baiduSkConfigured", !isBlank(baiduSk));
+        status.put("cacheTable", "ljszy_odpair_pool");
+        status.put("fallback", "DIRECT");
+        return status;
+    }
+
     private ResolvedPath cachedPath(RoutePoint from, RoutePoint to) {
         if (from.getFacilityId() == null || to.getFacilityId() == null) {
             return null;

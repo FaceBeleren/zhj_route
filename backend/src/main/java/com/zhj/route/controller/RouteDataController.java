@@ -2,6 +2,7 @@ package com.zhj.route.controller;
 
 import com.zhj.route.service.RouteQueryService;
 import com.zhj.route.service.RouteConformanceService;
+import com.zhj.route.service.RouteMapPathService;
 import com.zhj.route.service.RouteOptimizeService;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -20,14 +21,17 @@ public class RouteDataController {
     private final RouteQueryService routeQueryService;
     private final RouteConformanceService routeConformanceService;
     private final RouteOptimizeService routeOptimizeService;
+    private final RouteMapPathService routeMapPathService;
 
     public RouteDataController(
             RouteQueryService routeQueryService,
             RouteConformanceService routeConformanceService,
-            RouteOptimizeService routeOptimizeService) {
+            RouteOptimizeService routeOptimizeService,
+            RouteMapPathService routeMapPathService) {
         this.routeQueryService = routeQueryService;
         this.routeConformanceService = routeConformanceService;
         this.routeOptimizeService = routeOptimizeService;
+        this.routeMapPathService = routeMapPathService;
     }
 
     @GetMapping("/companies")
@@ -79,6 +83,11 @@ public class RouteDataController {
     @PostMapping("/optimize/multi-preview")
     public Map<String, Object> optimizeMultiPreview(@RequestBody Map<String, Object> request) {
         return routeOptimizeService.optimizeMultiPreview(request);
+    }
+
+    @GetMapping("/route-map/status")
+    public Map<String, Object> routeMapStatus() {
+        return routeMapPathService.status();
     }
 
     @GetMapping("/conformance/companies/score")
