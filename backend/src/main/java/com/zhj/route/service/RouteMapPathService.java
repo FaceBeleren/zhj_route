@@ -74,7 +74,21 @@ public class RouteMapPathService {
         status.put("connectTimeoutMs", connectTimeoutMs);
         status.put("readTimeoutMs", readTimeoutMs);
         status.put("cacheTable", "ljszy_odpair_pool");
+        status.putAll(cacheStatus());
         status.put("fallback", "DIRECT");
+        return status;
+    }
+
+    private Map<String, Object> cacheStatus() {
+        Map<String, Object> status = new HashMap<String, Object>();
+        try {
+            jdbcTemplate.queryForObject("SELECT 1 FROM ljszy_odpair_pool LIMIT 1", Integer.class);
+            status.put("cacheAvailable", true);
+            status.put("cacheCheckMessage", "OK");
+        } catch (RuntimeException e) {
+            status.put("cacheAvailable", false);
+            status.put("cacheCheckMessage", e.getClass().getSimpleName());
+        }
         return status;
     }
 

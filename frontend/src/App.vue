@@ -43,6 +43,9 @@
       <span :class="{ ok: routeMapStatus?.baiduSkConfigured, neutral: !routeMapStatus?.baiduSkConfigured }">
         SN {{ routeMapStatus?.baiduSkConfigured ? '已配置' : '未配置' }}
       </span>
+      <span :class="{ ok: routeMapStatus?.cacheAvailable, warn: routeMapStatus && !routeMapStatus.cacheAvailable, neutral: !routeMapStatus }">
+        OD缓存 {{ routeMapStatus?.cacheAvailable ? '可用' : '不可用' }}
+      </span>
       <span class="neutral">
         超时 {{ routeMapStatus?.connectTimeoutMs || '-' }}/{{ routeMapStatus?.readTimeoutMs || '-' }} ms
       </span>
