@@ -10,3 +10,7 @@ spring:
 
 app:
   default-days: 30
+  baidu-route:
+    enabled: false
+    ak: ${BAIDU_ROUTE_AK:}
+    sk: ${BAIDU_ROUTE_SK:}

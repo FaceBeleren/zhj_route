@@ -3,18 +3,39 @@ package com.zhj.route.service;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.zhj.route.algorithm.RoutePoint;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
+import org.springframework.web.client.RestClientException;
+import org.springframework.web.client.RestTemplate;
+import org.springframework.web.util.UriComponentsBuilder;
 
+import java.net.URLEncoder;
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
 @Service
 public class RouteMapPathService {
+    private static final String BAIDU_DRIVING_URL = "http://api.map.baidu.com/directionlite/v1/driving";
+    private static final String BAIDU_DRIVING_PATH = "/directionlite/v1/driving?";
+
     private final JdbcTemplate jdbcTemplate;
     private final ObjectMapper objectMapper;
+    private final RestTemplate restTemplate = new RestTemplate();
+
+    @Value("${app.baidu-route.enabled:false}")
+    private boolean onlineRouteEnabled;
+
+    @Value("${app.baidu-route.ak:}")
+    private String baiduAk;
+
+    @Value("${app.baidu-route.sk:}")
+    private String baiduSk;
 
     public RouteMapPathService(JdbcTemplate jdbcTemplate, ObjectMapper objectMapper) {
         this.jdbcTemplate = jdbcTemplate;
@@ -25,6 +46,10 @@ public class RouteMapPathService {
         ResolvedPath cached = cachedPath(from, to);
         if (cached != null) {
             return cached;
+        }
+        ResolvedPath online = onlinePath(from, to);
+        if (online != null) {
+            return online;
         }
         return directPath(from, to);
     }
@@ -53,6 +78,98 @@ public class RouteMapPathService {
             return new ResolvedPath(path, toDouble(row.get("distance")), toDouble(row.get("time_duration")), "OD_CACHE");
         } catch (RuntimeException e) {
             return null;
+        }
+    }
+
+    private ResolvedPath onlinePath(RoutePoint from, RoutePoint to) {
+        if (!onlineRouteEnabled || isBlank(baiduAk) || !from.hasCoordinate() || !to.hasCoordinate()) {
+            return null;
+        }
+        try {
+            BaiduRouteResponse response = requestBaiduRoute(from, to);
+            if (response == null || response.path.size() < 2) {
+                return null;
+            }
+            cacheOnlinePath(from, to, response);
+            return new ResolvedPath(response.path, response.distanceMeters, response.durationSeconds, "BAIDU_ONLINE");
+        } catch (RuntimeException e) {
+            return null;
+        }
+    }
+
+    private BaiduRouteResponse requestBaiduRoute(RoutePoint from, RoutePoint to) {
+        Map<String, String> params = new LinkedHashMap<String, String>();
+        params.put("ak", baiduAk);
+        params.put("origin", from.getLatitude() + "," + from.getLongitude());
+        params.put("destination", to.getLatitude() + "," + to.getLongitude());
+        params.put("tactics", "0");
+        params.put("timestamp", String.valueOf(System.currentTimeMillis()));
+        if (!isBlank(baiduSk)) {
+            String sn = sign(params);
+            if (!isBlank(sn)) {
+                params.put("sn", sn);
+            }
+        }
+
+        UriComponentsBuilder builder = UriComponentsBuilder.fromHttpUrl(BAIDU_DRIVING_URL);
+        for (Map.Entry<String, String> entry : params.entrySet()) {
+            builder.queryParam(entry.getKey(), entry.getValue());
+        }
+
+        try {
+            String json = restTemplate.getForObject(builder.build().encode().toUri(), String.class);
+            return parseBaiduResponse(json);
+        } catch (RestClientException e) {
+            return null;
+        }
+    }
+
+    private BaiduRouteResponse parseBaiduResponse(String json) {
+        if (isBlank(json)) {
+            return null;
+        }
+        try {
+            JsonNode root = objectMapper.readTree(json);
+            JsonNode routes = root.path("result").path("routes");
+            if (!routes.isArray() || routes.size() == 0) {
+                return null;
+            }
+            JsonNode firstRoute = routes.get(0);
+            List<Map<String, Object>> path = parseBaiduPath(json);
+            if (path.size() < 2) {
+                return null;
+            }
+            return new BaiduRouteResponse(
+                    path,
+                    firstRoute.path("distance").isNumber() ? firstRoute.path("distance").asDouble() : null,
+                    firstRoute.path("duration").isNumber() ? firstRoute.path("duration").asDouble() : null,
+                    json);
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    private void cacheOnlinePath(RoutePoint from, RoutePoint to, BaiduRouteResponse response) {
+        if (from.getFacilityId() == null || to.getFacilityId() == null) {
+            return;
+        }
+        String sql = "INSERT INTO ljszy_odpair_pool (" +
+                "been_deleted, create_time, update_time, company_id, distance, end_code, " +
+                "latitude_end, latitude_start, longitude_end, longitude_start, start_code, time_duration, msg_full" +
+                ") VALUES (0, NOW(), NOW(), NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
+        try {
+            jdbcTemplate.update(sql,
+                    response.distanceMeters,
+                    String.valueOf(to.getFacilityId()),
+                    to.getLatitude(),
+                    from.getLatitude(),
+                    to.getLongitude(),
+                    from.getLongitude(),
+                    String.valueOf(from.getFacilityId()),
+                    response.durationSeconds,
+                    response.rawJson);
+        } catch (RuntimeException e) {
+            // 缓存写入失败不影响本次路线展示。
         }
     }
 
@@ -155,6 +272,50 @@ public class RouteMapPathService {
             return null;
         }
         return Double.valueOf(text);
+    }
+
+    private String sign(Map<String, String> params) {
+        try {
+            StringBuilder query = new StringBuilder();
+            for (Map.Entry<String, String> entry : params.entrySet()) {
+                if (query.length() > 0) {
+                    query.append("&");
+                }
+                query.append(entry.getKey())
+                        .append("=")
+                        .append(URLEncoder.encode(entry.getValue(), StandardCharsets.UTF_8.name()));
+            }
+            String whole = BAIDU_DRIVING_PATH + query + baiduSk;
+            String encoded = URLEncoder.encode(whole, StandardCharsets.UTF_8.name());
+            MessageDigest digest = MessageDigest.getInstance("MD5");
+            byte[] bytes = digest.digest(encoded.getBytes(StandardCharsets.UTF_8));
+            StringBuilder hex = new StringBuilder();
+            for (byte b : bytes) {
+                hex.append(Integer.toHexString((b & 0xFF) | 0x100), 1, 3);
+            }
+            return hex.toString();
+        } catch (Exception e) {
+            return "";
+        }
+    }
+
+    private boolean isBlank(String value) {
+        return value == null || value.trim().isEmpty();
+    }
+
+    private static class BaiduRouteResponse {
+        private final List<Map<String, Object>> path;
+        private final Double distanceMeters;
+        private final Double durationSeconds;
+        private final String rawJson;
+
+        private BaiduRouteResponse(List<Map<String, Object>> path, Double distanceMeters,
+                                   Double durationSeconds, String rawJson) {
+            this.path = path;
+            this.distanceMeters = distanceMeters;
+            this.durationSeconds = durationSeconds;
+            this.rawJson = rawJson;
+        }
     }
 
     public static class ResolvedPath {
