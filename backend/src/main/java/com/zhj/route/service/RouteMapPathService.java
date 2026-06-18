@@ -5,6 +5,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.zhj.route.algorithm.RoutePoint;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.http.client.SimpleClientHttpRequestFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestClientException;
 import org.springframework.web.client.RestTemplate;
@@ -26,20 +27,31 @@ public class RouteMapPathService {
 
     private final JdbcTemplate jdbcTemplate;
     private final ObjectMapper objectMapper;
-    private final RestTemplate restTemplate = new RestTemplate();
+    private final RestTemplate restTemplate;
+    private final boolean onlineRouteEnabled;
+    private final String baiduAk;
+    private final String baiduSk;
+    private final int connectTimeoutMs;
+    private final int readTimeoutMs;
 
-    @Value("${app.baidu-route.enabled:false}")
-    private boolean onlineRouteEnabled;
-
-    @Value("${app.baidu-route.ak:}")
-    private String baiduAk;
-
-    @Value("${app.baidu-route.sk:}")
-    private String baiduSk;
-
-    public RouteMapPathService(JdbcTemplate jdbcTemplate, ObjectMapper objectMapper) {
+    public RouteMapPathService(JdbcTemplate jdbcTemplate,
+                               ObjectMapper objectMapper,
+                               @Value("${app.baidu-route.enabled:false}") boolean onlineRouteEnabled,
+                               @Value("${app.baidu-route.ak:}") String baiduAk,
+                               @Value("${app.baidu-route.sk:}") String baiduSk,
+                               @Value("${app.baidu-route.connect-timeout-ms:2000}") int connectTimeoutMs,
+                               @Value("${app.baidu-route.read-timeout-ms:5000}") int readTimeoutMs) {
         this.jdbcTemplate = jdbcTemplate;
         this.objectMapper = objectMapper;
+        this.onlineRouteEnabled = onlineRouteEnabled;
+        this.baiduAk = baiduAk;
+        this.baiduSk = baiduSk;
+        this.connectTimeoutMs = connectTimeoutMs;
+        this.readTimeoutMs = readTimeoutMs;
+        SimpleClientHttpRequestFactory requestFactory = new SimpleClientHttpRequestFactory();
+        requestFactory.setConnectTimeout(connectTimeoutMs);
+        requestFactory.setReadTimeout(readTimeoutMs);
+        this.restTemplate = new RestTemplate(requestFactory);
     }
 
     public ResolvedPath resolve(RoutePoint from, RoutePoint to) {
@@ -59,6 +71,8 @@ public class RouteMapPathService {
         status.put("onlineRouteEnabled", onlineRouteEnabled);
         status.put("baiduAkConfigured", !isBlank(baiduAk));
         status.put("baiduSkConfigured", !isBlank(baiduSk));
+        status.put("connectTimeoutMs", connectTimeoutMs);
+        status.put("readTimeoutMs", readTimeoutMs);
         status.put("cacheTable", "ljszy_odpair_pool");
         status.put("fallback", "DIRECT");
         return status;

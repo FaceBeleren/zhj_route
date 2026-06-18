@@ -35,9 +35,12 @@ app:
     enabled: false
     ak: ${BAIDU_ROUTE_AK:}
     sk: ${BAIDU_ROUTE_SK:}
+    connect-timeout-ms: 2000
+    read-timeout-ms: 5000
 ```
 
 默认 `enabled=false`，避免页面请求默认产生外部调用。`sk` 为空时不计算 `sn`，适合未开启服务端校验的 AK；如果百度应用开启了 SN 校验，需要同时配置 `BAIDU_ROUTE_SK`。
+在线请求设置了连接超时和读取超时，避免百度接口慢时长时间阻塞路线预览。
 
 ## 为什么不直接迁移 ljszy 全套
 
