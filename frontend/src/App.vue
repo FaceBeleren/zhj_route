@@ -234,6 +234,8 @@
                   <span>原距离 {{ formatDistance(optimization.originalDistance) }}</span>
                   <span>优化后 {{ formatDistance(optimization.optimizedDistance) }}</span>
                   <span>节省 {{ formatDistance(optimization.savedDistance) }}</span>
+                  <span>道路距离 {{ formatDistance(optimization.pathDistance) }}</span>
+                  <span>道路耗时 {{ formatDuration(optimization.pathDurationMinutes) }}</span>
                   <span>预计重量 {{ formatWeight(optimization.estimatedWeightKg) }}</span>
                   <span>预计体积 {{ formatVolume(optimization.estimatedVolumeLiter) }}</span>
                   <span>装载率 {{ formatLoadRate(optimization.loadRate) }}</span>
@@ -449,7 +451,7 @@
                       <strong>第 {{ route.routeNo }} 趟</strong>
                       <small>
                         {{ route.pointCount }} 点 · {{ formatWeight(route.estimatedWeightKg) }} ·
-                        {{ formatDistance(route.distance) }} · 装载率 {{ formatLoadRate(route.loadRate) }} ·
+                        {{ formatDistance(route.distance) }} · {{ formatDuration(route.durationMinutes) }} · 装载率 {{ formatLoadRate(route.loadRate) }} ·
                         {{ pathSourceSummary(route.segments) }}
                       </small>
                     </div>
@@ -1252,6 +1254,17 @@ function formatDistance(value) {
     return `${(n / 1000).toFixed(2)} km`
   }
   return `${n.toFixed(0)} m`
+}
+
+function formatDuration(value) {
+  const n = Number(value || 0)
+  if (!n) return '0 min'
+  if (n >= 60) {
+    const hours = Math.floor(n / 60)
+    const minutes = Math.round(n % 60)
+    return `${hours} h ${minutes} min`
+  }
+  return `${n.toFixed(0)} min`
 }
 
 function formatWeight(value) {

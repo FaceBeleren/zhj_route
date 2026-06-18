@@ -34,6 +34,7 @@ public class RouteOptimizeService {
         List<Map<String, Object>> planRows = routeQueryService.routePlanPoints(routeId);
         List<RoutePoint> points = toRoutePoints(planRows);
         RouteOptimizationResult optimization = singleRouteOptimizer.optimize(points);
+        List<Map<String, Object>> segments = segmentViews(optimization.getOptimizedPoints(), speedKmh(request));
 
         Map<String, Object> result = new HashMap<String, Object>();
         result.put("routeId", routeId);
@@ -52,8 +53,10 @@ public class RouteOptimizeService {
         result.put("targetLoadRate", round(targetLoadRate(request)));
         result.put("targetLoadWeightKg", round(ratedCapacityKg(request) * targetLoadRate(request)));
         result.put("loadRate", loadRate(points, request));
+        result.put("pathDistance", round(sumSegmentDistance(segments)));
+        result.put("pathDurationMinutes", round(sumSegmentDuration(segments)));
         result.put("points", pointViews(optimization.getOptimizedPoints()));
-        result.put("segments", segmentViews(optimization.getOptimizedPoints(), speedKmh(request)));
+        result.put("segments", segments);
         result.put("polyline", polyline(optimization.getOptimizedPoints()));
         return result;
     }
@@ -278,15 +281,17 @@ public class RouteOptimizeService {
         Map<String, Object> view = new HashMap<String, Object>();
         List<RoutePoint> collected = collectedPoints(route);
         double weight = sumEstimatedWeight(collected);
+        List<Map<String, Object>> segments = segmentViews(route, speedKmh(request));
         view.put("routeNo", routeNo);
         view.put("pointCount", collected.size());
         view.put("sequence", sequence(route));
         view.put("estimatedWeightKg", round(weight));
         view.put("estimatedVolumeLiter", round(sumEstimatedVolume(collected)));
         view.put("loadRate", ratedCapacityKg <= 0D ? 0D : round(weight / ratedCapacityKg));
-        view.put("distance", round(singleRouteOptimizer.totalDistance(route)));
+        view.put("distance", round(sumSegmentDistance(segments)));
+        view.put("durationMinutes", round(sumSegmentDuration(segments)));
         view.put("points", pointViews(route));
-        view.put("segments", segmentViews(route, speedKmh(request)));
+        view.put("segments", segments);
         view.put("polyline", polyline(route));
         return view;
     }
@@ -315,6 +320,22 @@ public class RouteOptimizeService {
             segments.add(segment);
         }
         return segments;
+    }
+
+    private double sumSegmentDistance(List<Map<String, Object>> segments) {
+        double total = 0D;
+        for (Map<String, Object> segment : segments) {
+            total += valueOrZero(toDouble(segment.get("distance")));
+        }
+        return total;
+    }
+
+    private double sumSegmentDuration(List<Map<String, Object>> segments) {
+        double total = 0D;
+        for (Map<String, Object> segment : segments) {
+            total += valueOrZero(toDouble(segment.get("durationMinutes")));
+        }
+        return total;
     }
 
     private List<Map<String, Object>> polyline(List<RoutePoint> points) {
