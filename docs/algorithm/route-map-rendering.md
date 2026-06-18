@@ -18,7 +18,7 @@
 - 百度返回成功后写回 `ljszy_odpair_pool`，本次响应直接使用道路折线。
 - 读取不到缓存、未启用在线补算、表不存在、JSON 异常或百度请求失败时回退为起终点直线。
 - 每段返回 `pathSource`，目前可能是 `OD_CACHE`、`BAIDU_ONLINE` 或 `DIRECT`。
-- `GET /api/route-map/status` 会检查 `ljszy_odpair_pool` 是否可读，前端顶部展示 `OD缓存 可用/不可用`。
+- `GET /api/route-map/status` 会检查 `ljszy_odpair_pool` 是否可读、是否有可用缓存行，以及最近缓存时间；前端顶部展示 `OD缓存` 与 `缓存数据` 状态。
 
 ## 配置项
 

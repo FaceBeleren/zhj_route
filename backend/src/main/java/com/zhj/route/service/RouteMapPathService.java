@@ -82,11 +82,17 @@ public class RouteMapPathService {
     private Map<String, Object> cacheStatus() {
         Map<String, Object> status = new HashMap<String, Object>();
         try {
-            jdbcTemplate.queryForObject("SELECT 1 FROM ljszy_odpair_pool LIMIT 1", Integer.class);
+            List<Map<String, Object>> rows = jdbcTemplate.queryForList(
+                    "SELECT DATE_FORMAT(create_time, '%Y-%m-%d %H:%i:%s') AS latestCacheTime " +
+                            "FROM ljszy_odpair_pool WHERE been_deleted = 0 ORDER BY create_time DESC LIMIT 1");
             status.put("cacheAvailable", true);
+            status.put("cacheHasRows", !rows.isEmpty());
+            status.put("latestCacheTime", rows.isEmpty() ? null : rows.get(0).get("latestCacheTime"));
             status.put("cacheCheckMessage", "OK");
         } catch (RuntimeException e) {
             status.put("cacheAvailable", false);
+            status.put("cacheHasRows", false);
+            status.put("latestCacheTime", null);
             status.put("cacheCheckMessage", e.getClass().getSimpleName());
         }
         return status;
