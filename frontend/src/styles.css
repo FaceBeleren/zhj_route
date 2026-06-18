@@ -523,7 +523,7 @@ tbody tr.active {
 
 .optimization-metrics {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 8px;
   margin: 12px 0;
 }
@@ -941,7 +941,7 @@ tbody tr.active {
 
 .segment-row {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto auto;
   gap: 8px;
   align-items: center;
   padding: 8px 0;
@@ -958,6 +958,30 @@ tbody tr.active {
 
 .segment-row strong {
   color: #24364b;
+}
+
+.path-source {
+  justify-self: start;
+  border-radius: 999px;
+  padding: 2px 8px;
+  font-size: 11px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.path-source.cache {
+  color: #0f5f35;
+  background: #d8f3df;
+}
+
+.path-source.online {
+  color: #1458a8;
+  background: #dbeafe;
+}
+
+.path-source.direct {
+  color: #7a4b00;
+  background: #ffe8bf;
 }
 
 .empty {

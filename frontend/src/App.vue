@@ -213,6 +213,7 @@
                   <span>预计重量 {{ formatWeight(optimization.estimatedWeightKg) }}</span>
                   <span>预计体积 {{ formatVolume(optimization.estimatedVolumeLiter) }}</span>
                   <span>装载率 {{ formatLoadRate(optimization.loadRate) }}</span>
+                  <span>路径 {{ pathSourceSummary(optimization.segments) }}</span>
                 </div>
                 <div class="sequence">
                   <span v-for="point in optimization.optimizedSequence" :key="point">{{ point }}</span>
@@ -235,6 +236,9 @@
                   <div v-for="segment in optimization.segments" :key="segment.order" class="segment-row">
                     <span>{{ segment.fromFacilityName || segment.fromFacilityId }}</span>
                     <span>{{ segment.toFacilityName || segment.toFacilityId }}</span>
+                    <span class="path-source" :class="pathSourceClass(segment.pathSource)">
+                      {{ pathSourceLabel(segment.pathSource) }}
+                    </span>
                     <strong>{{ formatDistance(segment.distance) }}</strong>
                   </div>
                 </div>
@@ -421,7 +425,8 @@
                       <strong>第 {{ route.routeNo }} 趟</strong>
                       <small>
                         {{ route.pointCount }} 点 · {{ formatWeight(route.estimatedWeightKg) }} ·
-                        {{ formatDistance(route.distance) }} · 装载率 {{ formatLoadRate(route.loadRate) }}
+                        {{ formatDistance(route.distance) }} · 装载率 {{ formatLoadRate(route.loadRate) }} ·
+                        {{ pathSourceSummary(route.segments) }}
                       </small>
                     </div>
                     <div class="sequence route-point-sequence">
@@ -1234,6 +1239,25 @@ function formatLoadRate(value) {
   const n = Number(value || 0)
   if (!n) return '-'
   return `${(n * 100).toFixed(1)}%`
+}
+
+function pathSourceSummary(segments = []) {
+  const sources = new Set((segments || []).map((segment) => segment.pathSource || 'DIRECT'))
+  if (sources.size === 0) return '-'
+  if (sources.size === 1) return pathSourceLabel(Array.from(sources)[0])
+  return Array.from(sources).map(pathSourceLabel).join('/')
+}
+
+function pathSourceLabel(source) {
+  if (source === 'OD_CACHE') return 'OD缓存'
+  if (source === 'BAIDU_ONLINE') return '百度在线'
+  return '直线回退'
+}
+
+function pathSourceClass(source) {
+  if (source === 'OD_CACHE') return 'cache'
+  if (source === 'BAIDU_ONLINE') return 'online'
+  return 'direct'
 }
 
 </script>
