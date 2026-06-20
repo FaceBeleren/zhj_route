@@ -2,6 +2,8 @@ server:
   port: 8088
 
 spring:
+  profiles:
+    active: ${SPRING_PROFILES_ACTIVE:default}
   datasource:
     url: jdbc:mysql://zhhw-rds-xm.mysql.rds.aliyuncs.com:3306/ljszy_new?useUnicode=true&characterEncoding=utf8&useSSL=false&serverTimezone=Asia/Shanghai
     username: cleanpro
@@ -11,7 +13,7 @@ spring:
 app:
   default-days: 30
   baidu-route:
-    enabled: false
+    enabled: ${BAIDU_ROUTE_ENABLED:false}
     ak: ${BAIDU_ROUTE_AK:}
     sk: ${BAIDU_ROUTE_SK:}
     connect-timeout-ms: 2000

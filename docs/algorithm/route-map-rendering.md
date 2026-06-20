@@ -37,7 +37,7 @@ VITE_BAIDU_MAP_AK=
 ```yaml
 app:
   baidu-route:
-    enabled: false
+    enabled: ${BAIDU_ROUTE_ENABLED:false}
     ak: ${BAIDU_ROUTE_AK:}
     sk: ${BAIDU_ROUTE_SK:}
     connect-timeout-ms: 2000
@@ -48,6 +48,27 @@ app:
 在线请求设置了连接超时和读取超时，避免百度接口慢时长时间阻塞路线预览。
 
 对应样例文件：`backend/.env.example`。
+
+本机调试可以使用 Spring 本地 profile 覆盖：
+
+```yaml
+spring:
+  profiles:
+    active: local
+
+app:
+  baidu-route:
+    enabled: true
+```
+
+`backend/src/main/resources/application-local.yml` 已被 `.gitignore` 忽略，可以放本机数据库或百度密钥；不要提交到仓库。
+
+老 `ljszy` 项目里存在两套百度调用方式：
+
+- OD 缓存补算在 `RouteOptimiseServiceImpl.getDistanceByList` 中直接调用 `http://api.map.baidu.com/directionlite/v1/driving`，参数顺序为 `ak`、`origin`、`destination`、`tactics`、`timestamp`，再按 `/directionlite/v1/driving?` 计算 `sn`。
+- 路线预览在 `RouteOverallPlanManagerServiceImpl.getDistanceByListDriving` 中调用 `IMessageFeignClient`，最终走 `cloud/webservice/baidu/getDistanceByListDriving`。
+
+当前项目采用第一种“轻量直调百度”方式：不接入旧系统 Feign/message 服务，只复用百度请求参数、SN 计算和 `ljszy_odpair_pool.msg_full` 的道路折线解析口径。
 
 ## 运行检查
 
