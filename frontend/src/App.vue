@@ -405,7 +405,18 @@
                 </button>
                 <button @click="selectAllCompanyPoints" :disabled="companyPoints.length === 0">全选</button>
                 <button @click="clearCompanyPointSelection" :disabled="selectedCompanyPointCount === 0">清空</button>
+                <button @click="triggerImportFacilityNames" :disabled="companyPoints.length === 0 || loading">
+                  导入选中
+                </button>
+                <input
+                  ref="facilityImportInput"
+                  class="hidden-file-input"
+                  type="file"
+                  accept=".xls,.xlsx"
+                  @change="importFacilityNames"
+                />
               </div>
+              <p v-if="facilityImportSummary" class="import-summary">{{ facilityImportSummary }}</p>
               <ol class="point-list selectable">
                 <li v-for="point in companyPointVisibleList" :key="point.facilityId">
                   <label class="point-select-row">
@@ -729,6 +740,8 @@ const records = ref([])
 const planPoints = ref([])
 const recordPoints = ref([])
 const companyPoints = ref([])
+const facilityImportInput = ref(null)
+const facilityImportSummary = ref('')
 const companyAnchors = ref({
   parkingLots: [],
   transferStations: [],
@@ -928,6 +941,7 @@ async function selectMultiCompany(company) {
   pointKeyword.value = ''
   showSelectedOnly.value = false
   selectedCompanyPointIds.value = new Set()
+  facilityImportSummary.value = ''
   resetAnchors()
   clearMultiOptimization()
   await withLoading(async () => {
@@ -981,6 +995,59 @@ function unselectVisibleCompanyPoints() {
   selectedCompanyPointIds.value = next
   clearMultiOptimization()
 }
+function triggerImportFacilityNames() {
+  facilityImportInput.value?.click()
+}
+
+async function importFacilityNames(event) {
+  const file = event.target.files?.[0]
+  event.target.value = ''
+  if (!file) return
+  if (companyPoints.value.length === 0) {
+    facilityImportSummary.value = '请先选择公司并加载点位池'
+    return
+  }
+  const formData = new FormData()
+  formData.append('file', file)
+  await withLoading(async () => {
+    const response = await fetch('/api/import/facility-names', {
+      method: 'POST',
+      body: formData
+    })
+    if (!response.ok) {
+      throw new Error(await response.text())
+    }
+    const result = await response.json()
+    applyImportedFacilityNames(result.names || [])
+  })
+}
+
+function applyImportedFacilityNames(names) {
+  const importedNames = new Set(names.map(normalizeFacilityName).filter(Boolean))
+  const next = new Set()
+  const matchedNames = new Set()
+  companyPoints.value.forEach((point) => {
+    const normalized = normalizeFacilityName(point.facilityName)
+    if (importedNames.has(normalized)) {
+      next.add(String(point.facilityId))
+      matchedNames.add(normalized)
+    }
+  })
+  selectedCompanyPointIds.value = next
+  clearMultiOptimization()
+  showSelectedOnly.value = true
+  const unmatched = Math.max(0, importedNames.size - matchedNames.size)
+  facilityImportSummary.value = `导入名称 ${importedNames.size} 个，匹配并选中 ${next.size} 个，未匹配 ${unmatched} 个`
+}
+
+function normalizeFacilityName(value) {
+  return String(value || '')
+    .replace(/[\s　]+/g, '')
+    .replace(/[（）]/g, (char) => (char === '（' ? '(' : ')'))
+    .trim()
+    .toLowerCase()
+}
+
 
 function clearMultiOptimization() {
   multiOptimization.value = null

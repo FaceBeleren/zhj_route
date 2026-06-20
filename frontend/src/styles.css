@@ -470,6 +470,17 @@ button:disabled {
   background: #f5f7fa;
 }
 
+.hidden-file-input {
+  display: none;
+}
+
+.import-summary {
+  margin: 8px 14px 0;
+  color: #4b5f73;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
 .point-select-row {
   gap: 8px;
 }
@@ -477,7 +488,6 @@ button:disabled {
 .point-select-row > span {
   min-width: 0;
 }
-
 .table-wrap {
   max-height: 305px;
   overflow: auto;

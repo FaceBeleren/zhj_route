@@ -2,6 +2,7 @@ package com.zhj.route.controller;
 
 import com.zhj.route.service.RouteQueryService;
 import com.zhj.route.service.RouteConformanceService;
+import com.zhj.route.service.FacilityImportService;
 import com.zhj.route.service.RouteMapPathService;
 import com.zhj.route.service.RouteOptimizeService;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -11,6 +12,7 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.multipart.MultipartFile;
 
 import java.util.List;
 import java.util.Map;
@@ -22,16 +24,19 @@ public class RouteDataController {
     private final RouteConformanceService routeConformanceService;
     private final RouteOptimizeService routeOptimizeService;
     private final RouteMapPathService routeMapPathService;
+    private final FacilityImportService facilityImportService;
 
     public RouteDataController(
             RouteQueryService routeQueryService,
             RouteConformanceService routeConformanceService,
             RouteOptimizeService routeOptimizeService,
-            RouteMapPathService routeMapPathService) {
+            RouteMapPathService routeMapPathService,
+            FacilityImportService facilityImportService) {
         this.routeQueryService = routeQueryService;
         this.routeConformanceService = routeConformanceService;
         this.routeOptimizeService = routeOptimizeService;
         this.routeMapPathService = routeMapPathService;
+        this.facilityImportService = facilityImportService;
     }
 
     @GetMapping("/companies")
@@ -93,6 +98,11 @@ public class RouteDataController {
     @PostMapping("/route-map/preview")
     public Map<String, Object> routeMapPreview(@RequestBody Map<String, Object> request) {
         return routeMapPathService.preview(request);
+    }
+
+    @PostMapping("/import/facility-names")
+    public Map<String, Object> importFacilityNames(@RequestParam("file") MultipartFile file) {
+        return facilityImportService.extractNames(file);
     }
 
     @GetMapping("/conformance/companies/score")
