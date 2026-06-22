@@ -551,6 +551,7 @@ tbody tr.active {
 
 .optimizer-controls label {
   display: grid;
+  min-width: 0;
   gap: 4px;
   color: #536274;
   font-size: 12px;
@@ -558,6 +559,8 @@ tbody tr.active {
 
 .optimizer-controls input,
 .optimizer-controls select {
+  width: 100%;
+  min-width: 0;
   height: 30px;
   border: 1px solid #c8d3df;
   border-radius: 6px;
