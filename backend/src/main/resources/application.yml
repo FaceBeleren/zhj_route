@@ -3,7 +3,7 @@ server:
 
 spring:
   profiles:
-    active: ${SPRING_PROFILES_ACTIVE:default}
+    active: ${SPRING_PROFILES_ACTIVE:local}
   datasource:
     url: jdbc:mysql://zhhw-rds-xm.mysql.rds.aliyuncs.com:3306/ljszy_new?useUnicode=true&characterEncoding=utf8&useSSL=false&serverTimezone=Asia/Shanghai
     username: cleanpro

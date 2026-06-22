@@ -34,8 +34,8 @@ public class RouteOptimizeService {
         List<Map<String, Object>> planRows = routeQueryService.routePlanPoints(routeId);
         List<RoutePoint> points = toRoutePoints(planRows);
         RouteOptimizationResult optimization = singleRouteOptimizer.optimize(points);
-        List<Map<String, Object>> originalSegments = segmentViews(optimization.getOriginalPoints(), speedKmh(request));
-        List<Map<String, Object>> segments = segmentViews(optimization.getOptimizedPoints(), speedKmh(request));
+        List<Map<String, Object>> originalSegments = segmentViews(optimization.getOriginalPoints(), speedKmh(request), useRoadPath(request));
+        List<Map<String, Object>> segments = segmentViews(optimization.getOptimizedPoints(), speedKmh(request), useRoadPath(request));
 
         Map<String, Object> result = new HashMap<String, Object>();
         result.put("routeId", routeId);
@@ -285,7 +285,7 @@ public class RouteOptimizeService {
         Map<String, Object> view = new HashMap<String, Object>();
         List<RoutePoint> collected = collectedPoints(route);
         double weight = sumEstimatedWeight(collected);
-        List<Map<String, Object>> segments = segmentViews(route, speedKmh(request));
+        List<Map<String, Object>> segments = segmentViews(route, speedKmh(request), useRoadPath(request));
         view.put("routeNo", routeNo);
         view.put("pointCount", collected.size());
         view.put("sequence", sequence(route));
@@ -300,12 +300,14 @@ public class RouteOptimizeService {
         return view;
     }
 
-    private List<Map<String, Object>> segmentViews(List<RoutePoint> points, double speedKmh) {
+    private List<Map<String, Object>> segmentViews(List<RoutePoint> points, double speedKmh, boolean useRoadPath) {
         List<Map<String, Object>> segments = new ArrayList<Map<String, Object>>();
         for (int i = 0; i < points.size() - 1; i++) {
             RoutePoint from = points.get(i);
             RoutePoint to = points.get(i + 1);
-            RouteMapPathService.ResolvedPath resolvedPath = routeMapPathService.resolve(from, to);
+            RouteMapPathService.ResolvedPath resolvedPath = useRoadPath
+                    ? routeMapPathService.resolve(from, to)
+                    : directResolvedPath(from, to);
             double distance = resolvedPath.getDistanceMeters() == null
                     ? singleRouteOptimizer.distance(from, to)
                     : resolvedPath.getDistanceMeters();
@@ -324,6 +326,34 @@ public class RouteOptimizeService {
             segments.add(segment);
         }
         return segments;
+    }
+
+    private RouteMapPathService.ResolvedPath directResolvedPath(RoutePoint from, RoutePoint to) {
+        return new RouteMapPathService.ResolvedPath(directPath(from, to), null, null, "DIRECT");
+    }
+
+    private List<Map<String, Object>> directPath(RoutePoint from, RoutePoint to) {
+        List<Map<String, Object>> path = new ArrayList<Map<String, Object>>();
+        appendCoordinate(path, from);
+        appendCoordinate(path, to);
+        return path;
+    }
+
+    private void appendCoordinate(List<Map<String, Object>> path, RoutePoint point) {
+        if (!point.hasCoordinate()) {
+            return;
+        }
+        Map<String, Object> coordinate = new HashMap<String, Object>();
+        coordinate.put("longitude", point.getLongitude());
+        coordinate.put("latitude", point.getLatitude());
+        coordinate.put("facilityId", point.getFacilityId());
+        coordinate.put("facilityName", point.getFacilityName());
+        path.add(coordinate);
+    }
+
+    private boolean useRoadPath(Map<String, Object> request) {
+        Object value = request.get("useRoadPath");
+        return value != null && Boolean.parseBoolean(String.valueOf(value));
     }
 
     private double sumSegmentDistance(List<Map<String, Object>> segments) {

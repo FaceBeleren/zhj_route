@@ -323,6 +323,12 @@
                 最大趟数
                 <input v-model.number="optimizeOptions.maxRoutes" type="number" min="1" step="1" />
               </label>
+              <label class="route-mode-toggle">
+                <span>实际算路</span>
+                <input v-model="optimizeOptions.useRoadPath" type="checkbox" />
+                <i></i>
+                <small>{{ optimizeOptions.useRoadPath ? 'OD缓存/百度补算' : '直线距离' }}</small>
+              </label>
               <label>
                 起点场站
                 <select v-model="selectedStartAnchorKey" @change="applySelectedStartAnchor">
@@ -796,6 +802,7 @@ const optimizeOptions = reactive({
   ratedCapacityKg: 5000,
   targetLoadRate: 0.9,
   maxRoutes: 10,
+  useRoadPath: false,
   startLongitude: null,
   startLatitude: null,
   endLongitude: null,
