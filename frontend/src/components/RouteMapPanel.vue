@@ -181,10 +181,14 @@ async function renderMap() {
 }
 
 function drawBaiduMap(BMap) {
+  if (mapInstance?.clearOverlays) {
+    mapInstance.clearOverlays()
+  }
   mapInstance = new BMap.Map(mapEl.value)
   const center = centerPoint(allPoints.value)
   mapInstance.centerAndZoom(new BMap.Point(center.longitude, center.latitude), zoomLevel(allPoints.value))
   mapInstance.enableScrollWheelZoom(true)
+  addMapControls(BMap)
 
   if (props.showOriginal) {
     drawPolyline(BMap, originalGeometryPoints.value, '#d84f4f', 4, 0.8, 'dashed')
@@ -207,6 +211,32 @@ function drawBaiduMap(BMap) {
     })
     marker.setLabel(label)
   })
+  fitMapViewport(BMap)
+}
+
+function addMapControls(BMap) {
+  const controlConstructors = [
+    () => new BMap.NavigationControl(),
+    () => new BMap.ScaleControl(),
+    () => new BMap.MapTypeControl(),
+    () => new BMap.OverviewMapControl({ isOpen: true })
+  ]
+  controlConstructors.forEach((createControl) => {
+    try {
+      mapInstance.addControl(createControl())
+    } catch (error) {
+      // 部分百度地图控件在受限环境下可能不可用，不影响路线本身展示。
+    }
+  })
+}
+
+function fitMapViewport(BMap) {
+  const viewport = allPoints.value.map((point) => new BMap.Point(point.longitude, point.latitude))
+  if (viewport.length > 1) {
+    mapInstance.setViewport(viewport, {
+      margins: [48, 48, 48, 48]
+    })
+  }
 }
 
 function drawPolyline(BMap, points, color, weight, opacity, style) {
