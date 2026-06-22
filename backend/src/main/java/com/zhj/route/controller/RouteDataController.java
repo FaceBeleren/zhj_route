@@ -5,6 +5,10 @@ import com.zhj.route.service.RouteConformanceService;
 import com.zhj.route.service.FacilityImportService;
 import com.zhj.route.service.RouteMapPathService;
 import com.zhj.route.service.RouteOptimizeService;
+import com.zhj.route.service.RouteExportService;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.MediaType;
+import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -24,6 +28,7 @@ public class RouteDataController {
     private final RouteConformanceService routeConformanceService;
     private final RouteOptimizeService routeOptimizeService;
     private final RouteMapPathService routeMapPathService;
+    private final RouteExportService routeExportService;
     private final FacilityImportService facilityImportService;
 
     public RouteDataController(
@@ -31,11 +36,13 @@ public class RouteDataController {
             RouteConformanceService routeConformanceService,
             RouteOptimizeService routeOptimizeService,
             RouteMapPathService routeMapPathService,
+            RouteExportService routeExportService,
             FacilityImportService facilityImportService) {
         this.routeQueryService = routeQueryService;
         this.routeConformanceService = routeConformanceService;
         this.routeOptimizeService = routeOptimizeService;
         this.routeMapPathService = routeMapPathService;
+        this.routeExportService = routeExportService;
         this.facilityImportService = facilityImportService;
     }
 
@@ -88,6 +95,15 @@ public class RouteDataController {
     @PostMapping("/optimize/multi-preview")
     public Map<String, Object> optimizeMultiPreview(@RequestBody Map<String, Object> request) {
         return routeOptimizeService.optimizeMultiPreview(request);
+    }
+
+    @PostMapping("/optimize/multi-export")
+    public ResponseEntity<byte[]> exportMultiPreview(@RequestBody Map<String, Object> request) {
+        byte[] bytes = routeExportService.exportMultiRoutes(request);
+        return ResponseEntity.ok()
+                .header(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=multi-routes.xlsx")
+                .contentType(MediaType.parseMediaType("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"))
+                .body(bytes);
     }
 
     @GetMapping("/route-map/status")

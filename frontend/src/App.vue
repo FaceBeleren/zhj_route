@@ -461,7 +461,10 @@
             <div>
               <div class="panel-head compact">
                 <h2>生成结果</h2>
-                <span class="muted">公司级多路线</span>
+                <div class="panel-actions">
+                  <span class="muted">公司级多路线</span>
+                  <button @click="exportCompanyRoutes" :disabled="!multiOptimization || loading">导出Excel</button>
+                </div>
               </div>
               <div v-if="multiOptimization" class="optimization-box">
                 <strong>{{ multiOptimization.status }}</strong>
@@ -1207,6 +1210,33 @@ async function generateCompanyRoutes() {
       })
     })
     selectedMultiRouteNo.value = multiOptimization.value?.routes?.[0]?.routeNo || null
+  })
+}
+
+async function exportCompanyRoutes() {
+  if (!multiOptimization.value) return
+  await withLoading(async () => {
+    const response = await fetch('/api/optimize/multi-export', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        company: selectedMultiCompany.value,
+        generatedAt: new Date().toISOString(),
+        ...multiOptimization.value
+      })
+    })
+    if (!response.ok) {
+      throw new Error(`${response.status} ${response.statusText}`)
+    }
+    const blob = await response.blob()
+    const url = URL.createObjectURL(blob)
+    const link = document.createElement('a')
+    link.href = url
+    link.download = `多路线生成结果-${toDateInput(new Date())}.xlsx`
+    document.body.appendChild(link)
+    link.click()
+    link.remove()
+    URL.revokeObjectURL(url)
   })
 }
 
