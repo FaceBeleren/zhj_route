@@ -119,18 +119,22 @@ public class RouteQueryService {
 
     public Map<String, Object> companyRouteAnchors(String unitId) {
         Map<String, Object> result = new HashMap<String, Object>();
-        List<Map<String, Object>> parkingLots = companyFacilitiesByType(unitId, 4);
-        List<Map<String, Object>> transferStations = companyFacilitiesByType(unitId, 2);
-        List<Map<String, Object>> disposalSites = companyFacilitiesByType(unitId, 5);
+        List<Map<String, Object>> facilityAnchors = companyAnchorFacilities(unitId);
+        List<Map<String, Object>> parkingLots = companyParkingLots(unitId);
+        List<Map<String, Object>> transferStations = filterFacilitiesByType(facilityAnchors, 2);
+        List<Map<String, Object>> disposalSites = filterFacilitiesByType(facilityAnchors, 5);
+        result.put("facilityAnchors", facilityAnchors);
         result.put("parkingLots", parkingLots);
         result.put("transferStations", transferStations);
         result.put("disposalSites", disposalSites);
         result.put("configuredPairs", transferDisposalPairs(unitId));
-        result.put("defaultStart", parkingLots.isEmpty() ? null : parkingLots.get(0));
+        result.put("defaultStart", parkingLots.isEmpty() ? firstOrNull(facilityAnchors) : parkingLots.get(0));
         if (!disposalSites.isEmpty()) {
             result.put("defaultEnd", disposalSites.get(0));
+        } else if (!transferStations.isEmpty()) {
+            result.put("defaultEnd", transferStations.get(0));
         } else {
-            result.put("defaultEnd", transferStations.isEmpty() ? null : transferStations.get(0));
+            result.put("defaultEnd", firstOrNull(facilityAnchors));
         }
         return result;
     }
@@ -184,14 +188,45 @@ public class RouteQueryService {
         return !rows.isEmpty();
     }
 
-    private List<Map<String, Object>> companyFacilitiesByType(String unitId, int facilityType) {
+    private List<Map<String, Object>> companyAnchorFacilities(String unitId) {
         String sql = "SELECT f.id AS facilityId, f.name AS facilityName, f.facility_type AS facilityType, " +
-                "f.facility_type_name AS facilityTypeName, f.longitude_done AS longitude, f.latitude_done AS latitude " +
+                "f.facility_type_name AS facilityTypeName, f.longitude_done AS longitude, f.latitude_done AS latitude, " +
+                "'FACILITY' AS anchorSource " +
                 "FROM ljszy_facility_info f " +
-                "WHERE f.been_deleted = 0 AND f.department_id = ? AND f.facility_type = ? " +
+                "WHERE f.been_deleted = 0 AND f.department_id = ? " +
                 "AND f.longitude_done IS NOT NULL AND f.latitude_done IS NOT NULL " +
-                "ORDER BY f.name, f.id";
-        return jdbcTemplate.queryForList(sql, unitId, facilityType);
+                "ORDER BY FIELD(f.facility_type, 5, 2, 6), f.name, f.id";
+        return jdbcTemplate.queryForList(sql, unitId);
+    }
+
+    private List<Map<String, Object>> companyParkingLots(String unitId) {
+        String sql = "SELECT equip.id AS facilityId, equip.name AS facilityName, " +
+                "equip.typeId AS facilityType, equip.typeName AS facilityTypeName, " +
+                "equip.longitudeDone AS longitude, equip.latitudeDone AS latitude, " +
+                "equip.groupCode AS groupCode, equip.location AS location, 'PARKING' AS anchorSource " +
+                "FROM sszhgl.sszhgl_equipment equip " +
+                "WHERE IFNULL(equip.beenDeleted, 0) = 0 " +
+                "AND (equip.enable IS NULL OR equip.enable = 1) " +
+                "AND equip.accUnitId = ? " +
+                "AND (equip.typeId = '4' OR equip.typeName = '停车场') " +
+                "AND equip.longitudeDone IS NOT NULL AND equip.latitudeDone IS NOT NULL " +
+                "ORDER BY equip.name, equip.id";
+        return jdbcTemplate.queryForList(sql, unitId);
+    }
+
+    private List<Map<String, Object>> filterFacilitiesByType(List<Map<String, Object>> facilities, int facilityType) {
+        List<Map<String, Object>> result = new ArrayList<Map<String, Object>>();
+        for (Map<String, Object> facility : facilities) {
+            Object value = facility.get("facilityType");
+            if (value != null && String.valueOf(facilityType).equals(String.valueOf(value))) {
+                result.add(facility);
+            }
+        }
+        return result;
+    }
+
+    private Map<String, Object> firstOrNull(List<Map<String, Object>> rows) {
+        return rows.isEmpty() ? null : rows.get(0);
     }
 
     private List<Map<String, Object>> transferDisposalPairs(String unitId) {

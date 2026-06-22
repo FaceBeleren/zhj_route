@@ -564,6 +564,12 @@ tbody tr.active {
   padding: 0 8px;
   background: #fff;
 }
+.optimizer-controls input:disabled,
+.optimizer-controls select:disabled {
+  color: #7c8794;
+  background: #eef2f6;
+  cursor: not-allowed;
+}
 .route-mode-toggle {
   position: relative;
   min-height: 30px;

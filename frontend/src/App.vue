@@ -330,18 +330,34 @@
                 <small>{{ optimizeOptions.useRoadPath ? 'OD缓存/百度补算' : '直线距离' }}</small>
               </label>
               <label>
-                起点场站
-                <select v-model="selectedStartAnchorKey" @change="applySelectedStartAnchor">
-                  <option value="">自动/手填</option>
+                起点类型
+                <select v-model="startAnchorMode" @change="onAnchorModeChange('start')">
+                  <option value="facility">设施点</option>
+                  <option value="parking">停车场</option>
+                  <option value="manual">手填</option>
+                </select>
+              </label>
+              <label>
+                起点筛选
+                <select v-model="selectedStartAnchorKey" :disabled="startAnchorMode === 'manual'" @change="applySelectedStartAnchor">
+                  <option value="">请选择</option>
                   <option v-for="anchor in startAnchorOptions" :key="anchor.key" :value="anchor.key">
                     {{ anchor.label }}
                   </option>
                 </select>
               </label>
               <label>
-                终点场站
-                <select v-model="selectedEndAnchorKey" @change="applySelectedEndAnchor">
-                  <option value="">自动/手填</option>
+                终点类型
+                <select v-model="endAnchorMode" @change="onAnchorModeChange('end')">
+                  <option value="facility">设施点</option>
+                  <option value="parking">停车场</option>
+                  <option value="manual">手填</option>
+                </select>
+              </label>
+              <label>
+                终点筛选
+                <select v-model="selectedEndAnchorKey" :disabled="endAnchorMode === 'manual'" @change="applySelectedEndAnchor">
+                  <option value="">请选择</option>
                   <option v-for="anchor in endAnchorOptions" :key="anchor.key" :value="anchor.key">
                     {{ anchor.label }}
                   </option>
@@ -349,19 +365,19 @@
               </label>
               <label>
                 起点经度
-                <input v-model.number="optimizeOptions.startLongitude" type="number" step="0.000001" placeholder="自动" />
+                <input v-model.number="optimizeOptions.startLongitude" :disabled="startAnchorMode !== 'manual'" type="number" step="0.000001" placeholder="手填" />
               </label>
               <label>
                 起点纬度
-                <input v-model.number="optimizeOptions.startLatitude" type="number" step="0.000001" placeholder="自动" />
+                <input v-model.number="optimizeOptions.startLatitude" :disabled="startAnchorMode !== 'manual'" type="number" step="0.000001" placeholder="手填" />
               </label>
               <label>
                 终点经度
-                <input v-model.number="optimizeOptions.endLongitude" type="number" step="0.000001" placeholder="自动" />
+                <input v-model.number="optimizeOptions.endLongitude" :disabled="endAnchorMode !== 'manual'" type="number" step="0.000001" placeholder="手填" />
               </label>
               <label>
                 终点纬度
-                <input v-model.number="optimizeOptions.endLatitude" type="number" step="0.000001" placeholder="自动" />
+                <input v-model.number="optimizeOptions.endLatitude" :disabled="endAnchorMode !== 'manual'" type="number" step="0.000001" placeholder="手填" />
               </label>
             </div>
             <div v-if="selectedMultiCompany" class="route-overview">
@@ -774,6 +790,8 @@ const selectedMultiCompany = ref(null)
 const selectedRoute = ref(null)
 const selectedRecord = ref(null)
 const selectedMultiRouteNo = ref(null)
+const startAnchorMode = ref('parking')
+const endAnchorMode = ref('facility')
 const selectedStartAnchorKey = ref('')
 const selectedEndAnchorKey = ref('')
 const selectedCompanyPointIds = ref(new Set())
@@ -847,19 +865,12 @@ const companyPointVisibleList = computed(() =>
     )
   })
 )
-const startAnchorOptions = computed(() => [
-  ...anchorOptions(companyAnchors.value.parkingLots, '停车场', 'parking'),
-  ...anchorOptions(companyAnchors.value.transferStations, '中转站', 'transfer')
-])
-const endAnchorOptions = computed(() => [
-  ...anchorOptions(companyAnchors.value.disposalSites, '处置场', 'disposal'),
-  ...anchorOptions(companyAnchors.value.transferStations, '中转站', 'transfer')
-])
+const startAnchorOptions = computed(() => anchorOptionsByMode(startAnchorMode.value))
+const endAnchorOptions = computed(() => anchorOptionsByMode(endAnchorMode.value))
 const routeAnchorCount = computed(
   () =>
-    (companyAnchors.value.parkingLots?.length || 0) +
-    (companyAnchors.value.transferStations?.length || 0) +
-    (companyAnchors.value.disposalSites?.length || 0)
+    (companyAnchors.value.facilityAnchors?.length || 0) +
+    (companyAnchors.value.parkingLots?.length || 0)
 )
 
 onMounted(async () => {
@@ -1063,6 +1074,7 @@ function clearMultiOptimization() {
 
 function resetAnchors() {
   companyAnchors.value = {
+    facilityAnchors: [],
     parkingLots: [],
     transferStations: [],
     disposalSites: [],
@@ -1070,6 +1082,8 @@ function resetAnchors() {
     defaultStart: null,
     defaultEnd: null
   }
+  startAnchorMode.value = 'parking'
+  endAnchorMode.value = 'facility'
   selectedStartAnchorKey.value = ''
   selectedEndAnchorKey.value = ''
   optimizeOptions.startLongitude = null
@@ -1080,6 +1094,7 @@ function resetAnchors() {
 
 function normalizeAnchors(anchors) {
   return {
+    facilityAnchors: anchors?.facilityAnchors || [],
     parkingLots: anchors?.parkingLots || [],
     transferStations: anchors?.transferStations || [],
     disposalSites: anchors?.disposalSites || [],
@@ -1089,41 +1104,67 @@ function normalizeAnchors(anchors) {
   }
 }
 
+function anchorOptionsByMode(mode) {
+  if (mode === 'parking') {
+    return anchorOptions(companyAnchors.value.parkingLots, '停车场', 'parking')
+  }
+  if (mode === 'facility') {
+    return anchorOptions(companyAnchors.value.facilityAnchors, '设施点', 'facility')
+  }
+  return []
+}
+
 function anchorOptions(items, typeName, typeKey) {
   return (items || []).map((item) => ({
     ...item,
     key: `${typeKey}:${item.facilityId}`,
-    label: `${typeName} · ${item.facilityName || item.facilityId}`
+    label: `${typeName} · ${item.facilityTypeName || '-'} · ${item.facilityName || item.facilityId}`
   }))
 }
 
-function findAnchor(key) {
-  return [...startAnchorOptions.value, ...endAnchorOptions.value].find((item) => item.key === key)
+function findAnchor(key, mode) {
+  return anchorOptionsByMode(mode).find((item) => item.key === key)
 }
 
-function keyForAnchor(anchor, typeKey) {
-  return anchor?.facilityId ? `${typeKey}:${anchor.facilityId}` : ''
+function modeForAnchor(anchor, fallback = 'facility') {
+  if (!anchor) return fallback
+  return anchor.anchorSource === 'PARKING' ? 'parking' : 'facility'
+}
+
+function keyForAnchor(anchor) {
+  if (!anchor?.facilityId) return ''
+  return `${modeForAnchor(anchor)}:${anchor.facilityId}`
 }
 
 function applyDefaultAnchors() {
   if (companyAnchors.value.defaultStart) {
-    const typeKey = Number(companyAnchors.value.defaultStart.facilityType) === 2 ? 'transfer' : 'parking'
-    selectedStartAnchorKey.value = keyForAnchor(companyAnchors.value.defaultStart, typeKey)
+    startAnchorMode.value = modeForAnchor(companyAnchors.value.defaultStart, 'parking')
+    selectedStartAnchorKey.value = keyForAnchor(companyAnchors.value.defaultStart)
     applyAnchorToOptions(companyAnchors.value.defaultStart, 'start')
   }
   if (companyAnchors.value.defaultEnd) {
-    const typeKey = Number(companyAnchors.value.defaultEnd.facilityType) === 2 ? 'transfer' : 'disposal'
-    selectedEndAnchorKey.value = keyForAnchor(companyAnchors.value.defaultEnd, typeKey)
+    endAnchorMode.value = modeForAnchor(companyAnchors.value.defaultEnd, 'facility')
+    selectedEndAnchorKey.value = keyForAnchor(companyAnchors.value.defaultEnd)
     applyAnchorToOptions(companyAnchors.value.defaultEnd, 'end')
   }
 }
 
+function onAnchorModeChange(prefix) {
+  if (prefix === 'start') {
+    selectedStartAnchorKey.value = ''
+    applyAnchorToOptions(null, 'start')
+    return
+  }
+  selectedEndAnchorKey.value = ''
+  applyAnchorToOptions(null, 'end')
+}
+
 function applySelectedStartAnchor() {
-  applyAnchorToOptions(findAnchor(selectedStartAnchorKey.value), 'start')
+  applyAnchorToOptions(findAnchor(selectedStartAnchorKey.value, startAnchorMode.value), 'start')
 }
 
 function applySelectedEndAnchor() {
-  applyAnchorToOptions(findAnchor(selectedEndAnchorKey.value), 'end')
+  applyAnchorToOptions(findAnchor(selectedEndAnchorKey.value, endAnchorMode.value), 'end')
 }
 
 function applyAnchorToOptions(anchor, prefix) {
