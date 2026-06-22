@@ -424,7 +424,8 @@ public class RouteOptimizeService {
             longitude = centroidLongitude(points);
             latitude = centroidLatitude(points);
         }
-        return new RoutePoint(facilityId, name, longitude, latitude, null, 0D, 0D, null, null, "ANCHOR");
+        String anchorName = textOrDefault(request.get(prefix + "FacilityName"), name);
+        return new RoutePoint(facilityId, anchorName, longitude, latitude, null, 0D, 0D, null, null, "ANCHOR");
     }
 
     private double centroidLongitude(List<RoutePoint> points) {
@@ -525,6 +526,14 @@ public class RouteOptimizeService {
             total += pointCount == null ? 0 : pointCount;
         }
         return total;
+    }
+
+    private String textOrDefault(Object value, String fallback) {
+        if (value == null) {
+            return fallback;
+        }
+        String text = String.valueOf(value).trim();
+        return text.isEmpty() ? fallback : text;
     }
 
     private Long toLong(Object value) {

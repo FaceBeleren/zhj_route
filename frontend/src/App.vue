@@ -826,8 +826,10 @@ const optimizeOptions = reactive({
   useRoadPath: false,
   startLongitude: null,
   startLatitude: null,
+  startFacilityName: null,
   endLongitude: null,
-  endLatitude: null
+  endLatitude: null,
+  endFacilityName: null
 })
 
 const filteredCompanies = computed(() => {
@@ -1091,8 +1093,10 @@ function resetAnchors() {
   selectedEndAnchorKey.value = ''
   optimizeOptions.startLongitude = null
   optimizeOptions.startLatitude = null
+  optimizeOptions.startFacilityName = null
   optimizeOptions.endLongitude = null
   optimizeOptions.endLatitude = null
+  optimizeOptions.endFacilityName = null
 }
 
 function normalizeAnchors(anchors) {
@@ -1173,13 +1177,16 @@ function applySelectedEndAnchor() {
 function applyAnchorToOptions(anchor, prefix) {
   const longitudeKey = `${prefix}Longitude`
   const latitudeKey = `${prefix}Latitude`
+  const nameKey = `${prefix}FacilityName`
   if (!anchor) {
     optimizeOptions[longitudeKey] = null
     optimizeOptions[latitudeKey] = null
+    optimizeOptions[nameKey] = null
     return
   }
   optimizeOptions[longitudeKey] = Number(anchor.longitude)
   optimizeOptions[latitudeKey] = Number(anchor.latitude)
+  optimizeOptions[nameKey] = anchor.facilityName || anchor.facilityId
 }
 
 async function previewOptimize() {
