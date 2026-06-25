@@ -667,6 +667,9 @@ tbody tr.active {
 
 .multi-routes {
   display: grid;
+  max-height: 430px;
+  overflow-y: auto;
+  padding-right: 4px;
   gap: 8px;
 }
 
