@@ -1169,7 +1169,7 @@ function syncVehiclesWithDefaultCapacity() {
   dispatchVehicles.value = dispatchVehicles.value.map((vehicle) => ({
     ...vehicle,
     ratedCapacityKg: rated,
-    maxCapacityKg: Math.max(Number(vehicle.maxCapacityKg || 0), rated)
+    maxCapacityKg: rated
   }))
   clearMultiOptimization()
 }
