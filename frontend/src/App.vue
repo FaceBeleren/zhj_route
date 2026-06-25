@@ -394,14 +394,54 @@
                 <strong>{{ formatWeight(selectedCompanyPointWeight) }}</strong>
               </div>
               <div>
-                <span>目标单趟</span>
-                <strong>{{ formatWeight(optimizeOptions.ratedCapacityKg * optimizeOptions.targetLoadRate) }}</strong>
+                <span>计划趟次</span>
+                <strong>{{ dispatchTripCount }}</strong>
+              </div>
+              <div>
+                <span>计划额定总量</span>
+                <strong>{{ formatWeight(plannedCapacityKg) }}</strong>
               </div>
               <div>
                 <span>场站候选</span>
                 <strong>{{ routeAnchorCount }}</strong>
               </div>
             </div>
+            <section v-if="selectedMultiCompany" class="dispatch-panel">
+              <div class="dispatch-head">
+                <div>
+                  <h3>车辆排班</h3>
+                  <small>当前版本按下方顺序逐趟生成路线，暂不自动重排车辆</small>
+                </div>
+                <div class="dispatch-actions">
+                  <button @click="syncVehiclesWithDefaultCapacity">套用上方载重</button>
+                  <button @click="addDispatchVehicle">添加车辆</button>
+                </div>
+              </div>
+              <div class="dispatch-table">
+                <div class="dispatch-row dispatch-row-head">
+                  <span>顺序</span>
+                  <span>车辆</span>
+                  <span>车型</span>
+                  <span>额定kg</span>
+                  <span>最大kg</span>
+                  <span>趟数</span>
+                  <span>操作</span>
+                </div>
+                <div v-for="(vehicle, index) in dispatchVehicles" :key="vehicle.localId" class="dispatch-row">
+                  <strong>{{ index + 1 }}</strong>
+                  <input v-model="vehicle.vehicleName" @input="clearMultiOptimization" placeholder="车牌/车辆名" />
+                  <input v-model="vehicle.vehicleType" @input="clearMultiOptimization" placeholder="车型" />
+                  <input v-model.number="vehicle.ratedCapacityKg" @input="clearMultiOptimization" type="number" min="1" step="100" />
+                  <input v-model.number="vehicle.maxCapacityKg" @input="clearMultiOptimization" type="number" min="1" step="100" />
+                  <input v-model.number="vehicle.tripCount" @input="clearMultiOptimization" type="number" min="1" step="1" />
+                  <div class="dispatch-row-actions">
+                    <button @click="moveDispatchVehicle(index, -1)" :disabled="index === 0">上移</button>
+                    <button @click="moveDispatchVehicle(index, 1)" :disabled="index === dispatchVehicles.length - 1">下移</button>
+                    <button @click="removeDispatchVehicle(index)" :disabled="dispatchVehicles.length === 1">删除</button>
+                  </div>
+                </div>
+              </div>
+            </section>
             <div v-else class="empty">选择公司后读取点位池</div>
           </section>
 
@@ -475,7 +515,8 @@
                   <span>未分配 {{ multiOptimization.unassignedPointCount || 0 }}</span>
                   <span>已分配量 {{ formatWeight(multiOptimization.assignedWeightKg) }}</span>
                   <span>未分配量 {{ formatWeight(multiOptimization.unassignedWeightKg) }}</span>
-                  <span>目标载重 {{ formatWeight(multiOptimization.targetLoadWeightKg) }}</span>
+                  <span>计划趟次 {{ multiOptimization.dispatchTripCount || 0 }}</span>
+                  <span>计划容量 {{ formatWeight(multiOptimization.totalPlannedCapacityKg) }}</span>
                 </div>
                 <div class="multi-routes">
                   <article
@@ -486,8 +527,9 @@
                     @click="selectedMultiRouteNo = route.routeNo"
                   >
                     <div>
-                      <strong>第 {{ route.routeNo }} 趟</strong>
+                      <strong>第 {{ route.routeNo }} 趟 · {{ route.vehicleName || '默认车辆' }} 第{{ route.tripNo || route.routeNo }}趟</strong>
                       <small>
+                        {{ route.vehicleType || '未填车型' }} · 额定 {{ formatWeight(route.ratedCapacityKg) }} ·
                         {{ route.pointCount }} 点 · {{ formatWeight(route.estimatedWeightKg) }} ·
                         {{ formatDistance(route.distance) }} · {{ formatDuration(route.durationMinutes) }} · 装载率 {{ formatLoadRate(route.loadRate) }} ·
                         {{ pathSourceSummary(route.segments) }}
@@ -798,6 +840,7 @@ const endAnchorMode = ref('facility')
 const selectedStartAnchorKey = ref('')
 const selectedEndAnchorKey = ref('')
 const selectedCompanyPointIds = ref(new Set())
+const dispatchVehicles = ref([])
 
 const companyKeyword = ref('')
 const pointKeyword = ref('')
@@ -831,6 +874,7 @@ const optimizeOptions = reactive({
   endLatitude: null,
   endFacilityName: null
 })
+dispatchVehicles.value = [createDispatchVehicle(1)]
 
 const filteredCompanies = computed(() => {
   const keyword = companyKeyword.value.trim().toLowerCase()
@@ -876,6 +920,14 @@ const routeAnchorCount = computed(
   () =>
     (companyAnchors.value.facilityAnchors?.length || 0) +
     (companyAnchors.value.parkingLots?.length || 0)
+)
+const dispatchTripCount = computed(() =>
+  dispatchVehicles.value.reduce((sum, vehicle) => sum + Math.max(1, Number(vehicle.tripCount || 1)), 0)
+)
+const plannedCapacityKg = computed(() =>
+  dispatchVehicles.value.reduce((sum, vehicle) => {
+    return sum + Number(vehicle.ratedCapacityKg || 0) * Math.max(1, Number(vehicle.tripCount || 1))
+  }, 0)
 )
 
 onMounted(async () => {
@@ -1077,6 +1129,72 @@ function clearMultiOptimization() {
   selectedMultiRouteNo.value = null
 }
 
+function createDispatchVehicle(index) {
+  const rated = Number(optimizeOptions?.ratedCapacityKg || 5000)
+  return {
+    localId: `${Date.now()}-${Math.random()}-${index}`,
+    vehicleId: `vehicle-${index}`,
+    vehicleName: `车辆${index}`,
+    vehicleType: '',
+    ratedCapacityKg: rated,
+    maxCapacityKg: rated,
+    tripCount: 1
+  }
+}
+
+function addDispatchVehicle() {
+  dispatchVehicles.value = [...dispatchVehicles.value, createDispatchVehicle(dispatchVehicles.value.length + 1)]
+  clearMultiOptimization()
+}
+
+function removeDispatchVehicle(index) {
+  if (dispatchVehicles.value.length <= 1) return
+  dispatchVehicles.value = dispatchVehicles.value.filter((_, itemIndex) => itemIndex !== index)
+  clearMultiOptimization()
+}
+
+function moveDispatchVehicle(index, offset) {
+  const target = index + offset
+  if (target < 0 || target >= dispatchVehicles.value.length) return
+  const next = [...dispatchVehicles.value]
+  const current = next[index]
+  next[index] = next[target]
+  next[target] = current
+  dispatchVehicles.value = next
+  clearMultiOptimization()
+}
+
+function syncVehiclesWithDefaultCapacity() {
+  const rated = Number(optimizeOptions.ratedCapacityKg || 5000)
+  dispatchVehicles.value = dispatchVehicles.value.map((vehicle) => ({
+    ...vehicle,
+    ratedCapacityKg: rated,
+    maxCapacityKg: Math.max(Number(vehicle.maxCapacityKg || 0), rated)
+  }))
+  clearMultiOptimization()
+}
+
+function normalizedDispatchVehicles() {
+  return dispatchVehicles.value.map((vehicle, index) => {
+    const rated = Math.max(1, Number(vehicle.ratedCapacityKg || optimizeOptions.ratedCapacityKg || 5000))
+    const max = Math.max(rated, Number(vehicle.maxCapacityKg || rated))
+    return {
+      vehicleId: vehicle.vehicleId || `vehicle-${index + 1}`,
+      vehicleName: vehicle.vehicleName || `车辆${index + 1}`,
+      vehicleType: vehicle.vehicleType || '',
+      ratedCapacityKg: rated,
+      maxCapacityKg: max,
+      tripCount: Math.max(1, Number(vehicle.tripCount || 1)),
+      startLongitude: optimizeOptions.startLongitude,
+      startLatitude: optimizeOptions.startLatitude,
+      startFacilityName: optimizeOptions.startFacilityName,
+      endLongitude: optimizeOptions.endLongitude,
+      endLatitude: optimizeOptions.endLatitude,
+      endFacilityName: optimizeOptions.endFacilityName
+    }
+  })
+}
+
 function resetAnchors() {
   companyAnchors.value = {
     facilityAnchors: [],
@@ -1213,6 +1331,8 @@ async function generateCompanyRoutes() {
       body: JSON.stringify({
         unitId: selectedMultiCompany.value.id,
         facilityIds: Array.from(selectedCompanyPointIds.value),
+        dispatchMode: 'USER_ORDER',
+        vehicles: normalizedDispatchVehicles(),
         ...optimizeOptions
       })
     })

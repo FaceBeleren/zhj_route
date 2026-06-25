@@ -85,7 +85,6 @@ public class RouteOptimizeService {
         double targetLoadRate = targetLoadRate(request);
         double targetLoadWeightKg = ratedCapacityKg * targetLoadRate;
         double maxCapacityKg = maxCapacityKg(request, ratedCapacityKg);
-        int maxRoutes = maxRoutes(request);
 
         if (sourcePoints.isEmpty()) {
             Map<String, Object> result = new HashMap<String, Object>();
@@ -122,15 +121,19 @@ public class RouteOptimizeService {
             remaining.addAll(sourcePoints.subList(1, sourcePoints.size() - 1));
         }
 
+        List<DispatchTrip> dispatchPlan = buildDispatchPlan(request, start, end, ratedCapacityKg, maxCapacityKg, targetLoadRate);
         int routeNo = 1;
-        while (!remaining.isEmpty() && routeNo <= maxRoutes) {
-            List<RoutePoint> route = buildCapacityRoute(start, end, remaining, targetLoadWeightKg, maxCapacityKg);
+        for (DispatchTrip trip : dispatchPlan) {
+            if (remaining.isEmpty()) {
+                break;
+            }
+            List<RoutePoint> route = buildCapacityRoute(trip.start, trip.end, remaining, trip.targetLoadWeightKg, trip.maxCapacityKg);
             List<RoutePoint> collected = collectedPoints(route);
             if (collected.isEmpty()) {
                 break;
             }
             remaining.removeAll(collected);
-            routes.add(multiRouteView(routeNo, route, request, ratedCapacityKg));
+            routes.add(multiRouteView(routeNo, route, request, trip));
             routeNo++;
         }
 
@@ -153,6 +156,9 @@ public class RouteOptimizeService {
         result.put("targetLoadRate", round(targetLoadRate));
         result.put("targetLoadWeightKg", round(targetLoadWeightKg));
         result.put("maxCapacityKg", round(maxCapacityKg));
+        result.put("dispatchMode", textOrDefault(request.get("dispatchMode"), "USER_ORDER"));
+        result.put("dispatchTripCount", dispatchPlan.size());
+        result.put("totalPlannedCapacityKg", round(totalPlannedCapacity(dispatchPlan)));
         result.put("routes", routes);
         result.put("unassignedPoints", pointViews(unassigned));
         return result;
@@ -280,18 +286,86 @@ public class RouteOptimizeService {
         return new ArrayList<RoutePoint>(route.subList(1, route.size() - 1));
     }
 
+    private List<DispatchTrip> buildDispatchPlan(Map<String, Object> request, RoutePoint defaultStart, RoutePoint defaultEnd,
+                                                 double defaultRatedCapacityKg, double defaultMaxCapacityKg,
+                                                 double targetLoadRate) {
+        List<DispatchTrip> plan = new ArrayList<DispatchTrip>();
+        List<Map<String, Object>> vehicles = maps(request.get("vehicles"));
+        int vehicleIndex = 1;
+        for (Map<String, Object> vehicle : vehicles) {
+            double rated = positiveOrDefault(toDouble(vehicle.get("ratedCapacityKg")), defaultRatedCapacityKg);
+            double max = positiveOrDefault(toDouble(vehicle.get("maxCapacityKg")), rated);
+            int tripCount = positiveOrDefault(toInteger(vehicle.get("tripCount")), 1);
+            RoutePoint start = anchorPointFromVehicle(vehicle, "start", defaultStart);
+            RoutePoint end = anchorPointFromVehicle(vehicle, "end", defaultEnd);
+            for (int tripNo = 1; tripNo <= tripCount; tripNo++) {
+                plan.add(new DispatchTrip(
+                        vehicleIndex,
+                        textOrDefault(vehicle.get("vehicleId"), "vehicle-" + vehicleIndex),
+                        textOrDefault(vehicle.get("vehicleName"), "车辆" + vehicleIndex),
+                        textOrDefault(vehicle.get("vehicleType"), ""),
+                        tripNo,
+                        rated,
+                        max,
+                        rated * targetLoadRate,
+                        start,
+                        end));
+            }
+            vehicleIndex++;
+        }
+        if (!plan.isEmpty()) {
+            return plan;
+        }
+
+        int maxRoutes = maxRoutes(request);
+        for (int routeNo = 1; routeNo <= maxRoutes; routeNo++) {
+            plan.add(new DispatchTrip(1, "legacy", "默认车辆", "", routeNo,
+                    defaultRatedCapacityKg, defaultMaxCapacityKg, defaultRatedCapacityKg * targetLoadRate,
+                    defaultStart, defaultEnd));
+        }
+        return plan;
+    }
+
+    private RoutePoint anchorPointFromVehicle(Map<String, Object> vehicle, String prefix, RoutePoint fallback) {
+        Double longitude = toDouble(vehicle.get(prefix + "Longitude"));
+        Double latitude = toDouble(vehicle.get(prefix + "Latitude"));
+        if (longitude == null || latitude == null) {
+            return fallback;
+        }
+        String name = textOrDefault(vehicle.get(prefix + "FacilityName"), fallback.getFacilityName());
+        Long facilityId = toLong(vehicle.get(prefix + "FacilityId"));
+        return new RoutePoint(facilityId == null ? fallback.getFacilityId() : facilityId,
+                name, longitude, latitude, null, 0D, 0D, null, null, "ANCHOR");
+    }
+
+    private double totalPlannedCapacity(List<DispatchTrip> plan) {
+        double total = 0D;
+        for (DispatchTrip trip : plan) {
+            total += trip.ratedCapacityKg;
+        }
+        return total;
+    }
+
     private Map<String, Object> multiRouteView(int routeNo, List<RoutePoint> route, Map<String, Object> request,
-                                               double ratedCapacityKg) {
+                                               DispatchTrip trip) {
         Map<String, Object> view = new HashMap<String, Object>();
         List<RoutePoint> collected = collectedPoints(route);
         double weight = sumEstimatedWeight(collected);
         List<Map<String, Object>> segments = segmentViews(route, speedKmh(request), useRoadPath(request));
         view.put("routeNo", routeNo);
+        view.put("vehicleIndex", trip.vehicleIndex);
+        view.put("vehicleId", trip.vehicleId);
+        view.put("vehicleName", trip.vehicleName);
+        view.put("vehicleType", trip.vehicleType);
+        view.put("tripNo", trip.tripNo);
+        view.put("ratedCapacityKg", round(trip.ratedCapacityKg));
+        view.put("maxCapacityKg", round(trip.maxCapacityKg));
+        view.put("targetLoadWeightKg", round(trip.targetLoadWeightKg));
         view.put("pointCount", collected.size());
         view.put("sequence", sequence(route));
         view.put("estimatedWeightKg", round(weight));
         view.put("estimatedVolumeLiter", round(sumEstimatedVolume(collected)));
-        view.put("loadRate", ratedCapacityKg <= 0D ? 0D : round(weight / ratedCapacityKg));
+        view.put("loadRate", trip.ratedCapacityKg <= 0D ? 0D : round(weight / trip.ratedCapacityKg));
         view.put("distance", round(sumSegmentDistance(segments)));
         view.put("durationMinutes", round(sumSegmentDuration(segments)));
         view.put("points", pointViews(route));
@@ -528,6 +602,27 @@ public class RouteOptimizeService {
         return total;
     }
 
+    @SuppressWarnings("unchecked")
+    private List<Map<String, Object>> maps(Object value) {
+        if (value instanceof List<?>) {
+            List<Map<String, Object>> rows = new ArrayList<Map<String, Object>>();
+            for (Object item : (List<?>) value) {
+                if (item instanceof Map<?, ?>) {
+                    rows.add((Map<String, Object>) item);
+                }
+            }
+            return rows;
+        }
+        return new ArrayList<Map<String, Object>>();
+    }
+
+    private double positiveOrDefault(Double value, double fallback) {
+        return value == null || value <= 0D ? fallback : value;
+    }
+
+    private int positiveOrDefault(Integer value, int fallback) {
+        return value == null || value <= 0 ? fallback : value;
+    }
     private String textOrDefault(Object value, String fallback) {
         if (value == null) {
             return fallback;
@@ -602,6 +697,33 @@ public class RouteOptimizeService {
         return Math.round(value * 100D) / 100D;
     }
 
+    private static class DispatchTrip {
+        private final int vehicleIndex;
+        private final String vehicleId;
+        private final String vehicleName;
+        private final String vehicleType;
+        private final int tripNo;
+        private final double ratedCapacityKg;
+        private final double maxCapacityKg;
+        private final double targetLoadWeightKg;
+        private final RoutePoint start;
+        private final RoutePoint end;
+
+        private DispatchTrip(int vehicleIndex, String vehicleId, String vehicleName, String vehicleType, int tripNo,
+                             double ratedCapacityKg, double maxCapacityKg, double targetLoadWeightKg,
+                             RoutePoint start, RoutePoint end) {
+            this.vehicleIndex = vehicleIndex;
+            this.vehicleId = vehicleId;
+            this.vehicleName = vehicleName;
+            this.vehicleType = vehicleType;
+            this.tripNo = tripNo;
+            this.ratedCapacityKg = ratedCapacityKg;
+            this.maxCapacityKg = maxCapacityKg;
+            this.targetLoadWeightKg = targetLoadWeightKg;
+            this.start = start;
+            this.end = end;
+        }
+    }
     private static class InsertChoice {
         private final RoutePoint point;
         private final int insertIndex;

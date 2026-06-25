@@ -42,6 +42,8 @@ public class RouteExportService {
         rowIndex = writePair(sheet, rowIndex, "未分配点位", value(result.get("unassignedPointCount")));
         rowIndex = writePair(sheet, rowIndex, "已分配重量kg", value(result.get("assignedWeightKg")));
         rowIndex = writePair(sheet, rowIndex, "未分配重量kg", value(result.get("unassignedWeightKg")));
+        rowIndex = writePair(sheet, rowIndex, "计划趟次", value(result.get("dispatchTripCount")));
+        rowIndex = writePair(sheet, rowIndex, "计划额定总量kg", value(result.get("totalPlannedCapacityKg")));
         rowIndex = writePair(sheet, rowIndex, "目标单趟重量kg", value(result.get("targetLoadWeightKg")));
         rowIndex = writePair(sheet, rowIndex, "额定载重kg", value(result.get("ratedCapacityKg")));
         writePair(sheet, rowIndex, "目标装载率", value(result.get("targetLoadRate")));
@@ -50,45 +52,52 @@ public class RouteExportService {
 
     private void writeRoutes(Workbook workbook, CellStyle headerStyle, Map<String, Object> result) {
         Sheet sheet = workbook.createSheet("路线明细");
-        writeHeader(sheet, headerStyle, "路线", "点位顺序", "点位ID", "点位名称", "角色", "预计重量kg", "预计体积L", "装载率", "路线距离m", "路线耗时min");
+        writeHeader(sheet, headerStyle, "路线", "车辆", "车型", "第几趟", "额定载重kg", "点位顺序", "点位ID", "点位名称", "角色", "预计重量kg", "预计体积L", "装载率", "路线距离m", "路线耗时min");
         int rowIndex = 1;
         for (Map<String, Object> route : maps(result.get("routes"))) {
             for (Map<String, Object> point : maps(route.get("points"))) {
                 Row row = sheet.createRow(rowIndex++);
                 write(row, 0, route.get("routeNo"));
-                write(row, 1, point.get("order"));
-                write(row, 2, point.get("facilityId"));
-                write(row, 3, point.get("facilityName"));
-                write(row, 4, point.get("role"));
-                write(row, 5, point.get("estimatedWeightKg"));
-                write(row, 6, point.get("estimatedVolumeLiter"));
-                write(row, 7, route.get("loadRate"));
-                write(row, 8, route.get("distance"));
-                write(row, 9, route.get("durationMinutes"));
+                write(row, 1, route.get("vehicleName"));
+                write(row, 2, route.get("vehicleType"));
+                write(row, 3, route.get("tripNo"));
+                write(row, 4, route.get("ratedCapacityKg"));
+                write(row, 5, point.get("order"));
+                write(row, 6, point.get("facilityId"));
+                write(row, 7, point.get("facilityName"));
+                write(row, 8, point.get("role"));
+                write(row, 9, point.get("estimatedWeightKg"));
+                write(row, 10, point.get("estimatedVolumeLiter"));
+                write(row, 11, route.get("loadRate"));
+                write(row, 12, route.get("distance"));
+                write(row, 13, route.get("durationMinutes"));
             }
         }
-        autosize(sheet, 10);
+        autosize(sheet, 14);
     }
 
     private void writeSegments(Workbook workbook, CellStyle headerStyle, Map<String, Object> result) {
         Sheet sheet = workbook.createSheet("路段明细");
-        writeHeader(sheet, headerStyle, "路线", "路段", "起点ID", "起点名称", "终点ID", "终点名称", "距离m", "耗时min", "路径来源");
+        writeHeader(sheet, headerStyle, "路线", "车辆", "车型", "第几趟", "路段", "起点ID", "起点名称", "终点ID", "终点名称", "距离m", "耗时min", "路径来源");
         int rowIndex = 1;
         for (Map<String, Object> route : maps(result.get("routes"))) {
             for (Map<String, Object> segment : maps(route.get("segments"))) {
                 Row row = sheet.createRow(rowIndex++);
                 write(row, 0, route.get("routeNo"));
-                write(row, 1, segment.get("order"));
-                write(row, 2, segment.get("fromFacilityId"));
-                write(row, 3, segment.get("fromFacilityName"));
-                write(row, 4, segment.get("toFacilityId"));
-                write(row, 5, segment.get("toFacilityName"));
-                write(row, 6, segment.get("distance"));
-                write(row, 7, segment.get("durationMinutes"));
-                write(row, 8, pathSourceLabel(segment.get("pathSource")));
+                write(row, 1, route.get("vehicleName"));
+                write(row, 2, route.get("vehicleType"));
+                write(row, 3, route.get("tripNo"));
+                write(row, 4, segment.get("order"));
+                write(row, 5, segment.get("fromFacilityId"));
+                write(row, 6, segment.get("fromFacilityName"));
+                write(row, 7, segment.get("toFacilityId"));
+                write(row, 8, segment.get("toFacilityName"));
+                write(row, 9, segment.get("distance"));
+                write(row, 10, segment.get("durationMinutes"));
+                write(row, 11, pathSourceLabel(segment.get("pathSource")));
             }
         }
-        autosize(sheet, 9);
+        autosize(sheet, 12);
     }
 
     private CellStyle headerStyle(Workbook workbook) {

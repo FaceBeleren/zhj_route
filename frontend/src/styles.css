@@ -379,6 +379,72 @@ button:disabled {
   gap: 12px;
 }
 
+.dispatch-panel {
+  border-top: 1px solid #e3e9ef;
+  padding: 12px;
+}
+
+.dispatch-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 10px;
+}
+
+.dispatch-head h3 {
+  margin: 0;
+  font-size: 15px;
+}
+
+.dispatch-head small {
+  display: block;
+  margin-top: 3px;
+  color: #718096;
+}
+
+.dispatch-actions,
+.dispatch-row-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.dispatch-actions button,
+.dispatch-row-actions button {
+  height: 28px;
+  border-radius: 6px;
+  padding: 0 9px;
+  font-size: 12px;
+}
+
+.dispatch-table {
+  display: grid;
+  gap: 6px;
+  overflow-x: auto;
+}
+
+.dispatch-row {
+  display: grid;
+  grid-template-columns: 46px minmax(120px, 1fr) minmax(110px, 0.9fr) 96px 96px 72px minmax(160px, auto);
+  gap: 6px;
+  align-items: center;
+  min-width: 820px;
+}
+
+.dispatch-row-head {
+  color: #637083;
+  font-size: 12px;
+}
+
+.dispatch-row input {
+  width: 100%;
+  height: 30px;
+  border: 1px solid #c8d3df;
+  border-radius: 6px;
+  padding: 0 8px;
+}
+
 .split-panel {
   display: grid;
   grid-template-columns: minmax(280px, 0.8fr) minmax(360px, 1.2fr);
