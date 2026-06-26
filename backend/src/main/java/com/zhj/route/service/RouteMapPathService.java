@@ -86,6 +86,7 @@ public class RouteMapPathService {
         status.put("onlineRouteEnabled", onlineRouteEnabled);
         status.put("baiduAkConfigured", !isBlank(baiduAk));
         status.put("baiduSkConfigured", !isBlank(baiduSk));
+        status.put("onlineReady", onlineRouteEnabled && !isBlank(baiduAk));
         status.put("connectTimeoutMs", connectTimeoutMs);
         status.put("readTimeoutMs", readTimeoutMs);
         status.put("cacheTable", "ljszy_odpair_pool");
@@ -114,7 +115,7 @@ public class RouteMapPathService {
     }
 
     private ResolvedPath cachedPath(RoutePoint from, RoutePoint to) {
-        if (from.getFacilityId() == null || to.getFacilityId() == null) {
+        if (!isCacheableFacility(from) || !isCacheableFacility(to)) {
             return null;
         }
         String sql = "SELECT distance, time_duration, msg_full " +
@@ -209,7 +210,7 @@ public class RouteMapPathService {
     }
 
     private void cacheOnlinePath(RoutePoint from, RoutePoint to, BaiduRouteResponse response) {
-        if (from.getFacilityId() == null || to.getFacilityId() == null) {
+        if (!isCacheableFacility(from) || !isCacheableFacility(to)) {
             return;
         }
         String sql = "INSERT INTO ljszy_odpair_pool (" +
@@ -306,6 +307,10 @@ public class RouteMapPathService {
         coordinate.put("longitude", longitude);
         coordinate.put("latitude", latitude);
         return coordinate;
+    }
+
+    private boolean isCacheableFacility(RoutePoint point) {
+        return point.getFacilityId() != null && point.getFacilityId() > 0;
     }
 
     private boolean sameCoordinate(Map<String, Object> a, Map<String, Object> b) {

@@ -287,6 +287,11 @@ button:disabled {
   padding: 0 10px;
 }
 
+.panel-actions.with-toggle {
+  align-items: center;
+  flex-wrap: wrap;
+}
+
 .route-panel-head {
   border-bottom: 1px solid #e3e9ef;
 }
@@ -688,6 +693,11 @@ tbody tr.active {
 .route-mode-toggle small {
   color: #637083;
   white-space: nowrap;
+}
+
+.compact-toggle {
+  color: #536274;
+  font-size: 12px;
 }
 
 .optimization-metrics {

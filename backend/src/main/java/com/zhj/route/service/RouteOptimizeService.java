@@ -40,7 +40,7 @@ public class RouteOptimizeService {
         Map<String, Object> result = new HashMap<String, Object>();
         result.put("routeId", routeId);
         result.put("status", points.size() < 3 ? "UNCHANGED" : "DONE");
-        result.put("message", buildMessage(points));
+        result.put("message", buildMessage(points, useRoadPath(request)));
         result.put("pointCount", points.size());
         result.put("originalSequence", sequence(optimization.getOriginalPoints()));
         result.put("optimizedSequence", sequence(optimization.getOptimizedPoints()));
@@ -143,7 +143,7 @@ public class RouteOptimizeService {
         result.put("routeId", routeId);
         result.put("unitId", unitId);
         result.put("status", unassigned.isEmpty() ? "DONE" : "PARTIAL");
-        result.put("message", buildMultiMessage(companyMode));
+        result.put("message", buildMultiMessage(companyMode, useRoadPath(request)));
         result.put("sourcePointCount", sourcePoints.size());
         result.put("candidatePointCount", remaining.size() + pointsInRoutes(routes));
         result.put("routeCount", routes.size());
@@ -199,14 +199,17 @@ public class RouteOptimizeService {
         return filtered;
     }
 
-    private String buildMessage(List<RoutePoint> points) {
+    private String buildMessage(List<RoutePoint> points, boolean useRoadPath) {
         if (points.isEmpty()) {
             return "该路线没有规划点位，无法生成优化预览。";
         }
         if (points.size() < 3) {
             return "该路线点位不足 3 个，保持原规划顺序。";
         }
-        return "已使用单路线全路径插入算法生成优化预览。当前版本使用点位直线距离，尚未接入真实道路 OD。";
+        if (useRoadPath) {
+            return "已使用单路线全路径插入算法生成优化预览，并按 OD 缓存/百度补算生成道路折线和路段距离。";
+        }
+        return "已使用单路线全路径插入算法生成优化预览。当前使用点位直线距离，未开启真实道路算路。";
     }
 
     private List<Long> sequence(List<RoutePoint> points) {
@@ -483,11 +486,12 @@ public class RouteOptimizeService {
         return speed;
     }
 
-    private String buildMultiMessage(boolean companyMode) {
+    private String buildMultiMessage(boolean companyMode, boolean useRoadPath) {
+        String distanceMode = useRoadPath ? "距离和折线优先来自 OD 缓存，缓存缺失时按配置调用百度补算，失败后回退直线。" : "当前使用点位直线距离，未开启真实道路算路。";
         if (companyMode) {
-            return "已按公司点位池、预计垃圾量和目标装载率生成多路线预览。若公司维护了场站坐标，则使用传入的真实起终点；未传坐标时回退到点位中心，距离仍为点位直线距离。";
+            return "已按公司点位池、预计垃圾量和目标装载率生成多路线预览。若公司维护了场站坐标，则使用传入的真实起终点；未传坐标时回退到点位中心。" + distanceMode;
         }
-        return "已按路线点位池、预计垃圾量和目标装载率生成多路线预览。当前版本暂用原路线首尾点作为起终点锚点，距离仍为点位直线距离。";
+        return "已按路线点位池、预计垃圾量和目标装载率生成多路线预览。当前暂用原路线首尾点作为起终点锚点。" + distanceMode;
     }
 
     private RoutePoint anchorPoint(Map<String, Object> request, List<RoutePoint> points, String prefix,

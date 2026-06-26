@@ -43,6 +43,9 @@
       <span :class="{ ok: routeMapStatus?.baiduSkConfigured, neutral: !routeMapStatus?.baiduSkConfigured }">
         SN {{ routeMapStatus?.baiduSkConfigured ? '已配置' : '未配置' }}
       </span>
+      <span :class="{ ok: routeMapStatus?.onlineReady, warn: routeMapStatus && !routeMapStatus.onlineReady, neutral: !routeMapStatus }">
+        后端算路 {{ routeMapStatus?.onlineReady ? '就绪' : '未就绪' }}
+      </span>
       <span :class="{ ok: routeMapStatus?.cacheAvailable, warn: routeMapStatus && !routeMapStatus.cacheAvailable, neutral: !routeMapStatus }">
         OD缓存 {{ routeMapStatus?.cacheAvailable ? '可用' : '不可用' }}
       </span>
@@ -133,7 +136,15 @@
           <section class="panel">
             <div class="panel-head">
               <h2>{{ currentTypeName }}概览</h2>
-              <button @click="previewOptimize" :disabled="!selectedRoute || loading">优化预览</button>
+              <div class="panel-actions with-toggle">
+                <label class="route-mode-toggle compact-toggle">
+                  <span>实际算路</span>
+                  <input v-model="optimizeOptions.useRoadPath" type="checkbox" />
+                  <i></i>
+                  <small>{{ optimizeOptions.useRoadPath ? 'OD缓存/百度补算' : '直线距离' }}</small>
+                </label>
+                <button @click="previewOptimize" :disabled="!selectedRoute || loading">优化预览</button>
+              </div>
             </div>
             <div v-if="selectedRoute" class="route-overview">
               <div>
