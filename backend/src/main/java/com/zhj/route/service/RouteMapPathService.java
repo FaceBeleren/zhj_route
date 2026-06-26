@@ -9,8 +9,8 @@ import org.springframework.http.client.SimpleClientHttpRequestFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestClientException;
 import org.springframework.web.client.RestTemplate;
-import org.springframework.web.util.UriComponentsBuilder;
 
+import java.net.URI;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
@@ -171,13 +171,9 @@ public class RouteMapPathService {
             }
         }
 
-        UriComponentsBuilder builder = UriComponentsBuilder.fromHttpUrl(BAIDU_DRIVING_URL);
-        for (Map.Entry<String, String> entry : params.entrySet()) {
-            builder.queryParam(entry.getKey(), entry.getValue());
-        }
-
         try {
-            String json = restTemplate.getForObject(builder.build().encode().toUri(), String.class);
+            URI uri = URI.create(BAIDU_DRIVING_URL + "?" + toQueryString(params));
+            String json = restTemplate.getForObject(uri, String.class);
             return parseBaiduResponse(json);
         } catch (RestClientException e) {
             return null;
@@ -366,7 +362,7 @@ public class RouteMapPathService {
         return Long.valueOf(text);
     }
 
-    private String sign(Map<String, String> params) {
+    private String toQueryString(Map<String, String> params) {
         try {
             StringBuilder query = new StringBuilder();
             for (Map.Entry<String, String> entry : params.entrySet()) {
@@ -377,7 +373,15 @@ public class RouteMapPathService {
                         .append("=")
                         .append(URLEncoder.encode(entry.getValue(), StandardCharsets.UTF_8.name()));
             }
-            String whole = BAIDU_DRIVING_PATH + query + baiduSk;
+            return query.toString();
+        } catch (Exception e) {
+            return "";
+        }
+    }
+
+    private String sign(Map<String, String> params) {
+        try {
+            String whole = BAIDU_DRIVING_PATH + toQueryString(params) + baiduSk;
             String encoded = URLEncoder.encode(whole, StandardCharsets.UTF_8.name());
             MessageDigest digest = MessageDigest.getInstance("MD5");
             byte[] bytes = digest.digest(encoded.getBytes(StandardCharsets.UTF_8));
