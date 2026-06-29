@@ -27,10 +27,26 @@
 
     <div class="route-playback-bar">
       <div class="route-playback-main">
-        <select v-model="playbackRoute" class="route-playback-select" @change="resetPlayback">
-          <option v-if="props.showOriginal" value="original">{{ originalLabel }}</option>
-          <option value="optimized">{{ optimizedLabel }}</option>
-        </select>
+        <div class="route-playback-choice" aria-label="选择播放路线">
+          <span>播放路线</span>
+          <button
+            v-if="props.showOriginal"
+            class="route-choice-button original"
+            :class="{ active: playbackRoute === 'original' }"
+            type="button"
+            @click="setPlaybackRoute('original')"
+          >
+            {{ originalLabel }}
+          </button>
+          <button
+            class="route-choice-button optimized"
+            :class="{ active: playbackRoute === 'optimized' }"
+            type="button"
+            @click="setPlaybackRoute('optimized')"
+          >
+            {{ optimizedLabel }}
+          </button>
+        </div>
         <button class="route-playback-button primary" type="button" :disabled="!canPlay" @click="togglePlayback">
           {{ playbackRunning ? '暂停' : '播放' }}
         </button>
@@ -436,6 +452,11 @@ function sameCoordinate(a, b) {
   return Math.abs(a.longitude - b.longitude) < 0.000001 && Math.abs(a.latitude - b.latitude) < 0.000001
 }
 
+function setPlaybackRoute(route) {
+  if (playbackRoute.value === route) return
+  playbackRoute.value = route
+  resetPlayback()
+}
 function togglePlayback() {
   if (playbackRunning.value) {
     pausePlayback()

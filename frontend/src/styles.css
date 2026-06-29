@@ -1040,6 +1040,47 @@ tbody tr.active {
   width: 70px;
 }
 
+.route-playback-choice {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px;
+  border: 1px solid #d7e2ef;
+  border-radius: 8px;
+  background: #f3f6fa;
+}
+
+.route-playback-choice > span {
+  padding: 0 6px;
+  color: #536274;
+}
+
+.route-choice-button {
+  height: 24px;
+  border: 0;
+  border-radius: 6px;
+  padding: 0 8px;
+  background: transparent;
+  color: #536274;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.route-choice-button.original.active {
+  background: #fff1f1;
+  color: #d84f4f;
+}
+
+.route-choice-button.optimized.active {
+  background: #e8f1ff;
+  color: #1565c0;
+}
+
+.route-choice-button:hover {
+  background: #ffffff;
+}
+
 .route-playback-button {
   cursor: pointer;
   font-weight: 600;
