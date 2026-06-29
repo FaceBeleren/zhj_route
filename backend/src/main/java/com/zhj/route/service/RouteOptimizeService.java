@@ -3,6 +3,8 @@ package com.zhj.route.service;
 import com.zhj.route.algorithm.RouteOptimizationResult;
 import com.zhj.route.algorithm.RoutePoint;
 import com.zhj.route.algorithm.SingleRouteOptimizer;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
 import java.math.BigDecimal;
@@ -15,6 +17,8 @@ import java.util.Set;
 
 @Service
 public class RouteOptimizeService {
+    private static final Logger log = LoggerFactory.getLogger(RouteOptimizeService.class);
+
     private final RouteQueryService routeQueryService;
     private final RouteMapPathService routeMapPathService;
     private final SingleRouteOptimizer singleRouteOptimizer = new SingleRouteOptimizer();
@@ -25,6 +29,7 @@ public class RouteOptimizeService {
     }
 
     public Map<String, Object> optimizePreview(Map<String, Object> request) {
+        long startedAt = System.currentTimeMillis();
         Object routeIdValue = request.get("routeId");
         if (routeIdValue == null) {
             throw new IllegalArgumentException("routeId is required");
@@ -35,6 +40,8 @@ public class RouteOptimizeService {
         DistanceContext distanceContext = new DistanceContext(useRoadPath);
         List<Map<String, Object>> planRows = routeQueryService.routePlanPoints(routeId);
         List<RoutePoint> points = toRoutePoints(planRows);
+        log.info("Single route optimize started: routeId={}, points={}, mode={}, ratedKg={}, targetRate={}",
+                routeId, points.size(), useRoadPath ? "ROAD" : "DIRECT", ratedCapacityKg(request), targetLoadRate(request));
         RouteOptimizationResult optimization = singleRouteOptimizer.optimize(points, distanceContext);
         List<Map<String, Object>> originalSegments = segmentViews(optimization.getOriginalPoints(), speedKmh(request), distanceContext);
         List<Map<String, Object>> segments = segmentViews(optimization.getOptimizedPoints(), speedKmh(request), distanceContext);
@@ -73,10 +80,14 @@ public class RouteOptimizeService {
         result.put("originalSegments", originalSegments);
         result.put("segments", segments);
         result.put("polyline", polyline(optimization.getOptimizedPoints()));
+        log.info("Single route optimize finished: routeId={}, status={}, elapsed={}ms, original={}m, optimized={}m, delta={}m, odStats={}",
+                routeId, result.get("status"), System.currentTimeMillis() - startedAt,
+                result.get("originalDistance"), result.get("optimizedDistance"), result.get("distanceDelta"), distanceContext.summary());
         return result;
     }
 
     public Map<String, Object> optimizeMultiPreview(Map<String, Object> request) {
+        long startedAt = System.currentTimeMillis();
         Object routeIdValue = request.get("routeId");
         Object unitIdValue = request.get("unitId");
         if (routeIdValue == null && unitIdValue == null) {
@@ -132,8 +143,11 @@ public class RouteOptimizeService {
             remaining.addAll(sourcePoints.subList(1, sourcePoints.size() - 1));
         }
 
-        DistanceContext distanceContext = new DistanceContext(useRoadPath(request));
+        boolean useRoadPath = useRoadPath(request);
+        DistanceContext distanceContext = new DistanceContext(useRoadPath);
         List<DispatchTrip> dispatchPlan = buildDispatchPlan(request, start, end, ratedCapacityKg, maxCapacityKg, targetLoadRate);
+        log.info("Multi route optimize started: routeId={}, unitId={}, companyMode={}, candidatePoints={}, dispatchTrips={}, mode={}, targetLoadKg={}, maxKg={}",
+                routeId, unitId, companyMode, sourcePoints.size(), dispatchPlan.size(), useRoadPath ? "ROAD" : "DIRECT", targetLoadWeightKg, maxCapacityKg);
         int routeNo = 1;
         for (DispatchTrip trip : dispatchPlan) {
             if (remaining.isEmpty()) {
@@ -145,7 +159,11 @@ public class RouteOptimizeService {
                 break;
             }
             remaining.removeAll(collected);
-            routes.add(multiRouteView(routeNo, route, request, trip, distanceContext));
+            Map<String, Object> routeView = multiRouteView(routeNo, route, request, trip, distanceContext);
+            routes.add(routeView);
+            log.info("Multi route built: routeNo={}, vehicle={}, tripNo={}, points={}, weightKg={}, distance={}, remaining={}",
+                    routeNo, trip.vehicleName, trip.tripNo, routeView.get("pointCount"), routeView.get("estimatedWeightKg"),
+                    routeView.get("distance"), remaining.size());
             routeNo++;
         }
 
@@ -175,6 +193,9 @@ public class RouteOptimizeService {
         result.put("totalPlannedCapacityKg", round(totalPlannedCapacity(dispatchPlan)));
         result.put("routes", routes);
         result.put("unassignedPoints", pointViews(unassigned));
+        log.info("Multi route optimize finished: routeId={}, unitId={}, status={}, elapsed={}ms, routes={}, assigned={}, unassigned={}, odStats={}",
+                routeId, unitId, result.get("status"), System.currentTimeMillis() - startedAt,
+                routes.size(), result.get("assignedPointCount"), unassigned.size(), distanceContext.summary());
         return result;
     }
 
@@ -442,6 +463,10 @@ public class RouteOptimizeService {
     private class DistanceContext implements SingleRouteOptimizer.DistanceCalculator {
         private final boolean useRoadPath;
         private final Map<String, RouteMapPathService.ResolvedPath> resolvedCache = new HashMap<String, RouteMapPathService.ResolvedPath>();
+        private final Map<String, Integer> sourceCounts = new HashMap<String, Integer>();
+        private long resolveCalls;
+        private long cacheHits;
+        private long cacheMisses;
 
         private DistanceContext(boolean useRoadPath) {
             this.useRoadPath = useRoadPath;
@@ -456,15 +481,37 @@ public class RouteOptimizeService {
         }
 
         private RouteMapPathService.ResolvedPath resolve(RoutePoint from, RoutePoint to) {
+            resolveCalls++;
             String key = pointKey(from) + "->" + pointKey(to) + "#" + (useRoadPath ? "ROAD" : "DIRECT");
             if (resolvedCache.containsKey(key)) {
+                cacheHits++;
                 return resolvedCache.get(key);
             }
+            cacheMisses++;
             RouteMapPathService.ResolvedPath resolvedPath = useRoadPath
                     ? routeMapPathService.resolve(from, to)
                     : directResolvedPath(from, to);
             resolvedCache.put(key, resolvedPath);
+            countSource(resolvedPath.getSource());
+            if (useRoadPath && cacheMisses % 100 == 0) {
+                log.info("Route distance resolving progress: {}", summary());
+            }
             return resolvedPath;
+        }
+
+        private void countSource(String source) {
+            String key = source == null ? "UNKNOWN" : source;
+            Integer count = sourceCounts.get(key);
+            sourceCounts.put(key, count == null ? 1 : count + 1);
+        }
+
+        private String summary() {
+            return "mode=" + (useRoadPath ? "ROAD" : "DIRECT")
+                    + ", calls=" + resolveCalls
+                    + ", localCacheHits=" + cacheHits
+                    + ", localCacheMisses=" + cacheMisses
+                    + ", uniquePairs=" + resolvedCache.size()
+                    + ", sources=" + sourceCounts;
         }
 
         private String pointKey(RoutePoint point) {

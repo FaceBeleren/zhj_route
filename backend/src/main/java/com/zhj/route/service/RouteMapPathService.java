@@ -3,6 +3,8 @@ package com.zhj.route.service;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.zhj.route.algorithm.RoutePoint;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.http.client.SimpleClientHttpRequestFactory;
@@ -22,6 +24,7 @@ import java.util.Map;
 
 @Service
 public class RouteMapPathService {
+    private static final Logger log = LoggerFactory.getLogger(RouteMapPathService.class);
     private static final String BAIDU_DRIVING_URL = "http://api.map.baidu.com/directionlite/v1/driving";
     private static final String BAIDU_DRIVING_PATH = "/directionlite/v1/driving?";
 
@@ -116,6 +119,7 @@ public class RouteMapPathService {
 
     private ResolvedPath cachedPath(RoutePoint from, RoutePoint to) {
         if (!isCacheableFacility(from) || !isCacheableFacility(to)) {
+            log.debug("OD cache skipped: non-cacheable pair {} -> {}", pointLabel(from), pointLabel(to));
             return null;
         }
         String sql = "SELECT distance, time_duration, msg_full " +
@@ -128,31 +132,47 @@ public class RouteMapPathService {
                     String.valueOf(from.getFacilityId()),
                     String.valueOf(to.getFacilityId()));
             if (rows.isEmpty()) {
+                log.debug("OD cache miss: {} -> {}", pointLabel(from), pointLabel(to));
                 return null;
             }
             Map<String, Object> row = rows.get(0);
             List<Map<String, Object>> path = parseBaiduPath(String.valueOf(row.get("msg_full")));
             if (path.size() < 2) {
+                log.warn("OD cache invalid path: {} -> {}, distance={}", pointLabel(from), pointLabel(to), row.get("distance"));
                 return null;
             }
+            log.debug("OD cache hit: {} -> {}, distance={}m, duration={}s, pathPoints={}",
+                    pointLabel(from), pointLabel(to), row.get("distance"), row.get("time_duration"), path.size());
             return new ResolvedPath(path, toDouble(row.get("distance")), toDouble(row.get("time_duration")), "OD_CACHE");
         } catch (RuntimeException e) {
+            log.warn("OD cache query failed: {} -> {}, {}", pointLabel(from), pointLabel(to), e.getMessage());
             return null;
         }
     }
 
     private ResolvedPath onlinePath(RoutePoint from, RoutePoint to) {
-        if (!onlineRouteEnabled || isBlank(baiduAk) || !from.hasCoordinate() || !to.hasCoordinate()) {
+        if (!onlineRouteEnabled) {
+            log.info("Baidu route skipped: disabled, {} -> {}", pointLabel(from), pointLabel(to));
+            return null;
+        }
+        if (isBlank(baiduAk)) {
+            log.warn("Baidu route skipped: AK is blank, {} -> {}", pointLabel(from), pointLabel(to));
+            return null;
+        }
+        if (!from.hasCoordinate() || !to.hasCoordinate()) {
+            log.warn("Baidu route skipped: missing coordinate, {} -> {}", pointLabel(from), pointLabel(to));
             return null;
         }
         try {
             BaiduRouteResponse response = requestBaiduRoute(from, to);
             if (response == null || response.path.size() < 2) {
+                log.warn("Baidu route returned no usable path: {} -> {}", pointLabel(from), pointLabel(to));
                 return null;
             }
             cacheOnlinePath(from, to, response);
             return new ResolvedPath(response.path, response.distanceMeters, response.durationSeconds, "BAIDU_ONLINE");
         } catch (RuntimeException e) {
+            log.warn("Baidu route failed: {} -> {}, {}", pointLabel(from), pointLabel(to), e.getMessage());
             return null;
         }
     }
@@ -171,11 +191,22 @@ public class RouteMapPathService {
             }
         }
 
+        long startedAt = System.currentTimeMillis();
         try {
             URI uri = URI.create(BAIDU_DRIVING_URL + "?" + toQueryString(params));
+            log.info("Calling Baidu route: {} -> {}, snConfigured={}, timeout={}/{}ms",
+                    pointLabel(from), pointLabel(to), !isBlank(baiduSk), connectTimeoutMs, readTimeoutMs);
             String json = restTemplate.getForObject(uri, String.class);
-            return parseBaiduResponse(json);
+            BaiduRouteResponse response = parseBaiduResponse(json);
+            log.info("Baidu route finished: {} -> {}, elapsed={}ms, distance={}m, duration={}s, pathPoints={}",
+                    pointLabel(from), pointLabel(to), System.currentTimeMillis() - startedAt,
+                    response == null ? null : response.distanceMeters,
+                    response == null ? null : response.durationSeconds,
+                    response == null || response.path == null ? 0 : response.path.size());
+            return response;
         } catch (RestClientException e) {
+            log.warn("Baidu route HTTP failed: {} -> {}, elapsed={}ms, {}",
+                    pointLabel(from), pointLabel(to), System.currentTimeMillis() - startedAt, e.getMessage());
             return null;
         }
     }
@@ -186,8 +217,11 @@ public class RouteMapPathService {
         }
         try {
             JsonNode root = objectMapper.readTree(json);
+            JsonNode status = root.path("status");
+            JsonNode message = root.path("message");
             JsonNode routes = root.path("result").path("routes");
             if (!routes.isArray() || routes.size() == 0) {
+                log.warn("Baidu route parse failed: status={}, message={}", status.asText(""), message.asText(""));
                 return null;
             }
             JsonNode firstRoute = routes.get(0);
@@ -201,12 +235,14 @@ public class RouteMapPathService {
                     firstRoute.path("duration").isNumber() ? firstRoute.path("duration").asDouble() : null,
                     json);
         } catch (Exception e) {
+            log.warn("Baidu route parse exception: {}", e.getMessage());
             return null;
         }
     }
 
     private void cacheOnlinePath(RoutePoint from, RoutePoint to, BaiduRouteResponse response) {
         if (!isCacheableFacility(from) || !isCacheableFacility(to)) {
+            log.debug("OD cache write skipped: non-cacheable pair {} -> {}", pointLabel(from), pointLabel(to));
             return;
         }
         String sql = "INSERT INTO ljszy_odpair_pool (" +
@@ -214,7 +250,7 @@ public class RouteMapPathService {
                 "latitude_end, latitude_start, longitude_end, longitude_start, start_code, time_duration, msg_full" +
                 ") VALUES (0, NOW(), NOW(), NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
         try {
-            jdbcTemplate.update(sql,
+            int updated = jdbcTemplate.update(sql,
                     response.distanceMeters,
                     String.valueOf(to.getFacilityId()),
                     to.getLatitude(),
@@ -224,8 +260,10 @@ public class RouteMapPathService {
                     String.valueOf(from.getFacilityId()),
                     response.durationSeconds,
                     response.rawJson);
+            log.info("OD cache write: {} -> {}, rows={}, distance={}m, duration={}s",
+                    pointLabel(from), pointLabel(to), updated, response.distanceMeters, response.durationSeconds);
         } catch (RuntimeException e) {
-            // 缓存写入失败不影响本次路线展示。
+            log.warn("OD cache write failed: {} -> {}, {}", pointLabel(from), pointLabel(to), e.getMessage());
         }
     }
 
@@ -282,6 +320,7 @@ public class RouteMapPathService {
     }
 
     private ResolvedPath directPath(RoutePoint from, RoutePoint to) {
+        log.debug("Route path fallback to direct line: {} -> {}", pointLabel(from), pointLabel(to));
         List<Map<String, Object>> path = new ArrayList<Map<String, Object>>();
         if (from.hasCoordinate()) {
             path.add(coordinate(from));
@@ -307,6 +346,17 @@ public class RouteMapPathService {
 
     private boolean isCacheableFacility(RoutePoint point) {
         return point.getFacilityId() != null && point.getFacilityId() > 0;
+    }
+
+    private String pointLabel(RoutePoint point) {
+        if (point == null) {
+            return "null";
+        }
+        String name = point.getFacilityName() == null ? "" : "/" + point.getFacilityName();
+        if (point.getFacilityId() != null) {
+            return point.getFacilityId() + name;
+        }
+        return "XY(" + point.getLongitude() + "," + point.getLatitude() + ")" + name;
     }
 
     private boolean sameCoordinate(Map<String, Object> a, Map<String, Object> b) {
