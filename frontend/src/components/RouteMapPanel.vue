@@ -1,17 +1,27 @@
 <template>
-  <div class="route-map-panel">
+  <div class="route-map-panel" :class="{ expanded: expanded }">
     <div class="route-map-head">
       <div>
         <strong>路线地图</strong>
         <small>{{ mapStatus }}</small>
       </div>
       <div class="route-map-actions">
-        <span v-if="showOriginal" class="legend original">{{ originalLabel }}</span>
-        <span class="legend optimized">{{ optimizedLabel }}</span>
+        <label v-if="props.showOriginal" class="route-line-toggle original" :class="{ muted: !showOriginalLine }">
+          <input v-model="showOriginalLine" type="checkbox" />
+          <span class="line-swatch"></span>
+          {{ originalLabel }}
+        </label>
+        <label class="route-line-toggle optimized" :class="{ muted: !showOptimizedLine }">
+          <input v-model="showOptimizedLine" type="checkbox" />
+          <span class="line-swatch"></span>
+          {{ optimizedLabel }}
+        </label>
+        <button v-if="!expanded" class="map-expand-button" type="button" @click="expanded = true">最大化</button>
         <label class="plot-toggle">
           <input v-model="labelsVisible" type="checkbox" />
           序号
         </label>
+        <button v-if="expanded" class="map-close-button" type="button" aria-label="关闭地图弹窗" @click="expanded = false">×</button>
       </div>
     </div>
 
@@ -22,12 +32,12 @@
         <div class="plot-title">坐标预览</div>
         <svg viewBox="0 0 100 100" role="img" aria-label="路线坐标预览叠加对比">
           <polyline
-            v-if="showOriginal && routePlot.compare.originalLine"
+            v-if="showOriginalLine && routePlot.compare.originalLine"
             :points="routePlot.compare.originalLine"
             class="plot-line original"
           />
           <polyline
-            v-if="routePlot.compare.optimizedLine"
+            v-if="showOptimizedLine && routePlot.compare.optimizedLine"
             :points="routePlot.compare.optimizedLine"
             class="plot-line optimized"
           />
@@ -42,7 +52,7 @@
         </svg>
       </div>
       <div class="plot-grid">
-        <div v-if="showOriginal" class="plot-card">
+        <div v-if="showOriginalLine" class="plot-card">
           <div class="plot-title">{{ originalLabel }}顺序</div>
           <svg viewBox="0 0 100 100" role="img" aria-label="原路线坐标预览">
             <polyline :points="routePlot.original.line" class="plot-line original" />
@@ -56,7 +66,7 @@
             </g>
           </svg>
         </div>
-        <div class="plot-card">
+        <div v-if="showOptimizedLine" class="plot-card">
           <div class="plot-title">{{ optimizedLabel }}顺序</div>
           <svg viewBox="0 0 100 100" role="img" aria-label="优化后路线坐标预览">
             <polyline :points="routePlot.optimized.line" class="plot-line optimized" />
@@ -116,17 +126,22 @@ let baiduMapLoader = null
 const mapEl = ref(null)
 const baiduReady = ref(false)
 const mapStatus = ref('未配置百度地图 AK 时使用坐标预览')
-const labelsVisible = ref(false)
+const labelsVisible = ref(true)
+const showOriginalLine = ref(props.showOriginal)
+const showOptimizedLine = ref(true)
+const expanded = ref(false)
 let mapInstance = null
 
-const originalLinePoints = computed(() => (props.showOriginal ? normalizeRoutePoints(props.originalPoints) : []))
-const optimizedLinePoints = computed(() => normalizeRoutePoints(props.optimizedPoints))
+const originalAllPoints = computed(() => (props.showOriginal ? normalizeRoutePoints(props.originalPoints) : []))
+const optimizedAllPoints = computed(() => normalizeRoutePoints(props.optimizedPoints))
+const originalLinePoints = computed(() => (showOriginalLine.value ? originalAllPoints.value : []))
+const optimizedLinePoints = computed(() => (showOptimizedLine.value ? optimizedAllPoints.value : []))
 const originalGeometryPoints = computed(() => pathCoordinatesFromSegments(props.originalSegments, originalLinePoints.value))
 const optimizedGeometryPoints = computed(() => pathCoordinatesFromSegments(props.optimizedSegments, optimizedLinePoints.value))
-const markerPoints = computed(() => uniquePoints([...originalLinePoints.value, ...optimizedLinePoints.value]))
+const markerPoints = computed(() => uniquePoints([...originalAllPoints.value, ...optimizedAllPoints.value]))
 const extentPoints = computed(() => uniquePoints([...markerPoints.value, ...originalGeometryPoints.value, ...optimizedGeometryPoints.value]))
 const allPoints = computed(() => extentPoints.value)
-const routePlot = computed(() => buildRoutePlot(originalLinePoints.value, optimizedLinePoints.value))
+const routePlot = computed(() => buildRoutePlot(originalAllPoints.value, optimizedAllPoints.value))
 
 function uniquePoints(points) {
   const seen = new Set()
@@ -149,7 +164,7 @@ onBeforeUnmount(() => {
 })
 
 watch(
-  () => [props.originalPoints, props.optimizedPoints, props.originalSegments, props.optimizedSegments],
+  () => [props.originalPoints, props.optimizedPoints, props.originalSegments, props.optimizedSegments, labelsVisible.value, showOriginalLine.value, showOptimizedLine.value, expanded.value],
   () => renderMap(),
   { deep: true }
 )
@@ -190,26 +205,30 @@ function drawBaiduMap(BMap) {
   mapInstance.enableScrollWheelZoom(true)
   addMapControls(BMap)
 
-  if (props.showOriginal) {
+  if (showOriginalLine.value) {
     drawPolyline(BMap, originalGeometryPoints.value, '#d84f4f', 4, 0.8, 'dashed')
   }
-  drawPolyline(BMap, optimizedGeometryPoints.value, '#1f6fca', 5, 0.9, 'solid')
+  if (showOptimizedLine.value) {
+    drawPolyline(BMap, optimizedGeometryPoints.value, '#1f6fca', 5, 0.9, 'solid')
+  }
   markerPoints.value.forEach((point, index) => {
     const marker = new BMap.Marker(new BMap.Point(point.longitude, point.latitude))
     marker.setTitle(point.facilityName || String(point.facilityId || index + 1))
     mapInstance.addOverlay(marker)
-    const label = new BMap.Label(String(index + 1), {
-      offset: new BMap.Size(12, -18)
-    })
-    label.setStyle({
-      color: '#1f2937',
-      border: '1px solid #cbd5e1',
-      borderRadius: '4px',
-      padding: '1px 4px',
-      backgroundColor: '#ffffff',
-      fontSize: '11px'
-    })
-    marker.setLabel(label)
+    if (labelsVisible.value) {
+      const label = new BMap.Label(String(index + 1), {
+        offset: new BMap.Size(12, -18)
+      })
+      label.setStyle({
+        color: '#1f2937',
+        border: '1px solid #cbd5e1',
+        borderRadius: '4px',
+        padding: '1px 4px',
+        backgroundColor: '#ffffff',
+        fontSize: '11px'
+      })
+      marker.setLabel(label)
+    }
   })
   fitMapViewport(BMap)
 }
@@ -328,7 +347,8 @@ function sameCoordinate(a, b) {
 }
 
 function pathSourceSummary() {
-  const sources = new Set((props.optimizedSegments || []).map((segment) => segment.pathSource || 'DIRECT'))
+  const visibleSegments = showOptimizedLine.value ? props.optimizedSegments : props.originalSegments
+  const sources = new Set((visibleSegments || []).map((segment) => segment.pathSource || 'DIRECT'))
   if (sources.size === 0) return '直线回退'
   return Array.from(sources).map(pathSourceLabel).join('/')
 }
