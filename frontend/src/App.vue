@@ -407,12 +407,12 @@
                 <strong>{{ formatWeight(selectedCompanyPointWeight) }}</strong>
               </div>
               <div>
-                <span>计划趟次</span>
-                <strong>{{ dispatchTripCount }}</strong>
+                <span>车辆排班</span>
+                <strong>{{ dispatchEnabled ? dispatchTripCount + ' 趟' : '未启用' }}</strong>
               </div>
               <div>
-                <span>计划额定总量</span>
-                <strong>{{ formatWeight(plannedCapacityKg) }}</strong>
+                <span>排班额定总量</span>
+                <strong>{{ dispatchEnabled ? formatWeight(plannedCapacityKg) : '-' }}</strong>
               </div>
               <div>
                 <span>场站候选</span>
@@ -423,14 +423,17 @@
               <div class="dispatch-head">
                 <div>
                   <h3>车辆排班</h3>
-                  <small>当前版本按下方顺序逐趟生成路线，暂不自动重排车辆</small>
+                  <small>未添加车辆时沿用上方额定载重和最大趟数；添加后按下方顺序逐趟生成</small>
                 </div>
                 <div class="dispatch-actions">
-                  <button @click="syncVehiclesWithDefaultCapacity">套用上方载重</button>
-                  <button @click="addDispatchVehicle">添加车辆</button>
+                  <button @click="syncVehiclesWithDefaultCapacity" :disabled="!dispatchEnabled">套用上方载重</button>
+                  <button @click="addDispatchVehicle">{{ dispatchEnabled ? '添加车辆' : '启用排班' }}</button>
                 </div>
               </div>
-              <div class="dispatch-table">
+              <div v-if="!dispatchEnabled" class="dispatch-empty">
+                当前未启用车辆排班，多路线生成会使用上方额定载重、目标装载率和最大趟数。
+              </div>
+              <div v-else class="dispatch-table">
                 <div class="dispatch-row dispatch-row-head">
                   <span>顺序</span>
                   <span>车辆</span>
@@ -450,7 +453,7 @@
                   <div class="dispatch-row-actions">
                     <button @click="moveDispatchVehicle(index, -1)" :disabled="index === 0">上移</button>
                     <button @click="moveDispatchVehicle(index, 1)" :disabled="index === dispatchVehicles.length - 1">下移</button>
-                    <button @click="removeDispatchVehicle(index)" :disabled="dispatchVehicles.length === 1">删除</button>
+                    <button @click="removeDispatchVehicle(index)">删除</button>
                   </div>
                 </div>
               </div>
@@ -887,7 +890,6 @@ const optimizeOptions = reactive({
   endLatitude: null,
   endFacilityName: null
 })
-dispatchVehicles.value = [createDispatchVehicle(1)]
 
 const filteredCompanies = computed(() => {
   const keyword = companyKeyword.value.trim().toLowerCase()
@@ -934,6 +936,7 @@ const routeAnchorCount = computed(
     (companyAnchors.value.facilityAnchors?.length || 0) +
     (companyAnchors.value.parkingLots?.length || 0)
 )
+const dispatchEnabled = computed(() => dispatchVehicles.value.length > 0)
 const dispatchTripCount = computed(() =>
   dispatchVehicles.value.reduce((sum, vehicle) => sum + Math.max(1, Number(vehicle.tripCount || 1)), 0)
 )
@@ -1161,7 +1164,6 @@ function addDispatchVehicle() {
 }
 
 function removeDispatchVehicle(index) {
-  if (dispatchVehicles.value.length <= 1) return
   dispatchVehicles.value = dispatchVehicles.value.filter((_, itemIndex) => itemIndex !== index)
   clearMultiOptimization()
 }
@@ -1188,6 +1190,9 @@ function syncVehiclesWithDefaultCapacity() {
 }
 
 function normalizedDispatchVehicles() {
+  if (!dispatchEnabled.value) {
+    return []
+  }
   return dispatchVehicles.value.map((vehicle, index) => {
     const rated = Math.max(1, Number(vehicle.ratedCapacityKg || optimizeOptions.ratedCapacityKg || 5000))
     const max = Math.max(rated, Number(vehicle.maxCapacityKg || rated))
