@@ -31,23 +31,34 @@ public class RouteOptimizeService {
         }
 
         Long routeId = Long.valueOf(String.valueOf(routeIdValue));
+        boolean useRoadPath = useRoadPath(request);
+        DistanceContext distanceContext = new DistanceContext(useRoadPath);
         List<Map<String, Object>> planRows = routeQueryService.routePlanPoints(routeId);
         List<RoutePoint> points = toRoutePoints(planRows);
-        RouteOptimizationResult optimization = singleRouteOptimizer.optimize(points);
-        List<Map<String, Object>> originalSegments = segmentViews(optimization.getOriginalPoints(), speedKmh(request), useRoadPath(request));
-        List<Map<String, Object>> segments = segmentViews(optimization.getOptimizedPoints(), speedKmh(request), useRoadPath(request));
+        RouteOptimizationResult optimization = singleRouteOptimizer.optimize(points, distanceContext);
+        List<Map<String, Object>> originalSegments = segmentViews(optimization.getOriginalPoints(), speedKmh(request), distanceContext);
+        List<Map<String, Object>> segments = segmentViews(optimization.getOptimizedPoints(), speedKmh(request), distanceContext);
+        Double roadOriginalDistance = useRoadPath ? round(sumSegmentDistance(originalSegments)) : null;
+        Double roadOptimizedDistance = useRoadPath ? round(sumSegmentDistance(segments)) : null;
 
         Map<String, Object> result = new HashMap<String, Object>();
         result.put("routeId", routeId);
         result.put("status", points.size() < 3 ? "UNCHANGED" : "DONE");
-        result.put("message", buildMessage(points, useRoadPath(request)));
+        result.put("message", buildMessage(points, useRoadPath));
         result.put("pointCount", points.size());
         result.put("originalSequence", sequence(optimization.getOriginalPoints()));
         result.put("optimizedSequence", sequence(optimization.getOptimizedPoints()));
+        result.put("distanceMode", useRoadPath ? "ROAD" : "DIRECT");
+        result.put("optimizerCostSource", useRoadPath ? "OD_OR_BAIDU" : "DIRECT");
         result.put("originalDistance", round(optimization.getOriginalDistance()));
         result.put("optimizedDistance", round(optimization.getOptimizedDistance()));
+        result.put("distanceDelta", round(optimization.getOriginalDistance() - optimization.getOptimizedDistance()));
         result.put("savedDistance", round(optimization.getSavedDistance()));
         result.put("savedRate", round(optimization.getSavedRate()));
+        result.put("directOriginalDistance", round(singleRouteOptimizer.totalDistance(optimization.getOriginalPoints())));
+        result.put("directOptimizedDistance", round(singleRouteOptimizer.totalDistance(optimization.getOptimizedPoints())));
+        result.put("roadOriginalDistance", roadOriginalDistance);
+        result.put("roadOptimizedDistance", roadOptimizedDistance);
         result.put("originalPathDistance", round(sumSegmentDistance(originalSegments)));
         result.put("originalPathDurationMinutes", round(sumSegmentDuration(originalSegments)));
         result.put("estimatedWeightKg", round(sumEstimatedWeight(points)));
@@ -121,19 +132,20 @@ public class RouteOptimizeService {
             remaining.addAll(sourcePoints.subList(1, sourcePoints.size() - 1));
         }
 
+        DistanceContext distanceContext = new DistanceContext(useRoadPath(request));
         List<DispatchTrip> dispatchPlan = buildDispatchPlan(request, start, end, ratedCapacityKg, maxCapacityKg, targetLoadRate);
         int routeNo = 1;
         for (DispatchTrip trip : dispatchPlan) {
             if (remaining.isEmpty()) {
                 break;
             }
-            List<RoutePoint> route = buildCapacityRoute(trip.start, trip.end, remaining, trip.targetLoadWeightKg, trip.maxCapacityKg);
+            List<RoutePoint> route = buildCapacityRoute(trip.start, trip.end, remaining, trip.targetLoadWeightKg, trip.maxCapacityKg, distanceContext);
             List<RoutePoint> collected = collectedPoints(route);
             if (collected.isEmpty()) {
                 break;
             }
             remaining.removeAll(collected);
-            routes.add(multiRouteView(routeNo, route, request, trip));
+            routes.add(multiRouteView(routeNo, route, request, trip, distanceContext));
             routeNo++;
         }
 
@@ -156,6 +168,8 @@ public class RouteOptimizeService {
         result.put("targetLoadRate", round(targetLoadRate));
         result.put("targetLoadWeightKg", round(targetLoadWeightKg));
         result.put("maxCapacityKg", round(maxCapacityKg));
+        result.put("distanceMode", useRoadPath(request) ? "ROAD" : "DIRECT");
+        result.put("optimizerCostSource", useRoadPath(request) ? "OD_OR_BAIDU" : "DIRECT");
         result.put("dispatchMode", textOrDefault(request.get("dispatchMode"), "USER_ORDER"));
         result.put("dispatchTripCount", dispatchPlan.size());
         result.put("totalPlannedCapacityKg", round(totalPlannedCapacity(dispatchPlan)));
@@ -207,7 +221,7 @@ public class RouteOptimizeService {
             return "该路线点位不足 3 个，保持原规划顺序。";
         }
         if (useRoadPath) {
-            return "已使用单路线全路径插入算法生成优化预览，并按 OD 缓存/百度补算生成道路折线和路段距离。";
+            return "已按 OD 缓存/百度补算道路距离执行单路线全路径插入算法；缓存缺失会实时补算，失败后按直线回退。";
         }
         return "已使用单路线全路径插入算法生成优化预览。当前使用点位直线距离，未开启真实道路算路。";
     }
@@ -243,7 +257,8 @@ public class RouteOptimizeService {
     }
 
     private List<RoutePoint> buildCapacityRoute(RoutePoint start, RoutePoint end, List<RoutePoint> remaining,
-                                                double targetLoadWeightKg, double maxCapacityKg) {
+                                                double targetLoadWeightKg, double maxCapacityKg,
+                                                SingleRouteOptimizer.DistanceCalculator distanceCalculator) {
         List<RoutePoint> route = new ArrayList<RoutePoint>();
         route.add(start);
         route.add(end);
@@ -260,9 +275,9 @@ public class RouteOptimizeService {
                 for (int segment = 0; segment < route.size() - 1; segment++) {
                     RoutePoint previous = route.get(segment);
                     RoutePoint next = route.get(segment + 1);
-                    double increase = singleRouteOptimizer.distance(previous, candidate)
-                            + singleRouteOptimizer.distance(candidate, next)
-                            - singleRouteOptimizer.distance(previous, next);
+                    double increase = distanceCalculator.distance(previous, candidate)
+                            + distanceCalculator.distance(candidate, next)
+                            - distanceCalculator.distance(previous, next);
                     if (best == null || increase < best.increase) {
                         best = new InsertChoice(candidate, segment + 1, increase);
                     }
@@ -350,11 +365,11 @@ public class RouteOptimizeService {
     }
 
     private Map<String, Object> multiRouteView(int routeNo, List<RoutePoint> route, Map<String, Object> request,
-                                               DispatchTrip trip) {
+                                               DispatchTrip trip, DistanceContext distanceContext) {
         Map<String, Object> view = new HashMap<String, Object>();
         List<RoutePoint> collected = collectedPoints(route);
         double weight = sumEstimatedWeight(collected);
-        List<Map<String, Object>> segments = segmentViews(route, speedKmh(request), useRoadPath(request));
+        List<Map<String, Object>> segments = segmentViews(route, speedKmh(request), distanceContext);
         view.put("routeNo", routeNo);
         view.put("vehicleIndex", trip.vehicleIndex);
         view.put("vehicleId", trip.vehicleId);
@@ -377,17 +392,13 @@ public class RouteOptimizeService {
         return view;
     }
 
-    private List<Map<String, Object>> segmentViews(List<RoutePoint> points, double speedKmh, boolean useRoadPath) {
+    private List<Map<String, Object>> segmentViews(List<RoutePoint> points, double speedKmh, DistanceContext distanceContext) {
         List<Map<String, Object>> segments = new ArrayList<Map<String, Object>>();
         for (int i = 0; i < points.size() - 1; i++) {
             RoutePoint from = points.get(i);
             RoutePoint to = points.get(i + 1);
-            RouteMapPathService.ResolvedPath resolvedPath = useRoadPath
-                    ? routeMapPathService.resolve(from, to)
-                    : directResolvedPath(from, to);
-            double distance = resolvedPath.getDistanceMeters() == null
-                    ? singleRouteOptimizer.distance(from, to)
-                    : resolvedPath.getDistanceMeters();
+            RouteMapPathService.ResolvedPath resolvedPath = distanceContext.resolve(from, to);
+            double distance = distanceContext.distance(from, to);
             Map<String, Object> segment = new HashMap<String, Object>();
             segment.put("order", i + 1);
             segment.put("fromFacilityId", from.getFacilityId());
@@ -426,6 +437,42 @@ public class RouteOptimizeService {
         coordinate.put("facilityId", point.getFacilityId());
         coordinate.put("facilityName", point.getFacilityName());
         path.add(coordinate);
+    }
+
+    private class DistanceContext implements SingleRouteOptimizer.DistanceCalculator {
+        private final boolean useRoadPath;
+        private final Map<String, RouteMapPathService.ResolvedPath> resolvedCache = new HashMap<String, RouteMapPathService.ResolvedPath>();
+
+        private DistanceContext(boolean useRoadPath) {
+            this.useRoadPath = useRoadPath;
+        }
+
+        @Override
+        public double distance(RoutePoint from, RoutePoint to) {
+            RouteMapPathService.ResolvedPath resolvedPath = resolve(from, to);
+            return resolvedPath.getDistanceMeters() == null
+                    ? singleRouteOptimizer.distance(from, to)
+                    : resolvedPath.getDistanceMeters();
+        }
+
+        private RouteMapPathService.ResolvedPath resolve(RoutePoint from, RoutePoint to) {
+            String key = pointKey(from) + "->" + pointKey(to) + "#" + (useRoadPath ? "ROAD" : "DIRECT");
+            if (resolvedCache.containsKey(key)) {
+                return resolvedCache.get(key);
+            }
+            RouteMapPathService.ResolvedPath resolvedPath = useRoadPath
+                    ? routeMapPathService.resolve(from, to)
+                    : directResolvedPath(from, to);
+            resolvedCache.put(key, resolvedPath);
+            return resolvedPath;
+        }
+
+        private String pointKey(RoutePoint point) {
+            if (point.getFacilityId() != null) {
+                return "ID:" + point.getFacilityId();
+            }
+            return "XY:" + point.getLongitude() + "," + point.getLatitude();
+        }
     }
 
     private boolean useRoadPath(Map<String, Object> request) {
@@ -487,7 +534,7 @@ public class RouteOptimizeService {
     }
 
     private String buildMultiMessage(boolean companyMode, boolean useRoadPath) {
-        String distanceMode = useRoadPath ? "距离和折线优先来自 OD 缓存，缓存缺失时按配置调用百度补算，失败后回退直线。" : "当前使用点位直线距离，未开启真实道路算路。";
+        String distanceMode = useRoadPath ? "当前按 OD 缓存/百度补算道路距离选择点位和生成路线；缓存缺失会实时补算，失败后按直线回退。" : "当前使用点位直线距离选择点位和生成路线，未开启真实道路算路。";
         if (companyMode) {
             return "已按公司点位池、预计垃圾量和目标装载率生成多路线预览。若公司维护了场站坐标，则使用传入的真实起终点；未传坐标时回退到点位中心。" + distanceMode;
         }

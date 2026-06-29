@@ -242,12 +242,14 @@
                 <p>{{ optimization.message }}</p>
                 <div class="optimization-metrics">
                   <span>点位 {{ optimization.pointCount || 0 }}</span>
-                  <span>原距离 {{ formatDistance(optimization.originalDistance) }}</span>
-                  <span>优化后 {{ formatDistance(optimization.optimizedDistance) }}</span>
-                  <span>节省 {{ formatDistance(optimization.savedDistance) }}</span>
-                  <span>原道路 {{ formatDistance(optimization.originalPathDistance) }}</span>
-                  <span>道路距离 {{ formatDistance(optimization.pathDistance) }}</span>
-                  <span>道路耗时 {{ formatDuration(optimization.pathDurationMinutes) }}</span>
+                  <span>{{ optimization.distanceMode === 'ROAD' ? '原道路距离' : '原直线距离' }} {{ formatDistance(optimization.originalDistance) }}</span>
+                  <span>{{ optimization.distanceMode === 'ROAD' ? '优化后道路' : '优化后直线' }} {{ formatDistance(optimization.optimizedDistance) }}</span>
+                  <span>{{ optimization.distanceDelta < 0 ? '增加' : '节省' }} {{ formatDistanceAbs(optimization.distanceDelta ?? optimization.savedDistance) }}</span>
+                  <template v-if="optimization.distanceMode === 'ROAD'">
+                    <span>原直线参考 {{ formatDistance(optimization.directOriginalDistance) }}</span>
+                    <span>优化直线参考 {{ formatDistance(optimization.directOptimizedDistance) }}</span>
+                  </template>
+                  <span>{{ optimization.distanceMode === 'ROAD' ? '道路耗时' : '预计耗时' }} {{ formatDuration(optimization.pathDurationMinutes) }}</span>
                   <span>预计重量 {{ formatWeight(optimization.estimatedWeightKg) }}</span>
                   <span>预计体积 {{ formatVolume(optimization.estimatedVolumeLiter) }}</span>
                   <span>装载率 {{ formatLoadRate(optimization.loadRate) }}</span>
@@ -1539,6 +1541,10 @@ function formatDistance(value) {
     return `${(n / 1000).toFixed(2)} km`
   }
   return `${n.toFixed(0)} m`
+}
+
+function formatDistanceAbs(value) {
+  return formatDistance(Math.abs(Number(value || 0)))
 }
 
 function formatDuration(value) {

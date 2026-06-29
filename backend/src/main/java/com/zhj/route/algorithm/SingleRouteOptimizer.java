@@ -7,9 +7,19 @@ public class SingleRouteOptimizer {
     private static final double EARTH_RADIUS_METERS = 6371000D;
 
     public RouteOptimizationResult optimize(List<RoutePoint> points) {
+        return optimize(points, new DistanceCalculator() {
+            @Override
+            public double distance(RoutePoint a, RoutePoint b) {
+                return SingleRouteOptimizer.this.distance(a, b);
+            }
+        });
+    }
+
+    public RouteOptimizationResult optimize(List<RoutePoint> points, DistanceCalculator distanceCalculator) {
         List<RoutePoint> original = new ArrayList<RoutePoint>(points);
         if (points.size() < 3) {
-            return new RouteOptimizationResult(original, original, totalDistance(original), totalDistance(original));
+            double originalDistance = totalDistance(original, distanceCalculator);
+            return new RouteOptimizationResult(original, original, originalDistance, originalDistance);
         }
 
         List<RoutePoint> optimized = new ArrayList<RoutePoint>();
@@ -23,7 +33,9 @@ public class SingleRouteOptimizer {
                 for (int segment = 0; segment < optimized.size() - 1; segment++) {
                     RoutePoint previous = optimized.get(segment);
                     RoutePoint next = optimized.get(segment + 1);
-                    double increase = distance(previous, candidate) + distance(candidate, next) - distance(previous, next);
+                    double increase = distanceCalculator.distance(previous, candidate)
+                            + distanceCalculator.distance(candidate, next)
+                            - distanceCalculator.distance(previous, next);
                     if (best == null || increase < best.increase) {
                         best = new InsertChoice(candidate, segment + 1, increase);
                     }
@@ -33,13 +45,26 @@ public class SingleRouteOptimizer {
             remaining.remove(best.point);
         }
 
-        return new RouteOptimizationResult(original, optimized, totalDistance(original), totalDistance(optimized));
+        return new RouteOptimizationResult(
+                original,
+                optimized,
+                totalDistance(original, distanceCalculator),
+                totalDistance(optimized, distanceCalculator));
     }
 
     public double totalDistance(List<RoutePoint> points) {
+        return totalDistance(points, new DistanceCalculator() {
+            @Override
+            public double distance(RoutePoint a, RoutePoint b) {
+                return SingleRouteOptimizer.this.distance(a, b);
+            }
+        });
+    }
+
+    public double totalDistance(List<RoutePoint> points, DistanceCalculator distanceCalculator) {
         double total = 0D;
         for (int i = 0; i < points.size() - 1; i++) {
-            total += distance(points.get(i), points.get(i + 1));
+            total += distanceCalculator.distance(points.get(i), points.get(i + 1));
         }
         return total;
     }
@@ -55,6 +80,10 @@ public class SingleRouteOptimizer {
         double h = Math.sin(deltaLat / 2D) * Math.sin(deltaLat / 2D)
                 + Math.cos(lat1) * Math.cos(lat2) * Math.sin(deltaLng / 2D) * Math.sin(deltaLng / 2D);
         return 2D * EARTH_RADIUS_METERS * Math.atan2(Math.sqrt(h), Math.sqrt(1D - h));
+    }
+
+    public interface DistanceCalculator {
+        double distance(RoutePoint a, RoutePoint b);
     }
 
     private static class InsertChoice {
