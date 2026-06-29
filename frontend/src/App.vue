@@ -136,12 +136,12 @@
           <section class="panel">
             <div class="panel-head">
               <h2>{{ currentTypeName }}概览</h2>
-              <div class="panel-actions with-toggle">
-                <label class="route-mode-toggle compact-toggle">
-                  <span>实际算路</span>
+              <div class="panel-actions route-preview-actions">
+                <label class="route-mode-toggle route-preview-toggle">
+                  <span>算路方式</span>
                   <input v-model="optimizeOptions.useRoadPath" type="checkbox" />
                   <i></i>
-                  <small>{{ optimizeOptions.useRoadPath ? 'OD缓存/百度补算' : '直线距离' }}</small>
+                  <small>{{ optimizeOptions.useRoadPath ? '实际路线距离' : '直线距离' }}</small>
                 </label>
                 <button @click="previewOptimize" :disabled="!selectedRoute || loading">优化预览</button>
               </div>
@@ -335,10 +335,10 @@
                 <input v-model.number="optimizeOptions.maxRoutes" type="number" min="1" step="1" />
               </label>
               <label class="route-mode-toggle">
-                <span>实际算路</span>
+                <span>算路方式</span>
                 <input v-model="optimizeOptions.useRoadPath" type="checkbox" />
                 <i></i>
-                <small>{{ optimizeOptions.useRoadPath ? 'OD缓存/百度补算' : '直线距离' }}</small>
+                <small>{{ optimizeOptions.useRoadPath ? '实际路线距离' : '直线距离' }}</small>
               </label>
               <label>
                 起点类型

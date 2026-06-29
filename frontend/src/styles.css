@@ -292,6 +292,19 @@ button:disabled {
   flex-wrap: wrap;
 }
 
+.route-preview-actions {
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.route-preview-toggle {
+  display: inline-grid;
+  grid-template-columns: auto 42px auto;
+  align-items: center;
+  gap: 8px;
+  color: #536274;
+  font-size: 12px;
+}
 .route-panel-head {
   border-bottom: 1px solid #e3e9ef;
 }
