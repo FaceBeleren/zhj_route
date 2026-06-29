@@ -25,6 +25,31 @@
       </div>
     </div>
 
+    <div class="route-playback-bar">
+      <div class="route-playback-main">
+        <select v-model="playbackRoute" class="route-playback-select" @change="resetPlayback">
+          <option v-if="props.showOriginal" value="original">{{ originalLabel }}</option>
+          <option value="optimized">{{ optimizedLabel }}</option>
+        </select>
+        <button class="route-playback-button primary" type="button" :disabled="!canPlay" @click="togglePlayback">
+          {{ playbackRunning ? '暂停' : '播放' }}
+        </button>
+        <button class="route-playback-button" type="button" :disabled="!canPlay" @click="resetPlayback">重置</button>
+        <select v-model.number="playbackSpeed" class="route-playback-select compact">
+          <option :value="0.5">0.5x</option>
+          <option :value="1">1x</option>
+          <option :value="2">2x</option>
+          <option :value="4">4x</option>
+        </select>
+      </div>
+      <div class="route-playback-progress">
+        <span>{{ playbackLabel }}</span>
+        <div class="route-progress-track">
+          <div class="route-progress-fill" :style="{ width: playbackPercent + '%' }"></div>
+        </div>
+      </div>
+    </div>
+
     <div v-show="baiduReady" ref="mapEl" class="baidu-route-map"></div>
 
     <div v-if="!baiduReady && routePlot" class="route-plot fallback-plot">
@@ -40,6 +65,13 @@
             v-if="showOptimizedLine && routePlot.compare.optimizedLine"
             :points="routePlot.compare.optimizedLine"
             class="plot-line optimized"
+          />
+          <circle
+            v-if="fallbackPlaybackPoint"
+            :cx="fallbackPlaybackPoint.x"
+            :cy="fallbackPlaybackPoint.y"
+            r="2.8"
+            class="plot-vehicle"
           />
           <g v-for="point in routePlot.compare.points" :key="point.key">
             <circle :cx="point.x" :cy="point.y" r="2.2">
@@ -130,7 +162,14 @@ const labelsVisible = ref(true)
 const showOriginalLine = ref(props.showOriginal)
 const showOptimizedLine = ref(true)
 const expanded = ref(false)
+const playbackRoute = ref('optimized')
+const playbackSpeed = ref(1)
+const playbackRunning = ref(false)
+const playbackDistance = ref(0)
 let mapInstance = null
+let playbackMarker = null
+let playbackAnimationFrame = null
+let playbackFrameTime = 0
 
 const originalAllPoints = computed(() => (props.showOriginal ? normalizeRoutePoints(props.originalPoints) : []))
 const optimizedAllPoints = computed(() => normalizeRoutePoints(props.optimizedPoints))
@@ -142,6 +181,30 @@ const markerPoints = computed(() => uniquePoints([...originalAllPoints.value, ..
 const extentPoints = computed(() => uniquePoints([...markerPoints.value, ...originalGeometryPoints.value, ...optimizedGeometryPoints.value]))
 const allPoints = computed(() => extentPoints.value)
 const routePlot = computed(() => buildRoutePlot(originalAllPoints.value, optimizedAllPoints.value))
+const playbackPoints = computed(() => {
+  if (playbackRoute.value === 'original') {
+    return originalGeometryPoints.value.length >= 2 ? originalGeometryPoints.value : originalAllPoints.value
+  }
+  return optimizedGeometryPoints.value.length >= 2 ? optimizedGeometryPoints.value : optimizedAllPoints.value
+})
+const playbackTotalDistance = computed(() => routeDistance(playbackPoints.value))
+const canPlay = computed(() => playbackPoints.value.length >= 2 && playbackTotalDistance.value > 0)
+const playbackPercent = computed(() => {
+  if (!canPlay.value) return 0
+  return Math.min(100, Math.round((playbackDistance.value / playbackTotalDistance.value) * 1000) / 10)
+})
+const playbackCurrentPoint = computed(() => pointAtDistance(playbackPoints.value, playbackDistance.value))
+const fallbackPlaybackPoint = computed(() => {
+  if (!routePlot.value || !playbackCurrentPoint.value) return null
+  const bounds = boundsFor([...originalAllPoints.value, ...optimizedAllPoints.value])
+  return projectPoint(playbackCurrentPoint.value, bounds)
+})
+const playbackLabel = computed(() => {
+  if (!canPlay.value) return '暂无可播放轨迹'
+  const distance = Math.round(playbackDistance.value)
+  const total = Math.round(playbackTotalDistance.value)
+  return '已播放 ' + distance + ' / ' + total + ' m'
+})
 
 function uniquePoints(points) {
   const seen = new Set()
@@ -158,6 +221,7 @@ onMounted(() => {
 })
 
 onBeforeUnmount(() => {
+  pausePlayback()
   if (mapInstance?.clearOverlays) {
     mapInstance.clearOverlays()
   }
@@ -230,7 +294,33 @@ function drawBaiduMap(BMap) {
       marker.setLabel(label)
     }
   })
+  drawPlaybackMarker(BMap)
   fitMapViewport(BMap)
+}
+
+function drawPlaybackMarker(BMap) {
+  playbackMarker = null
+  const point = playbackCurrentPoint.value
+  if (!point) return
+  playbackMarker = new BMap.Marker(new BMap.Point(point.longitude, point.latitude))
+  playbackMarker.setTitle('轨迹播放位置')
+  const label = new BMap.Label('车', { offset: new BMap.Size(12, -22) })
+  label.setStyle({
+    color: '#ffffff',
+    border: '0',
+    borderRadius: '999px',
+    padding: '3px 7px',
+    backgroundColor: '#111827',
+    fontSize: '12px',
+    fontWeight: '600'
+  })
+  playbackMarker.setLabel(label)
+  mapInstance.addOverlay(playbackMarker)
+}
+
+function updatePlaybackMarker() {
+  if (!playbackMarker || !window.BMap || !playbackCurrentPoint.value) return
+  playbackMarker.setPosition(new window.BMap.Point(playbackCurrentPoint.value.longitude, playbackCurrentPoint.value.latitude))
 }
 
 function addMapControls(BMap) {
@@ -346,6 +436,101 @@ function sameCoordinate(a, b) {
   return Math.abs(a.longitude - b.longitude) < 0.000001 && Math.abs(a.latitude - b.latitude) < 0.000001
 }
 
+function togglePlayback() {
+  if (playbackRunning.value) {
+    pausePlayback()
+    return
+  }
+  startPlayback()
+}
+
+function startPlayback() {
+  if (!canPlay.value) return
+  if (playbackDistance.value >= playbackTotalDistance.value) {
+    playbackDistance.value = 0
+  }
+  if (playbackRoute.value === 'original') {
+    showOriginalLine.value = true
+  } else {
+    showOptimizedLine.value = true
+  }
+  playbackRunning.value = true
+  playbackFrameTime = performance.now()
+  playbackAnimationFrame = requestAnimationFrame(stepPlayback)
+}
+
+function pausePlayback() {
+  playbackRunning.value = false
+  if (playbackAnimationFrame) {
+    cancelAnimationFrame(playbackAnimationFrame)
+    playbackAnimationFrame = null
+  }
+}
+
+function resetPlayback() {
+  pausePlayback()
+  playbackDistance.value = 0
+  updatePlaybackMarker()
+}
+
+function stepPlayback(now) {
+  if (!playbackRunning.value) return
+  const elapsed = Math.max(0, now - playbackFrameTime)
+  playbackFrameTime = now
+  const metersPerSecond = Math.max(playbackTotalDistance.value / 22, 30) * playbackSpeed.value
+  playbackDistance.value = Math.min(playbackTotalDistance.value, playbackDistance.value + (elapsed / 1000) * metersPerSecond)
+  updatePlaybackMarker()
+  if (playbackDistance.value >= playbackTotalDistance.value) {
+    pausePlayback()
+    return
+  }
+  playbackAnimationFrame = requestAnimationFrame(stepPlayback)
+}
+
+function routeDistance(points) {
+  let total = 0
+  for (let index = 1; index < points.length; index += 1) {
+    total += distanceBetween(points[index - 1], points[index])
+  }
+  return total
+}
+
+function pointAtDistance(points, distance) {
+  if (points.length === 0) return null
+  if (points.length === 1 || distance <= 0) return points[0]
+  let remaining = distance
+  for (let index = 1; index < points.length; index += 1) {
+    const from = points[index - 1]
+    const to = points[index]
+    const segmentDistance = distanceBetween(from, to)
+    if (remaining <= segmentDistance) {
+      const ratio = segmentDistance === 0 ? 0 : remaining / segmentDistance
+      return {
+        longitude: from.longitude + (to.longitude - from.longitude) * ratio,
+        latitude: from.latitude + (to.latitude - from.latitude) * ratio
+      }
+    }
+    remaining -= segmentDistance
+  }
+  return points[points.length - 1]
+}
+
+function distanceBetween(a, b) {
+  const earthRadius = 6371000
+  const lat1 = toRadians(a.latitude)
+  const lat2 = toRadians(b.latitude)
+  const deltaLat = toRadians(b.latitude - a.latitude)
+  const deltaLng = toRadians(b.longitude - a.longitude)
+  const sinLat = Math.sin(deltaLat / 2)
+  const sinLng = Math.sin(deltaLng / 2)
+  const h = sinLat * sinLat + Math.cos(lat1) * Math.cos(lat2) * sinLng * sinLng
+  return earthRadius * 2 * Math.atan2(Math.sqrt(h), Math.sqrt(1 - h))
+}
+
+function toRadians(value) {
+  return (value * Math.PI) / 180
+}
+
 function pathSourceSummary() {
   const visibleSegments = showOptimizedLine.value ? props.optimizedSegments : props.originalSegments
   const sources = new Set((visibleSegments || []).map((segment) => segment.pathSource || 'DIRECT'))
@@ -414,8 +599,9 @@ function boundsFor(points) {
 
 function projectRoute(points, bounds) {
   const projected = points.map((point, index) => {
-    const x = project(point.longitude, bounds.minLng, bounds.maxLng)
-    const y = 100 - project(point.latitude, bounds.minLat, bounds.maxLat)
+    const projectedPoint = projectPoint(point, bounds)
+    const x = projectedPoint.x
+    const y = projectedPoint.y
     return {
       ...point,
       key: `${point.facilityId || index}-${index}`,
@@ -428,6 +614,13 @@ function projectRoute(points, bounds) {
   return {
     points: projected,
     line: projected.map((point) => `${point.x},${point.y}`).join(' ')
+  }
+}
+
+function projectPoint(point, bounds) {
+  return {
+    x: project(point.longitude, bounds.minLng, bounds.maxLng),
+    y: 100 - project(point.latitude, bounds.minLat, bounds.maxLat)
   }
 }
 

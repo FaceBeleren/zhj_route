@@ -1005,6 +1005,83 @@ tbody tr.active {
   border-color: currentColor;
 }
 
+.route-playback-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  margin: 0 0 8px;
+  padding: 8px;
+  border: 1px solid #e1e8f2;
+  border-radius: 8px;
+  background: #ffffff;
+  font-size: 12px;
+}
+
+.route-playback-main {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  white-space: nowrap;
+}
+
+.route-playback-select,
+.route-playback-button {
+  height: 28px;
+  border: 1px solid #d7e2ef;
+  border-radius: 7px;
+  padding: 0 9px;
+  background: #ffffff;
+  color: #24364b;
+  font-size: 12px;
+}
+
+.route-playback-select.compact {
+  width: 70px;
+}
+
+.route-playback-button {
+  cursor: pointer;
+  font-weight: 600;
+}
+
+.route-playback-button.primary {
+  border-color: #1565c0;
+  background: #1565c0;
+  color: #ffffff;
+}
+
+.route-playback-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+.route-playback-progress {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 220px;
+  color: #536274;
+}
+
+.route-progress-track {
+  width: 150px;
+  height: 6px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: #e8eef6;
+}
+
+.route-progress-fill {
+  height: 100%;
+  border-radius: inherit;
+  background: #1565c0;
+  transition: width 0.12s linear;
+}
+
+.route-map-panel.expanded .route-playback-bar {
+  flex: 0 0 auto;
+}
 .route-map-panel.expanded {
   position: fixed;
   inset: 18px;
@@ -1193,6 +1270,12 @@ tbody tr.active {
   fill: #24364b;
   stroke: #fff;
   stroke-width: 0.8;
+}
+
+.route-plot .plot-vehicle {
+  fill: #111827;
+  stroke: #ffffff;
+  stroke-width: 1.2;
 }
 
 .route-plot text {
