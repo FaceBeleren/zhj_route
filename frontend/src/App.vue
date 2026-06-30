@@ -1738,13 +1738,13 @@ function pathSourceSummary(segments = []) {
 }
 
 function pathSourceLabel(source) {
-  if (source === 'OD_CACHE') return 'OD缓存'
+  if (source === 'OD_CACHE' || source === 'OD_PRELOAD') return 'OD缓存'
   if (source === 'BAIDU_ONLINE') return '百度在线'
   return '直线回退'
 }
 
 function pathSourceClass(source) {
-  if (source === 'OD_CACHE') return 'cache'
+  if (source === 'OD_CACHE' || source === 'OD_PRELOAD') return 'cache'
   if (source === 'BAIDU_ONLINE') return 'online'
   return 'direct'
 }
