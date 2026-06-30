@@ -617,6 +617,131 @@ tbody tr.active {
   background: #eef6ff;
 }
 
+.planning-progress {
+  margin: 12px 14px 0;
+  padding: 14px;
+  border: 1px solid #d7e3f0;
+  border-radius: 8px;
+  background: #f8fbff;
+}
+
+.planning-progress-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.planning-progress-head strong,
+.planning-progress-head small {
+  display: block;
+}
+
+.planning-progress-head small {
+  margin-top: 4px;
+  color: #64748b;
+  font-size: 12px;
+}
+
+.planning-progress-head > span {
+  color: #1769c2;
+  font-weight: 700;
+}
+
+.planning-progress-bar {
+  height: 6px;
+  margin: 12px 0;
+  overflow: hidden;
+  border-radius: 999px;
+  background: #e4edf7;
+}
+
+.planning-progress-bar i {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: #1f78d1;
+  transition: width 0.25s ease;
+}
+
+.planning-progress ol {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.planning-progress li {
+  display: grid;
+  grid-template-columns: 26px minmax(0, 1fr);
+  align-items: center;
+  gap: 10px;
+  min-height: 38px;
+  padding: 8px 10px;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  background: #fff;
+}
+
+.planning-progress li > span {
+  display: inline-grid;
+  width: 24px;
+  height: 24px;
+  place-items: center;
+  border-radius: 50%;
+  color: #64748b;
+  font-size: 12px;
+  font-weight: 700;
+  background: #e8eef5;
+}
+
+.planning-progress li strong,
+.planning-progress li small {
+  display: block;
+  min-width: 0;
+}
+
+.planning-progress li strong {
+  color: #1f2937;
+  font-size: 13px;
+}
+
+.planning-progress li small {
+  margin-top: 3px;
+  color: #64748b;
+  font-size: 12px;
+}
+
+.planning-progress li.done > span {
+  color: #fff;
+  background: #1f9d55;
+}
+
+.planning-progress li.active {
+  border-color: #83b8ec;
+  background: #eef7ff;
+}
+
+.planning-progress li.active > span {
+  color: #fff;
+  background: #1f78d1;
+}
+
+.planning-progress li.failed {
+  border-color: #f1aeb5;
+  background: #fff5f5;
+}
+
+.planning-progress li.failed > span {
+  color: #fff;
+  background: #d64545;
+}
+
+.planning-progress li.pending {
+  opacity: 0.78;
+}
+
 .optimization-box {
   padding: 14px;
 }

@@ -522,6 +522,31 @@
                   <button @click="exportCompanyRoutes" :disabled="!multiOptimization || loading">导出Excel</button>
                 </div>
               </div>
+              <div v-if="routeProgress.visible" class="planning-progress">
+                <div class="planning-progress-head">
+                  <div>
+                    <strong>路线规划进度</strong>
+                    <small>{{ routeProgress.message }}</small>
+                  </div>
+                  <span>{{ routeProgressPercent }}%</span>
+                </div>
+                <div class="planning-progress-bar">
+                  <i :style="{ width: routeProgressPercent + '%' }"></i>
+                </div>
+                <ol>
+                  <li
+                    v-for="(step, index) in routeProgress.steps"
+                    :key="step.key"
+                    :class="progressStepClass(index)"
+                  >
+                    <span>{{ progressStepMark(index) }}</span>
+                    <div>
+                      <strong>{{ step.title }}</strong>
+                      <small>{{ step.detail }}</small>
+                    </div>
+                  </li>
+                </ol>
+              </div>
               <div v-if="multiOptimization" class="optimization-box">
                 <strong>{{ multiOptimization.status }}</strong>
                 <p>{{ multiOptimization.message }}</p>
@@ -836,6 +861,15 @@ const companyAnchors = ref({
 const optimization = ref(null)
 const multiOptimization = ref(null)
 const routeMapStatus = ref(null)
+const routeProgressTimer = ref(null)
+const routeProgress = reactive({
+  visible: false,
+  activeIndex: -1,
+  done: false,
+  failed: false,
+  message: '',
+  steps: []
+})
 
 const companyScores = ref([])
 const routeScores = ref([])
@@ -931,6 +965,13 @@ const companyPointVisibleList = computed(() =>
 )
 const startAnchorOptions = computed(() => anchorOptionsByMode(startAnchorMode.value))
 const endAnchorOptions = computed(() => anchorOptionsByMode(endAnchorMode.value))
+const routeProgressPercent = computed(() => {
+  const total = routeProgress.steps.length
+  if (!routeProgress.visible || total === 0) return 0
+  if (routeProgress.done) return 100
+  const active = Math.max(0, routeProgress.activeIndex)
+  return Math.min(95, Math.round((active / total) * 100))
+})
 const routeAnchorCount = computed(
   () =>
     (companyAnchors.value.facilityAnchors?.length || 0) +
@@ -1143,6 +1184,9 @@ function normalizeFacilityName(value) {
 function clearMultiOptimization() {
   multiOptimization.value = null
   selectedMultiRouteNo.value = null
+  if (!loading.value) {
+    resetRouteProgress()
+  }
 }
 
 function createDispatchVehicle(index) {
@@ -1342,20 +1386,119 @@ async function previewOptimize() {
 
 async function generateCompanyRoutes() {
   if (!selectedMultiCompany.value) return
+  startRouteProgress()
   await withLoading(async () => {
-    multiOptimization.value = await api('/api/optimize/multi-preview', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        unitId: selectedMultiCompany.value.id,
-        facilityIds: Array.from(selectedCompanyPointIds.value),
-        dispatchMode: 'USER_ORDER',
-        vehicles: normalizedDispatchVehicles(),
-        ...optimizeOptions
+    try {
+      multiOptimization.value = await api('/api/optimize/multi-preview', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          unitId: selectedMultiCompany.value.id,
+          facilityIds: Array.from(selectedCompanyPointIds.value),
+          dispatchMode: 'USER_ORDER',
+          vehicles: normalizedDispatchVehicles(),
+          ...optimizeOptions
+        })
       })
-    })
-    selectedMultiRouteNo.value = multiOptimization.value?.routes?.[0]?.routeNo || null
+      selectedMultiRouteNo.value = multiOptimization.value?.routes?.[0]?.routeNo || null
+      finishRouteProgress()
+    } catch (err) {
+      failRouteProgress(err)
+      throw err
+    }
   })
+}
+
+function buildRouteProgressSteps() {
+  const steps = [
+    {
+      key: 'prepare',
+      title: '整理本批点位',
+      detail: selectedCompanyPointCount.value + ' 个候选点，' + (dispatchEnabled.value ? dispatchTripCount.value + ' 趟排班' : '使用默认最大趟数')
+    }
+  ]
+  if (optimizeOptions.useRoadPath) {
+    steps.push(
+      { key: 'cache-check', title: '调取 OD 缓存', detail: '批量读取本批点位已有道路点对' },
+      { key: 'pair-resolve', title: '处理缺失点对', detail: '缓存未命中时按配置百度补算或直线回退' }
+    )
+  } else {
+    steps.push({ key: 'direct-distance', title: '计算直线距离', detail: '使用点位经纬度距离进行快速规划' })
+  }
+  steps.push(
+    { key: 'route-build', title: '生成多趟路线', detail: '按装载目标逐趟插入点位' },
+    { key: 'segment-build', title: '整理路段与地图数据', detail: '生成路线明细、路段距离和展示路径' },
+    { key: 'result', title: '输出规划结果', detail: '统计已分配、未分配和装载率' }
+  )
+  return steps
+}
+
+function startRouteProgress() {
+  stopRouteProgressTimer()
+  routeProgress.visible = true
+  routeProgress.activeIndex = 0
+  routeProgress.done = false
+  routeProgress.failed = false
+  routeProgress.message = '正在发起路线规划请求'
+  routeProgress.steps = buildRouteProgressSteps()
+  routeProgressTimer.value = window.setInterval(() => {
+    if (!routeProgress.visible || routeProgress.done || routeProgress.failed) return
+    if (routeProgress.activeIndex < routeProgress.steps.length - 2) {
+      routeProgress.activeIndex += 1
+      routeProgress.message = routeProgress.steps[routeProgress.activeIndex]?.title || '正在规划路线'
+    } else {
+      routeProgress.message = '后端仍在计算，请稍候'
+    }
+  }, 1400)
+}
+
+function finishRouteProgress() {
+  stopRouteProgressTimer()
+  routeProgress.visible = true
+  routeProgress.activeIndex = routeProgress.steps.length - 1
+  routeProgress.done = true
+  routeProgress.failed = false
+  routeProgress.message = '路线规划完成'
+}
+
+function failRouteProgress(err) {
+  stopRouteProgressTimer()
+  routeProgress.visible = true
+  routeProgress.failed = true
+  routeProgress.done = false
+  routeProgress.message = (err && err.message) ? err.message : '路线规划失败'
+}
+
+function resetRouteProgress() {
+  stopRouteProgressTimer()
+  routeProgress.visible = false
+  routeProgress.activeIndex = -1
+  routeProgress.done = false
+  routeProgress.failed = false
+  routeProgress.message = ''
+  routeProgress.steps = []
+}
+
+function stopRouteProgressTimer() {
+  if (routeProgressTimer.value) {
+    window.clearInterval(routeProgressTimer.value)
+    routeProgressTimer.value = null
+  }
+}
+
+function progressStepClass(index) {
+  return {
+    done: routeProgress.done || index < routeProgress.activeIndex,
+    active: !routeProgress.done && !routeProgress.failed && index === routeProgress.activeIndex,
+    pending: !routeProgress.done && index > routeProgress.activeIndex,
+    failed: routeProgress.failed && index === routeProgress.activeIndex
+  }
+}
+
+function progressStepMark(index) {
+  if (routeProgress.failed && index === routeProgress.activeIndex) return '!'
+  if (routeProgress.done || index < routeProgress.activeIndex) return '✓'
+  return index + 1
 }
 
 async function exportCompanyRoutes() {
