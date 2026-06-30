@@ -40,6 +40,7 @@ public class RouteOptimizeService {
         DistanceContext distanceContext = new DistanceContext(useRoadPath);
         List<Map<String, Object>> planRows = routeQueryService.routePlanPoints(routeId);
         List<RoutePoint> points = toRoutePoints(planRows);
+        distanceContext.preload(points);
         log.info("Single route optimize started: routeId={}, points={}, mode={}, ratedKg={}, targetRate={}",
                 routeId, points.size(), useRoadPath ? "ROAD" : "DIRECT", ratedCapacityKg(request), targetLoadRate(request));
         RouteOptimizationResult optimization = singleRouteOptimizer.optimize(points, distanceContext);
@@ -146,6 +147,7 @@ public class RouteOptimizeService {
         boolean useRoadPath = useRoadPath(request);
         DistanceContext distanceContext = new DistanceContext(useRoadPath);
         List<DispatchTrip> dispatchPlan = buildDispatchPlan(request, start, end, ratedCapacityKg, maxCapacityKg, targetLoadRate);
+        distanceContext.preload(distancePoints(sourcePoints, dispatchPlan));
         log.info("Multi route optimize started: routeId={}, unitId={}, companyMode={}, candidatePoints={}, dispatchTrips={}, mode={}, targetLoadKg={}, maxKg={}",
                 routeId, unitId, companyMode, sourcePoints.size(), dispatchPlan.size(), useRoadPath ? "ROAD" : "DIRECT", targetLoadWeightKg, maxCapacityKg);
         int routeNo = 1;
@@ -460,16 +462,66 @@ public class RouteOptimizeService {
         path.add(coordinate);
     }
 
+    private List<RoutePoint> distancePoints(List<RoutePoint> sourcePoints, List<DispatchTrip> dispatchPlan) {
+        List<RoutePoint> points = new ArrayList<RoutePoint>(sourcePoints);
+        for (DispatchTrip trip : dispatchPlan) {
+            addUniquePoint(points, trip.start);
+            addUniquePoint(points, trip.end);
+        }
+        return points;
+    }
+
+    private void addUniquePoint(List<RoutePoint> points, RoutePoint candidate) {
+        if (candidate == null) {
+            return;
+        }
+        String candidateKey = stablePointKey(candidate);
+        for (RoutePoint point : points) {
+            if (stablePointKey(point).equals(candidateKey)) {
+                return;
+            }
+        }
+        points.add(candidate);
+    }
+
+    private boolean isCacheablePoint(RoutePoint point) {
+        return point != null && point.getFacilityId() != null && point.getFacilityId() > 0;
+    }
+
+    private String stablePointKey(RoutePoint point) {
+        if (point == null) {
+            return "null";
+        }
+        if (point.getFacilityId() != null) {
+            return "ID:" + point.getFacilityId();
+        }
+        return "XY:" + point.getLongitude() + "," + point.getLatitude();
+    }
+
+
     private class DistanceContext implements SingleRouteOptimizer.DistanceCalculator {
         private final boolean useRoadPath;
         private final Map<String, RouteMapPathService.ResolvedPath> resolvedCache = new HashMap<String, RouteMapPathService.ResolvedPath>();
+        private final Map<String, RouteMapPathService.ResolvedPath> preloadedCache = new HashMap<String, RouteMapPathService.ResolvedPath>();
         private final Map<String, Integer> sourceCounts = new HashMap<String, Integer>();
+        private boolean preloadAttempted;
         private long resolveCalls;
         private long cacheHits;
         private long cacheMisses;
+        private long preloadedHits;
+        private long preloadedMisses;
 
         private DistanceContext(boolean useRoadPath) {
             this.useRoadPath = useRoadPath;
+        }
+
+        private void preload(List<RoutePoint> points) {
+            if (!useRoadPath) {
+                return;
+            }
+            preloadAttempted = true;
+            preloadedCache.clear();
+            preloadedCache.putAll(routeMapPathService.preloadCachedPaths(points));
         }
 
         @Override
@@ -488,14 +540,31 @@ public class RouteOptimizeService {
                 return resolvedCache.get(key);
             }
             cacheMisses++;
-            RouteMapPathService.ResolvedPath resolvedPath = useRoadPath
-                    ? routeMapPathService.resolve(from, to)
-                    : directResolvedPath(from, to);
+            RouteMapPathService.ResolvedPath resolvedPath = preloadedResolvedPath(from, to);
+            if (resolvedPath == null) {
+                resolvedPath = useRoadPath
+                        ? (preloadAttempted ? routeMapPathService.resolveWithoutCache(from, to) : routeMapPathService.resolve(from, to))
+                        : directResolvedPath(from, to);
+            }
             resolvedCache.put(key, resolvedPath);
             countSource(resolvedPath.getSource());
             if (useRoadPath && cacheMisses % 100 == 0) {
                 log.info("Route distance resolving progress: {}", summary());
             }
+            return resolvedPath;
+        }
+
+        private RouteMapPathService.ResolvedPath preloadedResolvedPath(RoutePoint from, RoutePoint to) {
+            if (!useRoadPath || !preloadAttempted || !isCacheablePoint(from) || !isCacheablePoint(to)) {
+                return null;
+            }
+            String key = routeMapPathService.pathKey(from, to);
+            RouteMapPathService.ResolvedPath resolvedPath = preloadedCache.get(key);
+            if (resolvedPath == null) {
+                preloadedMisses++;
+                return null;
+            }
+            preloadedHits++;
             return resolvedPath;
         }
 
@@ -511,6 +580,9 @@ public class RouteOptimizeService {
                     + ", localCacheHits=" + cacheHits
                     + ", localCacheMisses=" + cacheMisses
                     + ", uniquePairs=" + resolvedCache.size()
+                    + ", preloadedPairs=" + preloadedCache.size()
+                    + ", preloadedHits=" + preloadedHits
+                    + ", preloadedMisses=" + preloadedMisses
                     + ", sources=" + sourceCounts;
         }
 

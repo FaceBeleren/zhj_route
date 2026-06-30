@@ -19,8 +19,10 @@ import java.security.MessageDigest;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 @Service
 public class RouteMapPathService {
@@ -67,6 +69,66 @@ public class RouteMapPathService {
             return online;
         }
         return directPath(from, to);
+    }
+
+    public ResolvedPath resolveWithoutCache(RoutePoint from, RoutePoint to) {
+        if (!onlineRouteEnabled || isBlank(baiduAk) || !from.hasCoordinate() || !to.hasCoordinate()) {
+            return directPath(from, to);
+        }
+        ResolvedPath online = onlinePath(from, to);
+        if (online != null) {
+            return online;
+        }
+        return directPath(from, to);
+    }
+
+    public Map<String, ResolvedPath> preloadCachedPaths(List<RoutePoint> points) {
+        long startedAt = System.currentTimeMillis();
+        Map<String, ResolvedPath> cachedPaths = new HashMap<String, ResolvedPath>();
+        List<String> facilityIds = cacheableFacilityIds(points);
+        if (facilityIds.size() < 2) {
+            log.info("OD preload skipped: cacheablePointCount={}", facilityIds.size());
+            return cachedPaths;
+        }
+
+        String placeholders = placeholders(facilityIds.size());
+        String sql = "SELECT start_code, end_code, distance, time_duration, msg_full " +
+                "FROM ljszy_odpair_pool " +
+                "WHERE been_deleted = 0 AND msg_full IS NOT NULL " +
+                "AND start_code IN (" + placeholders + ") " +
+                "AND end_code IN (" + placeholders + ") " +
+                "ORDER BY create_time DESC";
+        List<Object> args = new ArrayList<Object>();
+        args.addAll(facilityIds);
+        args.addAll(facilityIds);
+
+        try {
+            List<Map<String, Object>> rows = jdbcTemplate.queryForList(sql, args.toArray());
+            int invalidRows = 0;
+            for (Map<String, Object> row : rows) {
+                String startCode = String.valueOf(row.get("start_code"));
+                String endCode = String.valueOf(row.get("end_code"));
+                String key = pathKey(startCode, endCode);
+                if (cachedPaths.containsKey(key)) {
+                    continue;
+                }
+                List<Map<String, Object>> path = parseBaiduPath(String.valueOf(row.get("msg_full")));
+                if (path.size() < 2) {
+                    invalidRows++;
+                    continue;
+                }
+                cachedPaths.put(key, new ResolvedPath(path,
+                        toDouble(row.get("distance")),
+                        toDouble(row.get("time_duration")),
+                        "OD_PRELOAD"));
+            }
+            log.info("OD preload finished: cacheablePoints={}, rows={}, validPairs={}, invalidRows={}, elapsed={}ms",
+                    facilityIds.size(), rows.size(), cachedPaths.size(), invalidRows, System.currentTimeMillis() - startedAt);
+        } catch (RuntimeException e) {
+            log.warn("OD preload failed: cacheablePoints={}, elapsed={}ms, {}",
+                    facilityIds.size(), System.currentTimeMillis() - startedAt, e.getMessage());
+        }
+        return cachedPaths;
     }
 
     public Map<String, Object> preview(Map<String, Object> request) {
@@ -342,6 +404,38 @@ public class RouteMapPathService {
         coordinate.put("longitude", longitude);
         coordinate.put("latitude", latitude);
         return coordinate;
+    }
+
+    public String pathKey(RoutePoint from, RoutePoint to) {
+        return pathKey(String.valueOf(from.getFacilityId()), String.valueOf(to.getFacilityId()));
+    }
+
+    private String pathKey(String startCode, String endCode) {
+        return startCode + "->" + endCode;
+    }
+
+    private List<String> cacheableFacilityIds(List<RoutePoint> points) {
+        Set<String> ids = new LinkedHashSet<String>();
+        if (points == null) {
+            return new ArrayList<String>();
+        }
+        for (RoutePoint point : points) {
+            if (isCacheableFacility(point)) {
+                ids.add(String.valueOf(point.getFacilityId()));
+            }
+        }
+        return new ArrayList<String>(ids);
+    }
+
+    private String placeholders(int size) {
+        StringBuilder builder = new StringBuilder();
+        for (int i = 0; i < size; i++) {
+            if (i > 0) {
+                builder.append(",");
+            }
+            builder.append("?");
+        }
+        return builder.toString();
     }
 
     private boolean isCacheableFacility(RoutePoint point) {
