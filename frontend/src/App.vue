@@ -350,12 +350,14 @@
                 最大趟数
                 <input v-model.number="optimizeOptions.maxRoutes" type="number" min="1" step="1" />
               </label>
-              <div class="route-mode-card optimizer-mode-card">
-                <label class="route-mode-toggle">
-                  <span>算路</span>
-                  <input v-model="optimizeOptions.useRoadPath" type="checkbox" />
-                  <i></i>
-                  <small>{{ optimizeOptions.useRoadPath ? '实际距离' : '直线距离' }}</small>
+              <div class="route-mode-card optimizer-mode-card strategy-mode-card">
+                <label class="strategy-select">
+                  <span>规划策略</span>
+                  <select v-model="optimizeOptions.multiRouteStrategy">
+                    <option value="DIRECT_GROUP">直线快速分组</option>
+                    <option value="DIRECT_GROUP_ROAD_REFINE">直线分组 + 道路精排</option>
+                    <option value="ROAD_GLOBAL">全程实际距离</option>
+                  </select>
                 </label>
                 <label class="route-mode-toggle">
                   <span>展示</span>
@@ -584,7 +586,9 @@
                   <span>未分配量 {{ formatWeight(multiOptimization.unassignedWeightKg) }}</span>
                   <span>计划趟次 {{ multiOptimization.dispatchTripCount || 0 }}</span>
                   <span>计划容量 {{ formatWeight(multiOptimization.totalPlannedCapacityKg) }}</span>
-                  <span>算路 {{ multiOptimization.distanceMode === 'ROAD' ? '实际路线距离' : '直线距离' }}</span>
+                  <span>策略 {{ planningStrategyLabel(multiOptimization.planningStrategy) }}</span>
+                  <span>分组 {{ multiOptimization.distanceMode === 'ROAD' ? '实际路线距离' : '直线距离' }}</span>
+                  <span>精排 {{ multiOptimization.refineMode === 'ROAD' ? '道路距离' : '无' }}</span>
                   <span>展示 {{ multiOptimization.displayMode === 'ROAD' ? '实际道路折线' : '点位直线' }}</span>
                 </div>
                 <div class="multi-routes">
@@ -946,6 +950,7 @@ const optimizeOptions = reactive({
   targetLoadRate: 0.9,
   maxRoutes: 10,
   useRoadPath: false,
+  multiRouteStrategy: 'DIRECT_GROUP',
   displayRoadPath: false,
   startLongitude: null,
   startLatitude: null,
@@ -1008,7 +1013,7 @@ const routeAnchorCount = computed(
     (companyAnchors.value.parkingLots?.length || 0)
 )
 const routeModeSummary = computed(() => {
-  const routing = optimizeOptions.useRoadPath ? '实际算路' : '直线算路'
+  const routing = planningStrategyLabel(optimizeOptions.multiRouteStrategy)
   const display = optimizeOptions.displayRoadPath ? '道路展示' : '直线展示'
   return routing + ' / ' + display
 })
@@ -1434,7 +1439,8 @@ async function generateCompanyRoutes() {
           facilityIds: Array.from(selectedCompanyPointIds.value),
           dispatchMode: 'USER_ORDER',
           vehicles: normalizedDispatchVehicles(),
-          ...optimizeOptions
+          ...optimizeOptions,
+          useRoadPath: optimizeOptions.multiRouteStrategy === 'ROAD_GLOBAL'
         })
       })
       selectedMultiRouteNo.value = multiOptimization.value?.routes?.[0]?.routeNo || null
@@ -1467,7 +1473,7 @@ function buildRouteProgressSteps() {
       detail: selectedCompanyPointCount.value + ' 个候选点，' + (dispatchEnabled.value ? dispatchTripCount.value + ' 趟排班' : '使用默认最大趟数')
     }
   ]
-  if (optimizeOptions.useRoadPath || optimizeOptions.displayRoadPath) {
+  if (optimizeOptions.multiRouteStrategy === 'ROAD_GLOBAL' || optimizeOptions.multiRouteStrategy === 'DIRECT_GROUP_ROAD_REFINE' || optimizeOptions.displayRoadPath) {
     steps.push(
       { key: 'cache-check', title: '调取 OD 缓存', detail: '批量读取本批点位已有道路点对' },
       { key: 'pair-resolve', title: '处理缺失点对', detail: '缓存未命中时按配置百度补算或直线回退' }
@@ -1477,6 +1483,11 @@ function buildRouteProgressSteps() {
   }
   steps.push(
     { key: 'route-build', title: '生成多趟路线', detail: '按装载目标逐趟插入点位' },
+  )
+  if (optimizeOptions.multiRouteStrategy === 'DIRECT_GROUP_ROAD_REFINE') {
+    steps.push({ key: 'route-refine', title: '单趟道路精排', detail: '每趟路线内部按道路距离重新排序' })
+  }
+  steps.push(
     { key: 'segment-build', title: '整理路段与地图数据', detail: '生成路线明细、路段距离和展示路径' },
     { key: 'result', title: '输出规划结果', detail: '统计已分配、未分配和装载率' }
   )
@@ -1786,6 +1797,12 @@ function formatLoadRate(value) {
   const n = Number(value || 0)
   if (!n) return '-'
   return `${(n * 100).toFixed(1)}%`
+}
+
+function planningStrategyLabel(strategy) {
+  if (strategy === 'DIRECT_GROUP_ROAD_REFINE') return '直线分组 + 道路精排'
+  if (strategy === 'ROAD_GLOBAL') return '全程实际距离'
+  return '直线快速分组'
 }
 
 function pathSourceSummary(segments = []) {

@@ -322,6 +322,28 @@ button:disabled {
   align-items: center;
 }
 
+.strategy-mode-card {
+  grid-template-columns: minmax(220px, 1.4fr) minmax(180px, 1fr);
+}
+
+.strategy-select {
+  min-height: 28px;
+  display: grid;
+  grid-template-columns: auto minmax(160px, 1fr);
+  align-items: center;
+  gap: 8px;
+}
+
+.strategy-select span {
+  color: #516173;
+  font-size: 13px;
+}
+
+.strategy-select select {
+  height: 30px;
+  padding: 0 28px 0 10px;
+}
+
 .route-preview-toggle {
   display: inline-grid;
   grid-template-columns: auto 42px auto;

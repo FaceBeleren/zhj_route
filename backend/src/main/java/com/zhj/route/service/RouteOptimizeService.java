@@ -18,6 +18,9 @@ import java.util.Set;
 @Service
 public class RouteOptimizeService {
     private static final Logger log = LoggerFactory.getLogger(RouteOptimizeService.class);
+    private static final String STRATEGY_DIRECT_GROUP = "DIRECT_GROUP";
+    private static final String STRATEGY_DIRECT_GROUP_ROAD_REFINE = "DIRECT_GROUP_ROAD_REFINE";
+    private static final String STRATEGY_ROAD_GLOBAL = "ROAD_GLOBAL";
 
     private final RouteQueryService routeQueryService;
     private final RouteMapPathService routeMapPathService;
@@ -151,24 +154,32 @@ public class RouteOptimizeService {
             remaining.addAll(sourcePoints.subList(1, sourcePoints.size() - 1));
         }
 
-        boolean useRoadPath = useRoadPath(request);
-        boolean displayRoadPath = displayRoadPath(request, useRoadPath);
+        String planningStrategy = multiRouteStrategy(request);
+        boolean useRoadPath = multiRouteUsesRoadPath(planningStrategy, request);
+        boolean refineWithRoad = multiRouteRefinesWithRoad(planningStrategy);
+        boolean displayRoadPath = displayRoadPath(request, useRoadPath || refineWithRoad);
         DistanceContext distanceContext = new DistanceContext(useRoadPath);
-        DistanceContext displayContext = displayRoadPath == useRoadPath ? distanceContext : new DistanceContext(displayRoadPath);
+        DistanceContext refineContext = refineWithRoad ? new DistanceContext(true) : distanceContext;
+        DistanceContext displayContext = displayRoadPath
+                ? (refineWithRoad ? refineContext : (useRoadPath ? distanceContext : new DistanceContext(true)))
+                : new DistanceContext(false);
         List<DispatchTrip> dispatchPlan = buildDispatchPlan(request, start, end, ratedCapacityKg, maxCapacityKg, targetLoadRate);
         List<RoutePoint> matrixPoints = distancePoints(sourcePoints, dispatchPlan);
         distanceContext.preload(matrixPoints);
-        if (displayContext != distanceContext) {
+        if (displayContext != distanceContext && displayContext != refineContext) {
             displayContext.preload(matrixPoints);
         }
-        log.info("Multi route optimize started: routeId={}, unitId={}, companyMode={}, candidatePoints={}, dispatchTrips={}, mode={}, displayMode={}, targetLoadKg={}, maxKg={}",
-                routeId, unitId, companyMode, sourcePoints.size(), dispatchPlan.size(), useRoadPath ? "ROAD" : "DIRECT", displayRoadPath ? "ROAD" : "DIRECT", targetLoadWeightKg, maxCapacityKg);
+        log.info("Multi route optimize started: routeId={}, unitId={}, companyMode={}, candidatePoints={}, dispatchTrips={}, strategy={}, mode={}, displayMode={}, targetLoadKg={}, maxKg={}",
+                routeId, unitId, companyMode, sourcePoints.size(), dispatchPlan.size(), planningStrategy, useRoadPath ? "ROAD" : "DIRECT", displayRoadPath ? "ROAD" : "DIRECT", targetLoadWeightKg, maxCapacityKg);
         int routeNo = 1;
         for (DispatchTrip trip : dispatchPlan) {
             if (remaining.isEmpty()) {
                 break;
             }
             List<RoutePoint> route = buildCapacityRoute(trip.start, trip.end, remaining, trip.targetLoadWeightKg, trip.maxCapacityKg, distanceContext);
+            if (refineWithRoad) {
+                route = refineRouteWithRoad(route, refineContext);
+            }
             List<RoutePoint> collected = collectedPoints(route);
             if (collected.isEmpty()) {
                 break;
@@ -188,7 +199,7 @@ public class RouteOptimizeService {
         result.put("routeId", routeId);
         result.put("unitId", unitId);
         result.put("status", unassigned.isEmpty() ? "DONE" : "PARTIAL");
-        result.put("message", buildMultiMessage(companyMode, useRoadPath));
+        result.put("message", buildMultiMessage(companyMode, planningStrategy));
         result.put("sourcePointCount", sourcePoints.size());
         result.put("candidatePointCount", remaining.size() + pointsInRoutes(routes));
         result.put("routeCount", routes.size());
@@ -201,18 +212,20 @@ public class RouteOptimizeService {
         result.put("targetLoadRate", round(targetLoadRate));
         result.put("targetLoadWeightKg", round(targetLoadWeightKg));
         result.put("maxCapacityKg", round(maxCapacityKg));
+        result.put("planningStrategy", planningStrategy);
         result.put("distanceMode", useRoadPath ? "ROAD" : "DIRECT");
+        result.put("refineMode", refineWithRoad ? "ROAD" : "NONE");
         result.put("displayMode", displayRoadPath ? "ROAD" : "DIRECT");
-        result.put("optimizerCostSource", useRoadPath ? "OD_OR_BAIDU" : "DIRECT");
+        result.put("optimizerCostSource", useRoadPath ? "OD_OR_BAIDU" : (refineWithRoad ? "DIRECT_THEN_OD_REFINE" : "DIRECT"));
         result.put("displayPathSource", displayRoadPath ? "OD_OR_BAIDU" : "DIRECT");
         result.put("dispatchMode", textOrDefault(request.get("dispatchMode"), "USER_ORDER"));
         result.put("dispatchTripCount", dispatchPlan.size());
         result.put("totalPlannedCapacityKg", round(totalPlannedCapacity(dispatchPlan)));
         result.put("routes", routes);
         result.put("unassignedPoints", pointViews(unassigned));
-        log.info("Multi route optimize finished: routeId={}, unitId={}, status={}, elapsed={}ms, routes={}, assigned={}, unassigned={}, odStats={}, displayStats={}",
+        log.info("Multi route optimize finished: routeId={}, unitId={}, status={}, elapsed={}ms, routes={}, assigned={}, unassigned={}, strategy={}, odStats={}, refineStats={}, displayStats={}",
                 routeId, unitId, result.get("status"), System.currentTimeMillis() - startedAt,
-                routes.size(), result.get("assignedPointCount"), unassigned.size(), distanceContext.summary(), displayContext.summary());
+                routes.size(), result.get("assignedPointCount"), unassigned.size(), planningStrategy, distanceContext.summary(), refineContext.summary(), displayContext.summary());
         return result;
     }
 
@@ -333,6 +346,15 @@ public class RouteOptimizeService {
         }
 
         return route;
+    }
+
+    private List<RoutePoint> refineRouteWithRoad(List<RoutePoint> route, DistanceContext refineContext) {
+        if (route.size() < 4) {
+            return route;
+        }
+        refineContext.preload(route);
+        RouteOptimizationResult refined = singleRouteOptimizer.optimize(route, refineContext);
+        return refined.getOptimizedPoints();
     }
 
     private List<RoutePoint> collectedPoints(List<RoutePoint> route) {
@@ -614,6 +636,29 @@ public class RouteOptimizeService {
         return value != null && Boolean.parseBoolean(String.valueOf(value));
     }
 
+    private String multiRouteStrategy(Map<String, Object> request) {
+        Object value = request.get("multiRouteStrategy");
+        if (value == null) {
+            value = request.get("planningStrategy");
+        }
+        String strategy = value == null ? "" : String.valueOf(value).trim().toUpperCase();
+        if (STRATEGY_DIRECT_GROUP_ROAD_REFINE.equals(strategy) || STRATEGY_ROAD_GLOBAL.equals(strategy)) {
+            return strategy;
+        }
+        if (useRoadPath(request)) {
+            return STRATEGY_ROAD_GLOBAL;
+        }
+        return STRATEGY_DIRECT_GROUP;
+    }
+
+    private boolean multiRouteUsesRoadPath(String planningStrategy, Map<String, Object> request) {
+        return STRATEGY_ROAD_GLOBAL.equals(planningStrategy) || (STRATEGY_DIRECT_GROUP.equals(planningStrategy) && useRoadPath(request));
+    }
+
+    private boolean multiRouteRefinesWithRoad(String planningStrategy) {
+        return STRATEGY_DIRECT_GROUP_ROAD_REFINE.equals(planningStrategy);
+    }
+
     private boolean displayRoadPath(Map<String, Object> request, boolean fallback) {
         Object value = request.get("displayRoadPath");
         return value == null ? fallback : Boolean.parseBoolean(String.valueOf(value));
@@ -672,8 +717,15 @@ public class RouteOptimizeService {
         return speed;
     }
 
-    private String buildMultiMessage(boolean companyMode, boolean useRoadPath) {
-        String distanceMode = useRoadPath ? "当前按 OD 缓存/百度补算道路距离选择点位和生成路线；缓存缺失会实时补算，失败后按直线回退。" : "当前使用点位直线距离选择点位和生成路线，未开启真实道路算路。";
+    private String buildMultiMessage(boolean companyMode, String planningStrategy) {
+        String distanceMode;
+        if (STRATEGY_DIRECT_GROUP_ROAD_REFINE.equals(planningStrategy)) {
+            distanceMode = "当前先用直线距离快速分组，再对每趟路线内部按 OD 缓存/百度补算道路距离精排。";
+        } else if (STRATEGY_ROAD_GLOBAL.equals(planningStrategy)) {
+            distanceMode = "当前按 OD 缓存/百度补算道路距离选择点位和生成路线；缓存缺失会实时补算，失败后按直线回退。";
+        } else {
+            distanceMode = "当前使用点位直线距离选择点位和生成路线，未开启真实道路算路。";
+        }
         if (companyMode) {
             return "已按公司点位池、预计垃圾量和目标装载率生成多路线预览。若公司维护了场站坐标，则使用传入的真实起终点；未传坐标时回退到点位中心。" + distanceMode;
         }
