@@ -137,18 +137,18 @@
             <div class="panel-head">
               <h2>{{ currentTypeName }}概览</h2>
               <div class="panel-actions route-preview-actions">
-                <div class="route-mode-stack">
+                <div class="route-mode-card compact">
                   <label class="route-mode-toggle route-preview-toggle">
-                    <span>算路方式</span>
+                    <span>算路</span>
                     <input v-model="optimizeOptions.useRoadPath" type="checkbox" />
                     <i></i>
-                    <small>{{ optimizeOptions.useRoadPath ? '实际路线距离' : '直线距离' }}</small>
+                    <small>{{ optimizeOptions.useRoadPath ? '实际距离' : '直线距离' }}</small>
                   </label>
                   <label class="route-mode-toggle route-preview-toggle">
-                    <span>展示方式</span>
+                    <span>展示</span>
                     <input v-model="optimizeOptions.displayRoadPath" type="checkbox" />
                     <i></i>
-                    <small>{{ optimizeOptions.displayRoadPath ? '实际道路折线' : '点位直线' }}</small>
+                    <small>{{ optimizeOptions.displayRoadPath ? '道路折线' : '点位直线' }}</small>
                   </label>
                 </div>
                 <button @click="previewOptimize" :disabled="!selectedRoute || loading">优化预览</button>
@@ -325,12 +325,17 @@
           <section class="panel">
             <div class="panel-head">
               <h2>多路线生成</h2>
-              <button
-                @click="generateCompanyRoutes"
-                :disabled="!selectedMultiCompany || selectedCompanyPointCount === 0 || loading"
-              >
-                生成路线
-              </button>
+              <div class="panel-actions">
+                <button
+                  @click="generateCompanyRoutes"
+                  :disabled="!selectedMultiCompany || selectedCompanyPointCount === 0 || loading"
+                >
+                  生成路线
+                </button>
+                <button v-if="routeProgress.visible && !routeProgress.done && !routeProgress.failed" class="secondary" @click="stopRouteGeneration">
+                  停止
+                </button>
+              </div>
             </div>
             <div class="optimizer-controls">
               <label>
@@ -345,18 +350,20 @@
                 最大趟数
                 <input v-model.number="optimizeOptions.maxRoutes" type="number" min="1" step="1" />
               </label>
-              <label class="route-mode-toggle">
-                <span>算路方式</span>
-                <input v-model="optimizeOptions.useRoadPath" type="checkbox" />
-                <i></i>
-                <small>{{ optimizeOptions.useRoadPath ? '实际路线距离' : '直线距离' }}</small>
-              </label>
-              <label class="route-mode-toggle">
-                <span>展示方式</span>
-                <input v-model="optimizeOptions.displayRoadPath" type="checkbox" />
-                <i></i>
-                <small>{{ optimizeOptions.displayRoadPath ? '实际道路折线' : '点位直线' }}</small>
-              </label>
+              <div class="route-mode-card optimizer-mode-card">
+                <label class="route-mode-toggle">
+                  <span>算路</span>
+                  <input v-model="optimizeOptions.useRoadPath" type="checkbox" />
+                  <i></i>
+                  <small>{{ optimizeOptions.useRoadPath ? '实际距离' : '直线距离' }}</small>
+                </label>
+                <label class="route-mode-toggle">
+                  <span>展示</span>
+                  <input v-model="optimizeOptions.displayRoadPath" type="checkbox" />
+                  <i></i>
+                  <small>{{ optimizeOptions.displayRoadPath ? '道路折线' : '点位直线' }}</small>
+                </label>
+              </div>
               <label>
                 起点类型
                 <select v-model="startAnchorMode" @change="onAnchorModeChange('start')">
@@ -432,6 +439,10 @@
               <div>
                 <span>场站候选</span>
                 <strong>{{ routeAnchorCount }}</strong>
+              </div>
+              <div>
+                <span>当前模式</span>
+                <strong>{{ routeModeSummary }}</strong>
               </div>
             </div>
             <section v-if="selectedMultiCompany" class="dispatch-panel">
@@ -879,6 +890,7 @@ const optimization = ref(null)
 const multiOptimization = ref(null)
 const routeMapStatus = ref(null)
 const routeProgressTimer = ref(null)
+const routeAbortController = ref(null)
 const routeProgress = reactive({
   visible: false,
   activeIndex: -1,
@@ -995,6 +1007,11 @@ const routeAnchorCount = computed(
     (companyAnchors.value.facilityAnchors?.length || 0) +
     (companyAnchors.value.parkingLots?.length || 0)
 )
+const routeModeSummary = computed(() => {
+  const routing = optimizeOptions.useRoadPath ? '实际算路' : '直线算路'
+  const display = optimizeOptions.displayRoadPath ? '道路展示' : '直线展示'
+  return routing + ' / ' + display
+})
 const dispatchEnabled = computed(() => dispatchVehicles.value.length > 0)
 const dispatchTripCount = computed(() =>
   dispatchVehicles.value.reduce((sum, vehicle) => sum + Math.max(1, Number(vehicle.tripCount || 1)), 0)
@@ -1405,11 +1422,13 @@ async function previewOptimize() {
 async function generateCompanyRoutes() {
   if (!selectedMultiCompany.value) return
   startRouteProgress()
+  routeAbortController.value = new AbortController()
   await withLoading(async () => {
     try {
       multiOptimization.value = await api('/api/optimize/multi-preview', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
+        signal: routeAbortController.value.signal,
         body: JSON.stringify({
           unitId: selectedMultiCompany.value.id,
           facilityIds: Array.from(selectedCompanyPointIds.value),
@@ -1421,10 +1440,23 @@ async function generateCompanyRoutes() {
       selectedMultiRouteNo.value = multiOptimization.value?.routes?.[0]?.routeNo || null
       finishRouteProgress()
     } catch (err) {
-      failRouteProgress(err)
-      throw err
+      if (err?.name === 'AbortError') {
+        cancelRouteProgress()
+      } else {
+        failRouteProgress(err)
+        throw err
+      }
+    } finally {
+      routeAbortController.value = null
     }
   })
+}
+
+function stopRouteGeneration() {
+  if (routeAbortController.value) {
+    routeAbortController.value.abort()
+  }
+  cancelRouteProgress()
 }
 
 function buildRouteProgressSteps() {
@@ -1485,6 +1517,14 @@ function failRouteProgress(err) {
   routeProgress.failed = true
   routeProgress.done = false
   routeProgress.message = (err && err.message) ? err.message : '路线规划失败'
+}
+
+function cancelRouteProgress() {
+  stopRouteProgressTimer()
+  routeProgress.visible = true
+  routeProgress.failed = true
+  routeProgress.done = false
+  routeProgress.message = '已停止等待；若后端已开始计算，当前同步请求可能仍会在服务端跑完'
 }
 
 function resetRouteProgress() {

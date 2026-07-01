@@ -287,6 +287,12 @@ button:disabled {
   padding: 0 10px;
 }
 
+.panel-actions button.secondary {
+  color: #1f4f7a;
+  border: 1px solid #bfd1e4;
+  background: #f4f8fc;
+}
+
 .panel-actions.with-toggle {
   align-items: center;
   flex-wrap: wrap;
@@ -297,9 +303,23 @@ button:disabled {
   flex-wrap: wrap;
 }
 
-.route-mode-stack {
+.route-mode-card {
   display: grid;
   gap: 6px;
+  padding: 8px;
+  border: 1px solid #d8e3ef;
+  border-radius: 8px;
+  background: #f8fbff;
+}
+
+.route-mode-card.compact {
+  padding: 6px 8px;
+}
+
+.optimizer-mode-card {
+  grid-column: span 2;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  align-items: center;
 }
 
 .route-preview-toggle {
@@ -789,12 +809,12 @@ tbody tr.active {
 }
 .route-mode-toggle {
   position: relative;
-  min-height: 30px;
-  grid-template-columns: auto 44px auto;
+  min-height: 28px;
+  grid-template-columns: auto 38px auto;
   grid-auto-flow: column;
   align-items: center;
   justify-content: start;
-  gap: 8px;
+  gap: 7px;
 }
 
 .route-mode-toggle input {
@@ -805,8 +825,8 @@ tbody tr.active {
 
 .route-mode-toggle i {
   position: relative;
-  width: 42px;
-  height: 24px;
+  width: 36px;
+  height: 20px;
   border-radius: 999px;
   background: #cbd5e1;
   transition: background 0.18s ease;
@@ -817,8 +837,8 @@ tbody tr.active {
   position: absolute;
   top: 3px;
   left: 3px;
-  width: 18px;
-  height: 18px;
+  width: 14px;
+  height: 14px;
   border-radius: 50%;
   background: #fff;
   box-shadow: 0 1px 3px rgba(31, 41, 51, 0.25);
@@ -830,7 +850,7 @@ tbody tr.active {
 }
 
 .route-mode-toggle input:checked + i::after {
-  transform: translateX(18px);
+  transform: translateX(16px);
 }
 
 .route-mode-toggle small {
