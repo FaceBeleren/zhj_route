@@ -97,6 +97,21 @@ public class RouteDataController {
         return routeOptimizeService.optimizeMultiPreview(request);
     }
 
+    @PostMapping("/optimize/multi-preview/tasks")
+    public Map<String, Object> startOptimizeMultiPreviewTask(@RequestBody Map<String, Object> request) {
+        return routeOptimizeService.startMultiPreviewTask(request);
+    }
+
+    @GetMapping("/optimize/multi-preview/tasks/{taskId}")
+    public Map<String, Object> optimizeMultiPreviewTask(@PathVariable String taskId) {
+        return routeOptimizeService.multiPreviewTask(taskId);
+    }
+
+    @PostMapping("/optimize/multi-preview/tasks/{taskId}/cancel")
+    public Map<String, Object> cancelOptimizeMultiPreviewTask(@PathVariable String taskId) {
+        return routeOptimizeService.cancelMultiPreviewTask(taskId);
+    }
+
     @PostMapping("/optimize/multi-export")
     public ResponseEntity<byte[]> exportMultiPreview(@RequestBody Map<String, Object> request) {
         byte[] bytes = routeExportService.exportMultiRoutes(request);

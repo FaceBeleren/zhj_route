@@ -555,6 +555,7 @@
                   <div>
                     <strong>路线规划进度</strong>
                     <small>{{ routeProgress.message }}</small>
+                    <small v-if="routeProgressDetail">{{ routeProgressDetail }}</small>
                   </div>
                   <span>{{ routeProgressPercent }}%</span>
                 </div>
@@ -901,7 +902,18 @@ const routeProgress = reactive({
   done: false,
   failed: false,
   message: '',
-  steps: []
+  steps: [],
+  taskId: '',
+  status: '',
+  phase: '',
+  currentRouteNo: 0,
+  totalRoutes: 0,
+  completedRoutes: 0,
+  currentRoutePoints: 0,
+  assignedPoints: 0,
+  remainingPoints: 0,
+  currentVehicleName: '',
+  currentTripNo: 0
 })
 
 const companyScores = ref([])
@@ -1016,6 +1028,22 @@ const routeModeSummary = computed(() => {
   const routing = planningStrategyLabel(optimizeOptions.multiRouteStrategy)
   const display = optimizeOptions.displayRoadPath ? '道路展示' : '直线展示'
   return routing + ' / ' + display
+})
+const routeProgressDetail = computed(() => {
+  if (!routeProgress.taskId) return ''
+  const parts = []
+  if (routeProgress.currentRouteNo && routeProgress.totalRoutes) {
+    parts.push('第 ' + routeProgress.currentRouteNo + ' / ' + routeProgress.totalRoutes + ' 趟')
+  } else if (routeProgress.totalRoutes) {
+    parts.push('计划最多 ' + routeProgress.totalRoutes + ' 趟')
+  }
+  if (routeProgress.currentVehicleName) {
+    parts.push(routeProgress.currentVehicleName + (routeProgress.currentTripNo ? ' 第' + routeProgress.currentTripNo + '趟' : ''))
+  }
+  if (routeProgress.currentRoutePoints) parts.push('当前 ' + routeProgress.currentRoutePoints + ' 点')
+  if (routeProgress.assignedPoints) parts.push('已分配 ' + routeProgress.assignedPoints + ' 点')
+  if (routeProgress.remainingPoints) parts.push('剩余 ' + routeProgress.remainingPoints + ' 点')
+  return parts.join(' · ')
 })
 const dispatchEnabled = computed(() => dispatchVehicles.value.length > 0)
 const dispatchTripCount = computed(() =>
@@ -1430,7 +1458,7 @@ async function generateCompanyRoutes() {
   routeAbortController.value = new AbortController()
   await withLoading(async () => {
     try {
-      multiOptimization.value = await api('/api/optimize/multi-preview', {
+      const task = await api('/api/optimize/multi-preview/tasks', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         signal: routeAbortController.value.signal,
@@ -1443,8 +1471,8 @@ async function generateCompanyRoutes() {
           useRoadPath: optimizeOptions.multiRouteStrategy === 'ROAD_GLOBAL'
         })
       })
-      selectedMultiRouteNo.value = multiOptimization.value?.routes?.[0]?.routeNo || null
-      finishRouteProgress()
+      applyRouteTask(task)
+      startRouteTaskPolling(task.taskId)
     } catch (err) {
       if (err?.name === 'AbortError') {
         cancelRouteProgress()
@@ -1458,9 +1486,19 @@ async function generateCompanyRoutes() {
   })
 }
 
-function stopRouteGeneration() {
+async function stopRouteGeneration() {
   if (routeAbortController.value) {
     routeAbortController.value.abort()
+  }
+  if (routeProgress.taskId && !routeProgress.done && !routeProgress.failed) {
+    try {
+      const task = await api('/api/optimize/multi-preview/tasks/' + routeProgress.taskId + '/cancel', { method: 'POST' })
+      applyRouteTask(task)
+      return
+    } catch (err) {
+      // 前端仍然进入停止状态，后端取消失败会显示在通用错误提示中。
+      error.value = err.message || String(err)
+    }
   }
   cancelRouteProgress()
 }
@@ -1502,15 +1540,79 @@ function startRouteProgress() {
   routeProgress.failed = false
   routeProgress.message = '正在发起路线规划请求'
   routeProgress.steps = buildRouteProgressSteps()
-  routeProgressTimer.value = window.setInterval(() => {
-    if (!routeProgress.visible || routeProgress.done || routeProgress.failed) return
-    if (routeProgress.activeIndex < routeProgress.steps.length - 2) {
-      routeProgress.activeIndex += 1
-      routeProgress.message = routeProgress.steps[routeProgress.activeIndex]?.title || '正在规划路线'
-    } else {
-      routeProgress.message = '后端仍在计算，请稍候'
+  routeProgress.taskId = ''
+  routeProgress.status = 'STARTING'
+  routeProgress.phase = 'PREPARE'
+  routeProgress.currentRouteNo = 0
+  routeProgress.totalRoutes = 0
+  routeProgress.completedRoutes = 0
+  routeProgress.currentRoutePoints = 0
+  routeProgress.assignedPoints = 0
+  routeProgress.remainingPoints = 0
+  routeProgress.currentVehicleName = ''
+  routeProgress.currentTripNo = 0
+}
+
+function startRouteTaskPolling(taskId) {
+  stopRouteProgressTimer()
+  routeProgressTimer.value = window.setInterval(async () => {
+    try {
+      const task = await api('/api/optimize/multi-preview/tasks/' + taskId)
+      applyRouteTask(task)
+      if (['DONE', 'FAILED', 'CANCELLED', 'NOT_FOUND'].includes(task.status)) {
+        stopRouteProgressTimer()
+      }
+    } catch (err) {
+      stopRouteProgressTimer()
+      failRouteProgress(err)
     }
-  }, 1400)
+  }, 1000)
+}
+
+function applyRouteTask(task) {
+  routeProgress.visible = true
+  routeProgress.taskId = task.taskId || routeProgress.taskId
+  routeProgress.status = task.status || ''
+  routeProgress.phase = task.phase || ''
+  routeProgress.message = task.message || '正在规划路线'
+  routeProgress.currentRouteNo = Number(task.currentRouteNo || 0)
+  routeProgress.totalRoutes = Number(task.totalRoutes || 0)
+  routeProgress.completedRoutes = Number(task.completedRoutes || 0)
+  routeProgress.currentRoutePoints = Number(task.currentRoutePoints || 0)
+  routeProgress.assignedPoints = Number(task.assignedPoints || 0)
+  routeProgress.remainingPoints = Number(task.remainingPoints || 0)
+  routeProgress.currentVehicleName = task.currentVehicleName || ''
+  routeProgress.currentTripNo = Number(task.currentTripNo || 0)
+  routeProgress.activeIndex = routePhaseIndex(task.phase)
+  if (task.status === 'DONE') {
+    if (task.result) {
+      multiOptimization.value = task.result
+      selectedMultiRouteNo.value = multiOptimization.value?.routes?.[0]?.routeNo || null
+    }
+    finishRouteProgress()
+  } else if (task.status === 'FAILED' || task.status === 'NOT_FOUND') {
+    routeProgress.failed = true
+    routeProgress.done = false
+  } else if (task.status === 'CANCELLED') {
+    routeProgress.failed = true
+    routeProgress.done = false
+  }
+}
+
+function routePhaseIndex(phase) {
+  const keyMap = {
+    PREPARE: 'prepare',
+    ROUTE_BUILD: 'route-build',
+    ROUTE_REFINE: 'route-refine',
+    SEGMENT_BUILD: 'segment-build',
+    ROUTE_DONE: 'route-build',
+    DONE: 'result',
+    FAILED: 'result',
+    CANCELLED: 'result'
+  }
+  const key = keyMap[phase] || 'prepare'
+  const index = routeProgress.steps.findIndex((step) => step.key === key)
+  return index >= 0 ? index : 0
 }
 
 function finishRouteProgress() {
@@ -1535,7 +1637,7 @@ function cancelRouteProgress() {
   routeProgress.visible = true
   routeProgress.failed = true
   routeProgress.done = false
-  routeProgress.message = '已停止等待；若后端已开始计算，当前同步请求可能仍会在服务端跑完'
+  routeProgress.message = '路线规划已停止'
 }
 
 function resetRouteProgress() {
@@ -1546,6 +1648,17 @@ function resetRouteProgress() {
   routeProgress.failed = false
   routeProgress.message = ''
   routeProgress.steps = []
+  routeProgress.taskId = ''
+  routeProgress.status = ''
+  routeProgress.phase = ''
+  routeProgress.currentRouteNo = 0
+  routeProgress.totalRoutes = 0
+  routeProgress.completedRoutes = 0
+  routeProgress.currentRoutePoints = 0
+  routeProgress.assignedPoints = 0
+  routeProgress.remainingPoints = 0
+  routeProgress.currentVehicleName = ''
+  routeProgress.currentTripNo = 0
 }
 
 function stopRouteProgressTimer() {

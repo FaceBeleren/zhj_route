@@ -14,6 +14,12 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.UUID;
+import java.util.concurrent.CancellationException;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
 
 @Service
 public class RouteOptimizeService {
@@ -25,6 +31,8 @@ public class RouteOptimizeService {
     private final RouteQueryService routeQueryService;
     private final RouteMapPathService routeMapPathService;
     private final SingleRouteOptimizer singleRouteOptimizer = new SingleRouteOptimizer();
+    private final ExecutorService multiRouteExecutor = Executors.newFixedThreadPool(2);
+    private final Map<String, MultiRouteTask> multiRouteTasks = new ConcurrentHashMap<String, MultiRouteTask>();
 
     public RouteOptimizeService(RouteQueryService routeQueryService, RouteMapPathService routeMapPathService) {
         this.routeQueryService = routeQueryService;
@@ -97,7 +105,62 @@ public class RouteOptimizeService {
         return result;
     }
 
+    public Map<String, Object> startMultiPreviewTask(Map<String, Object> request) {
+        final MultiRouteTask task = new MultiRouteTask(UUID.randomUUID().toString());
+        final Map<String, Object> taskRequest = new HashMap<String, Object>(request);
+        multiRouteTasks.put(task.taskId, task);
+        task.future = multiRouteExecutor.submit(new Runnable() {
+            @Override
+            public void run() {
+                try {
+                    task.update("RUNNING", "PREPARE", "正在整理本批点位");
+                    Map<String, Object> result = optimizeMultiPreview(taskRequest, task);
+                    if (task.cancelled) {
+                        task.cancelled();
+                        return;
+                    }
+                    task.complete(result);
+                } catch (CancellationException e) {
+                    task.cancelled();
+                } catch (Exception e) {
+                    task.fail(e);
+                    log.warn("Multi route task failed: taskId={}, {}", task.taskId, e.getMessage(), e);
+                }
+            }
+        });
+        return task.view(false);
+    }
+
+    public Map<String, Object> multiPreviewTask(String taskId) {
+        MultiRouteTask task = multiRouteTasks.get(taskId);
+        if (task == null) {
+            Map<String, Object> missing = new HashMap<String, Object>();
+            missing.put("taskId", taskId);
+            missing.put("status", "NOT_FOUND");
+            missing.put("message", "任务不存在或已被清理");
+            return missing;
+        }
+        return task.view(true);
+    }
+
+    public Map<String, Object> cancelMultiPreviewTask(String taskId) {
+        MultiRouteTask task = multiRouteTasks.get(taskId);
+        if (task == null) {
+            Map<String, Object> missing = new HashMap<String, Object>();
+            missing.put("taskId", taskId);
+            missing.put("status", "NOT_FOUND");
+            missing.put("message", "任务不存在或已被清理");
+            return missing;
+        }
+        task.cancel();
+        return task.view(false);
+    }
+
     public Map<String, Object> optimizeMultiPreview(Map<String, Object> request) {
+        return optimizeMultiPreview(request, null);
+    }
+
+    private Map<String, Object> optimizeMultiPreview(Map<String, Object> request, MultiRouteTask task) {
         long startedAt = System.currentTimeMillis();
         Object routeIdValue = request.get("routeId");
         Object unitIdValue = request.get("unitId");
@@ -164,6 +227,9 @@ public class RouteOptimizeService {
                 ? (refineWithRoad ? refineContext : (useRoadPath ? distanceContext : new DistanceContext(true)))
                 : new DistanceContext(false);
         List<DispatchTrip> dispatchPlan = buildDispatchPlan(request, start, end, ratedCapacityKg, maxCapacityKg, targetLoadRate);
+        if (task != null) {
+            task.prepare(sourcePoints.size(), dispatchPlan.size(), planningStrategy);
+        }
         List<RoutePoint> matrixPoints = distancePoints(sourcePoints, dispatchPlan);
         distanceContext.preload(matrixPoints);
         if (displayContext != distanceContext && displayContext != refineContext) {
@@ -173,11 +239,20 @@ public class RouteOptimizeService {
                 routeId, unitId, companyMode, sourcePoints.size(), dispatchPlan.size(), planningStrategy, useRoadPath ? "ROAD" : "DIRECT", displayRoadPath ? "ROAD" : "DIRECT", targetLoadWeightKg, maxCapacityKg);
         int routeNo = 1;
         for (DispatchTrip trip : dispatchPlan) {
+            assertNotCancelled(task);
             if (remaining.isEmpty()) {
                 break;
             }
+            if (task != null) {
+                task.route(routeNo, dispatchPlan.size(), trip.vehicleName, trip.tripNo, "ROUTE_BUILD",
+                        "正在生成第 " + routeNo + " 趟路线", 0, remaining.size());
+            }
             List<RoutePoint> route = buildCapacityRoute(trip.start, trip.end, remaining, trip.targetLoadWeightKg, trip.maxCapacityKg, distanceContext);
             if (refineWithRoad) {
+                if (task != null) {
+                    task.route(routeNo, dispatchPlan.size(), trip.vehicleName, trip.tripNo, "ROUTE_REFINE",
+                            "正在道路精排第 " + routeNo + " 趟路线", collectedPoints(route).size(), remaining.size());
+                }
                 route = refineRouteWithRoad(route, refineContext);
             }
             List<RoutePoint> collected = collectedPoints(route);
@@ -185,8 +260,15 @@ public class RouteOptimizeService {
                 break;
             }
             remaining.removeAll(collected);
+            if (task != null) {
+                task.route(routeNo, dispatchPlan.size(), trip.vehicleName, trip.tripNo, "SEGMENT_BUILD",
+                        "正在整理第 " + routeNo + " 趟地图数据", collected.size(), remaining.size());
+            }
             Map<String, Object> routeView = multiRouteView(routeNo, route, request, trip, displayContext);
             routes.add(routeView);
+            if (task != null) {
+                task.routeDone(routeNo, routes.size(), pointsInRoutes(routes), remaining.size());
+            }
             log.info("Multi route built: routeNo={}, vehicle={}, tripNo={}, points={}, weightKg={}, distance={}, remaining={}",
                     routeNo, trip.vehicleName, trip.tripNo, routeView.get("pointCount"), routeView.get("estimatedWeightKg"),
                     routeView.get("distance"), remaining.size());
@@ -227,6 +309,12 @@ public class RouteOptimizeService {
                 routeId, unitId, result.get("status"), System.currentTimeMillis() - startedAt,
                 routes.size(), result.get("assignedPointCount"), unassigned.size(), planningStrategy, distanceContext.summary(), refineContext.summary(), displayContext.summary());
         return result;
+    }
+
+    private void assertNotCancelled(MultiRouteTask task) {
+        if (task != null && (task.cancelled || Thread.currentThread().isInterrupted())) {
+            throw new CancellationException("多路线任务已取消");
+        }
     }
 
     private List<RoutePoint> toRoutePoints(List<Map<String, Object>> rows) {
@@ -536,6 +624,120 @@ public class RouteOptimizeService {
     }
 
 
+    private static class MultiRouteTask {
+        private final String taskId;
+        private volatile String status = "QUEUED";
+        private volatile String phase = "QUEUED";
+        private volatile String message = "等待执行";
+        private volatile String planningStrategy;
+        private volatile int candidatePoints;
+        private volatile int totalRoutes;
+        private volatile int currentRouteNo;
+        private volatile int completedRoutes;
+        private volatile int assignedPoints;
+        private volatile int remainingPoints;
+        private volatile int currentRoutePoints;
+        private volatile String currentVehicleName;
+        private volatile int currentTripNo;
+        private volatile boolean cancelled;
+        private volatile Map<String, Object> result;
+        private volatile Future<?> future;
+        private volatile long startedAt = System.currentTimeMillis();
+        private volatile long updatedAt = startedAt;
+        private volatile long finishedAt;
+
+        private MultiRouteTask(String taskId) {
+            this.taskId = taskId;
+        }
+
+        private synchronized void update(String status, String phase, String message) {
+            this.status = status;
+            this.phase = phase;
+            this.message = message;
+            this.updatedAt = System.currentTimeMillis();
+        }
+
+        private synchronized void prepare(int candidatePoints, int totalRoutes, String planningStrategy) {
+            this.candidatePoints = candidatePoints;
+            this.totalRoutes = totalRoutes;
+            this.planningStrategy = planningStrategy;
+            this.remainingPoints = candidatePoints;
+            update("RUNNING", "PREPARE", "已整理 " + candidatePoints + " 个点位，计划最多 " + totalRoutes + " 趟");
+        }
+
+        private synchronized void route(int routeNo, int totalRoutes, String vehicleName, int tripNo, String phase, String message, int currentRoutePoints, int remainingPoints) {
+            this.currentRouteNo = routeNo;
+            this.totalRoutes = totalRoutes;
+            this.currentVehicleName = vehicleName;
+            this.currentTripNo = tripNo;
+            this.currentRoutePoints = currentRoutePoints;
+            this.remainingPoints = remainingPoints;
+            update("RUNNING", phase, message);
+        }
+
+        private synchronized void routeDone(int routeNo, int completedRoutes, int assignedPoints, int remainingPoints) {
+            this.currentRouteNo = routeNo;
+            this.completedRoutes = completedRoutes;
+            this.assignedPoints = assignedPoints;
+            this.remainingPoints = remainingPoints;
+            update("RUNNING", "ROUTE_DONE", "第 " + routeNo + " 趟路线已完成");
+        }
+
+        private synchronized void complete(Map<String, Object> result) {
+            this.result = result;
+            Object routeCount = result.get("routeCount");
+            if (routeCount instanceof Number) {
+                this.completedRoutes = ((Number) routeCount).intValue();
+            }
+            this.finishedAt = System.currentTimeMillis();
+            update("DONE", "DONE", "路线规划完成");
+        }
+
+        private synchronized void fail(Exception e) {
+            this.finishedAt = System.currentTimeMillis();
+            update("FAILED", "FAILED", e.getMessage() == null ? "路线规划失败" : e.getMessage());
+        }
+
+        private synchronized void cancel() {
+            this.cancelled = true;
+            Future<?> taskFuture = this.future;
+            if (taskFuture != null) {
+                taskFuture.cancel(true);
+            }
+            cancelled();
+        }
+
+        private synchronized void cancelled() {
+            this.finishedAt = System.currentTimeMillis();
+            update("CANCELLED", "CANCELLED", "路线规划已取消");
+        }
+
+        private synchronized Map<String, Object> view(boolean includeResult) {
+            Map<String, Object> view = new HashMap<String, Object>();
+            view.put("taskId", taskId);
+            view.put("status", status);
+            view.put("phase", phase);
+            view.put("message", message);
+            view.put("planningStrategy", planningStrategy);
+            view.put("candidatePoints", candidatePoints);
+            view.put("totalRoutes", totalRoutes);
+            view.put("currentRouteNo", currentRouteNo);
+            view.put("completedRoutes", completedRoutes);
+            view.put("assignedPoints", assignedPoints);
+            view.put("remainingPoints", remainingPoints);
+            view.put("currentRoutePoints", currentRoutePoints);
+            view.put("currentVehicleName", currentVehicleName);
+            view.put("currentTripNo", currentTripNo);
+            view.put("startedAt", startedAt);
+            view.put("updatedAt", updatedAt);
+            view.put("finishedAt", finishedAt);
+            if (includeResult && result != null) {
+                view.put("result", result);
+            }
+            return view;
+        }
+    }
+
     private class DistanceContext implements SingleRouteOptimizer.DistanceCalculator {
         private final boolean useRoadPath;
         private final Map<String, RouteMapPathService.ResolvedPath> resolvedCache = new HashMap<String, RouteMapPathService.ResolvedPath>();
@@ -570,6 +772,9 @@ public class RouteOptimizeService {
         }
 
         private RouteMapPathService.ResolvedPath resolve(RoutePoint from, RoutePoint to) {
+            if (Thread.currentThread().isInterrupted()) {
+                throw new CancellationException("多路线任务已取消");
+            }
             resolveCalls++;
             String key = pointKey(from) + "->" + pointKey(to) + "#" + (useRoadPath ? "ROAD" : "DIRECT");
             if (resolvedCache.containsKey(key)) {
