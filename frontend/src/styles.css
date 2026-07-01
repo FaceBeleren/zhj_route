@@ -297,6 +297,11 @@ button:disabled {
   flex-wrap: wrap;
 }
 
+.route-mode-stack {
+  display: grid;
+  gap: 6px;
+}
+
 .route-preview-toggle {
   display: inline-grid;
   grid-template-columns: auto 42px auto;

@@ -137,12 +137,20 @@
             <div class="panel-head">
               <h2>{{ currentTypeName }}概览</h2>
               <div class="panel-actions route-preview-actions">
-                <label class="route-mode-toggle route-preview-toggle">
-                  <span>算路方式</span>
-                  <input v-model="optimizeOptions.useRoadPath" type="checkbox" />
-                  <i></i>
-                  <small>{{ optimizeOptions.useRoadPath ? '实际路线距离' : '直线距离' }}</small>
-                </label>
+                <div class="route-mode-stack">
+                  <label class="route-mode-toggle route-preview-toggle">
+                    <span>算路方式</span>
+                    <input v-model="optimizeOptions.useRoadPath" type="checkbox" />
+                    <i></i>
+                    <small>{{ optimizeOptions.useRoadPath ? '实际路线距离' : '直线距离' }}</small>
+                  </label>
+                  <label class="route-mode-toggle route-preview-toggle">
+                    <span>展示方式</span>
+                    <input v-model="optimizeOptions.displayRoadPath" type="checkbox" />
+                    <i></i>
+                    <small>{{ optimizeOptions.displayRoadPath ? '实际道路折线' : '点位直线' }}</small>
+                  </label>
+                </div>
                 <button @click="previewOptimize" :disabled="!selectedRoute || loading">优化预览</button>
               </div>
             </div>
@@ -249,7 +257,8 @@
                     <span>原直线参考 {{ formatDistance(optimization.directOriginalDistance) }}</span>
                     <span>优化直线参考 {{ formatDistance(optimization.directOptimizedDistance) }}</span>
                   </template>
-                  <span>{{ optimization.distanceMode === 'ROAD' ? '道路耗时' : '预计耗时' }} {{ formatDuration(optimization.pathDurationMinutes) }}</span>
+                  <span>展示 {{ optimization.displayMode === 'ROAD' ? '实际道路折线' : '点位直线' }}</span>
+                  <span>{{ optimization.displayMode === 'ROAD' ? '道路耗时' : '预计耗时' }} {{ formatDuration(optimization.pathDurationMinutes) }}</span>
                   <span>预计重量 {{ formatWeight(optimization.estimatedWeightKg) }}</span>
                   <span>预计体积 {{ formatVolume(optimization.estimatedVolumeLiter) }}</span>
                   <span>装载率 {{ formatLoadRate(optimization.loadRate) }}</span>
@@ -341,6 +350,12 @@
                 <input v-model="optimizeOptions.useRoadPath" type="checkbox" />
                 <i></i>
                 <small>{{ optimizeOptions.useRoadPath ? '实际路线距离' : '直线距离' }}</small>
+              </label>
+              <label class="route-mode-toggle">
+                <span>展示方式</span>
+                <input v-model="optimizeOptions.displayRoadPath" type="checkbox" />
+                <i></i>
+                <small>{{ optimizeOptions.displayRoadPath ? '实际道路折线' : '点位直线' }}</small>
               </label>
               <label>
                 起点类型
@@ -558,6 +573,8 @@
                   <span>未分配量 {{ formatWeight(multiOptimization.unassignedWeightKg) }}</span>
                   <span>计划趟次 {{ multiOptimization.dispatchTripCount || 0 }}</span>
                   <span>计划容量 {{ formatWeight(multiOptimization.totalPlannedCapacityKg) }}</span>
+                  <span>算路 {{ multiOptimization.distanceMode === 'ROAD' ? '实际路线距离' : '直线距离' }}</span>
+                  <span>展示 {{ multiOptimization.displayMode === 'ROAD' ? '实际道路折线' : '点位直线' }}</span>
                 </div>
                 <div class="multi-routes">
                   <article
@@ -917,6 +934,7 @@ const optimizeOptions = reactive({
   targetLoadRate: 0.9,
   maxRoutes: 10,
   useRoadPath: false,
+  displayRoadPath: false,
   startLongitude: null,
   startLatitude: null,
   startFacilityName: null,
@@ -1417,7 +1435,7 @@ function buildRouteProgressSteps() {
       detail: selectedCompanyPointCount.value + ' 个候选点，' + (dispatchEnabled.value ? dispatchTripCount.value + ' 趟排班' : '使用默认最大趟数')
     }
   ]
-  if (optimizeOptions.useRoadPath) {
+  if (optimizeOptions.useRoadPath || optimizeOptions.displayRoadPath) {
     steps.push(
       { key: 'cache-check', title: '调取 OD 缓存', detail: '批量读取本批点位已有道路点对' },
       { key: 'pair-resolve', title: '处理缺失点对', detail: '缓存未命中时按配置百度补算或直线回退' }
