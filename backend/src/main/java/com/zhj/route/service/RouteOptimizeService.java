@@ -220,7 +220,7 @@ public class RouteOptimizeService {
         String planningStrategy = multiRouteStrategy(request);
         boolean useRoadPath = multiRouteUsesRoadPath(planningStrategy, request);
         boolean refineWithRoad = multiRouteRefinesWithRoad(planningStrategy);
-        boolean displayRoadPath = displayRoadPath(request, useRoadPath || refineWithRoad);
+        boolean displayRoadPath = displayRoadPath(request, false);
         DistanceContext distanceContext = new DistanceContext(useRoadPath);
         DistanceContext refineContext = refineWithRoad ? new DistanceContext(true) : distanceContext;
         DistanceContext displayContext = displayRoadPath
@@ -315,6 +315,28 @@ public class RouteOptimizeService {
         if (task != null && (task.cancelled || Thread.currentThread().isInterrupted())) {
             throw new CancellationException("多路线任务已取消");
         }
+    }
+
+    public Map<String, Object> routeSegmentsPreview(Map<String, Object> request) {
+        Object pointsValue = request.get("points");
+        if (!(pointsValue instanceof List)) {
+            throw new IllegalArgumentException("points is required");
+        }
+        boolean displayRoadPath = displayRoadPath(request, false);
+        @SuppressWarnings("unchecked")
+        List<Map<String, Object>> rows = (List<Map<String, Object>>) pointsValue;
+        List<RoutePoint> points = toRoutePoints(rows);
+        DistanceContext context = new DistanceContext(displayRoadPath);
+        context.preload(points);
+        List<Map<String, Object>> segments = segmentViews(points, speedKmh(request), context);
+        Map<String, Object> result = new HashMap<String, Object>();
+        result.put("displayMode", displayRoadPath ? "ROAD" : "DIRECT");
+        result.put("segments", segments);
+        result.put("distance", round(sumSegmentDistance(segments)));
+        result.put("durationMinutes", round(sumSegmentDuration(segments)));
+        result.put("pathSource", displayRoadPath ? "OD_OR_BAIDU" : "DIRECT");
+        result.put("stats", context.summary());
+        return result;
     }
 
     private List<RoutePoint> toRoutePoints(List<Map<String, Object>> rows) {

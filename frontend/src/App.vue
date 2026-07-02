@@ -359,12 +359,6 @@
                     <option value="ROAD_GLOBAL">全程实际距离</option>
                   </select>
                 </label>
-                <label class="route-mode-toggle">
-                  <span>展示</span>
-                  <input v-model="optimizeOptions.displayRoadPath" type="checkbox" />
-                  <i></i>
-                  <small>{{ optimizeOptions.displayRoadPath ? '道路折线' : '点位直线' }}</small>
-                </label>
               </div>
               <label>
                 起点类型
@@ -590,7 +584,6 @@
                   <span>策略 {{ planningStrategyLabel(multiOptimization.planningStrategy) }}</span>
                   <span>分组 {{ multiOptimization.distanceMode === 'ROAD' ? '实际路线距离' : '直线距离' }}</span>
                   <span>精排 {{ multiOptimization.refineMode === 'ROAD' ? '道路距离' : '无' }}</span>
-                  <span>展示 {{ multiOptimization.displayMode === 'ROAD' ? '实际道路折线' : '点位直线' }}</span>
                 </div>
                 <div class="multi-routes">
                   <article
@@ -616,11 +609,28 @@
                     </div>
                   </article>
                 </div>
+                <div v-if="selectedMultiRoute" class="route-display-toolbar">
+                  <span>地图展示</span>
+                  <button
+                    :class="{ active: !selectedMultiRouteRoadDisplay }"
+                    @click.stop="setSelectedMultiRouteDisplay(false)"
+                  >
+                    点位直线
+                  </button>
+                  <button
+                    :class="{ active: selectedMultiRouteRoadDisplay }"
+                    :disabled="routeSegmentLoading"
+                    @click.stop="setSelectedMultiRouteDisplay(true)"
+                  >
+                    {{ routeSegmentLoading ? '加载道路...' : '道路折线' }}
+                  </button>
+                  <small>{{ selectedMultiRouteDisplaySummary }}</small>
+                </div>
                 <RouteMapPanel
                   v-if="selectedMultiRoute"
                   :original-points="[]"
                   :optimized-points="selectedMultiRoute.points || []"
-                  :optimized-segments="selectedMultiRoute.segments || []"
+                  :optimized-segments="selectedMultiRouteDisplaySegments"
                   :show-original="false"
                   optimized-label="生成路线"
                 />
@@ -896,6 +906,8 @@ const multiOptimization = ref(null)
 const routeMapStatus = ref(null)
 const routeProgressTimer = ref(null)
 const routeAbortController = ref(null)
+const routeSegmentLoading = ref(false)
+const multiRouteDisplayModes = ref({})
 const routeProgress = reactive({
   visible: false,
   activeIndex: -1,
@@ -996,6 +1008,26 @@ const selectedMultiRoute = computed(() => {
   return multiOptimization.value.routes.find((route) => route.routeNo === selectedMultiRouteNo.value)
     || multiOptimization.value.routes[0]
 })
+const selectedMultiRouteRoadDisplay = computed(() => {
+  const routeNo = selectedMultiRoute.value?.routeNo
+  return !!(routeNo && multiRouteDisplayModes.value[routeNo] === 'ROAD')
+})
+const selectedMultiRouteDisplaySegments = computed(() => {
+  const route = selectedMultiRoute.value
+  if (!route) return []
+  if (selectedMultiRouteRoadDisplay.value && route.roadSegments?.length) {
+    return route.roadSegments
+  }
+  return route.segments || []
+})
+const selectedMultiRouteDisplaySummary = computed(() => {
+  const route = selectedMultiRoute.value
+  if (!route) return ''
+  const segments = selectedMultiRouteDisplaySegments.value
+  const distance = selectedMultiRouteRoadDisplay.value && route.roadDistance ? route.roadDistance : route.distance
+  const duration = selectedMultiRouteRoadDisplay.value && route.roadDurationMinutes ? route.roadDurationMinutes : route.durationMinutes
+  return formatDistance(distance) + ' · ' + formatDuration(duration) + ' · ' + pathSourceSummary(segments)
+})
 const companyPointVisibleList = computed(() =>
   companyPoints.value.filter((point) => {
     if (showSelectedOnly.value && !isCompanyPointSelected(point.facilityId)) {
@@ -1026,8 +1058,7 @@ const routeAnchorCount = computed(
 )
 const routeModeSummary = computed(() => {
   const routing = planningStrategyLabel(optimizeOptions.multiRouteStrategy)
-  const display = optimizeOptions.displayRoadPath ? '道路展示' : '直线展示'
-  return routing + ' / ' + display
+  return routing
 })
 const routeProgressDetail = computed(() => {
   if (!routeProgress.taskId) return ''
@@ -1252,6 +1283,7 @@ function normalizeFacilityName(value) {
 function clearMultiOptimization() {
   multiOptimization.value = null
   selectedMultiRouteNo.value = null
+  multiRouteDisplayModes.value = {}
   if (!loading.value) {
     resetRouteProgress()
   }
@@ -1468,6 +1500,7 @@ async function generateCompanyRoutes() {
           dispatchMode: 'USER_ORDER',
           vehicles: normalizedDispatchVehicles(),
           ...optimizeOptions,
+          displayRoadPath: false,
           useRoadPath: optimizeOptions.multiRouteStrategy === 'ROAD_GLOBAL'
         })
       })
@@ -1511,7 +1544,7 @@ function buildRouteProgressSteps() {
       detail: selectedCompanyPointCount.value + ' 个候选点，' + (dispatchEnabled.value ? dispatchTripCount.value + ' 趟排班' : '使用默认最大趟数')
     }
   ]
-  if (optimizeOptions.multiRouteStrategy === 'ROAD_GLOBAL' || optimizeOptions.multiRouteStrategy === 'DIRECT_GROUP_ROAD_REFINE' || optimizeOptions.displayRoadPath) {
+  if (optimizeOptions.multiRouteStrategy === 'ROAD_GLOBAL' || optimizeOptions.multiRouteStrategy === 'DIRECT_GROUP_ROAD_REFINE') {
     steps.push(
       { key: 'cache-check', title: '调取 OD 缓存', detail: '批量读取本批点位已有道路点对' },
       { key: 'pair-resolve', title: '处理缺失点对', detail: '缓存未命中时按配置百度补算或直线回退' }
@@ -1638,6 +1671,36 @@ function cancelRouteProgress() {
   routeProgress.failed = true
   routeProgress.done = false
   routeProgress.message = '路线规划已停止'
+}
+
+async function setSelectedMultiRouteDisplay(useRoad) {
+  const route = selectedMultiRoute.value
+  if (!route) return
+  if (!useRoad) {
+    multiRouteDisplayModes.value = { ...multiRouteDisplayModes.value, [route.routeNo]: 'DIRECT' }
+    return
+  }
+  multiRouteDisplayModes.value = { ...multiRouteDisplayModes.value, [route.routeNo]: 'ROAD' }
+  if (route.roadSegments?.length) return
+  routeSegmentLoading.value = true
+  try {
+    const result = await api('/api/optimize/route-segments', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        points: route.points || [],
+        displayRoadPath: true
+      })
+    })
+    route.roadSegments = result.segments || []
+    route.roadDistance = result.distance
+    route.roadDurationMinutes = result.durationMinutes
+  } catch (err) {
+    error.value = err.message || String(err)
+    multiRouteDisplayModes.value = { ...multiRouteDisplayModes.value, [route.routeNo]: 'DIRECT' }
+  } finally {
+    routeSegmentLoading.value = false
+  }
 }
 
 function resetRouteProgress() {

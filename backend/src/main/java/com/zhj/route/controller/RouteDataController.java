@@ -112,6 +112,11 @@ public class RouteDataController {
         return routeOptimizeService.cancelMultiPreviewTask(taskId);
     }
 
+    @PostMapping("/optimize/route-segments")
+    public Map<String, Object> routeSegmentsPreview(@RequestBody Map<String, Object> request) {
+        return routeOptimizeService.routeSegmentsPreview(request);
+    }
+
     @PostMapping("/optimize/multi-export")
     public ResponseEntity<byte[]> exportMultiPreview(@RequestBody Map<String, Object> request) {
         byte[] bytes = routeExportService.exportMultiRoutes(request);
