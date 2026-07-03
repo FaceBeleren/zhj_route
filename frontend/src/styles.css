@@ -553,6 +553,14 @@ button:disabled {
   color: #718096;
 }
 
+
+.cluster-filter-note {
+  margin: -2px 0 10px;
+  color: #2563eb;
+  font-size: 12px;
+  font-weight: 600;
+}
+
 .point-toolbar {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;

@@ -490,8 +490,11 @@
             <div>
               <div class="panel-head compact">
                 <h2>公司点位池</h2>
-                <span class="muted">{{ selectedCompanyPointCount }} / {{ companyPoints.length }} 个点</span>
+                <span class="muted">{{ companyPointVisibleList.length }} / {{ companyPoints.length }} 个点</span>
               </div>
+              <p v-if="selectedClusterDisplayGroup" class="cluster-filter-note">
+                当前显示：{{ selectedClusterDisplayStage === 'before' ? '聚类前' : '聚类后' }} · {{ selectedClusterDisplayGroup.groupName }}
+              </p>
               <div class="point-toolbar">
                 <input v-model="pointKeyword" placeholder="搜索点位、桶信息" />
                 <label class="inline-check">
@@ -735,8 +738,11 @@
             <div>
               <div class="panel-head compact">
                 <h2>公司点位池</h2>
-                <span class="muted">{{ selectedCompanyPointCount }} / {{ companyPoints.length }} 个点</span>
+                <span class="muted">{{ companyPointVisibleList.length }} / {{ companyPoints.length }} 个点</span>
               </div>
+              <p v-if="selectedClusterDisplayGroup" class="cluster-filter-note">
+                当前显示：{{ selectedClusterDisplayStage === 'before' ? '聚类前' : '聚类后' }} · {{ selectedClusterDisplayGroup.groupName }}
+              </p>
               <div class="point-toolbar">
                 <input v-model="pointKeyword" placeholder="搜索点位、桶信息" />
                 <label class="inline-check">
@@ -1211,6 +1217,14 @@ const clusterPlotGroups = computed(() => {
   if (selectedClusterDisplayStage.value === 'before') return clusterBeforeGroups.value
   return clusterAfterGroups.value.length ? clusterAfterGroups.value : clusterBeforeGroups.value
 })
+const selectedClusterDisplayGroup = computed(() => {
+  const groups = selectedClusterDisplayStage.value === 'before' ? clusterBeforeGroups.value : clusterAfterGroups.value
+  return groups.find((group) => group.groupId === selectedClusterDisplayGroupId.value) || null
+})
+const selectedClusterDisplayFacilityIds = computed(() => {
+  const ids = selectedClusterDisplayGroup.value?.facilityIds || []
+  return ids.length ? new Set(ids.map((id) => String(id))) : null
+})
 const clusterPlotBounds = computed(() => {
   const points = clusterPlotGroups.value.flatMap((group) => group.points || [])
     .filter((point) => Number.isFinite(Number(point.longitude)) && Number.isFinite(Number(point.latitude)))
@@ -1257,6 +1271,9 @@ const selectedMultiRouteDisplaySummary = computed(() => {
 })
 const companyPointVisibleList = computed(() =>
   companyPoints.value.filter((point) => {
+    if (selectedClusterDisplayFacilityIds.value && !selectedClusterDisplayFacilityIds.value.has(String(point.facilityId))) {
+      return false
+    }
     if (showSelectedOnly.value && !isCompanyPointSelected(point.facilityId)) {
       return false
     }
