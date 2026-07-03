@@ -769,23 +769,12 @@
                 <span class="muted">聚类前 / 聚类后对比</span>
               </div>
               <div v-if="clusterPreview" class="cluster-preview-layout vertical">
-                <svg class="cluster-plot wide" viewBox="0 0 100 100" role="img" aria-label="点位分堆坐标预览">
-                  <rect x="0" y="0" width="100" height="100" rx="3" />
-                  <g v-for="group in clusterPlotGroups" :key="group.groupId">
-                    <circle
-                      v-for="point in group.points"
-                      :key="`${group.groupId}-${point.facilityId}`"
-                      :cx="clusterPlotX(point.longitude)"
-                      :cy="clusterPlotY(point.latitude)"
-                      r="1.7"
-                      :fill="group.color"
-                      :opacity="clusterGroupOpacity(group)"
-                      :r="clusterPointRadius(group)"
-                      :stroke="clusterPointStroke(group)"
-                      stroke-width="0.8"
-                    />
-                  </g>
-                </svg>
+                <ClusterMapPanel
+                  :groups="clusterPlotGroups"
+                  :selected-group-id="selectedClusterDisplayGroupId"
+                  :stage-label="selectedClusterDisplayStage === 'before' ? '聚类前' : '聚类后'"
+                  @select-group="selectClusterMapGroup"
+                />
                 <div class="cluster-groups">
                   <div class="cluster-column">
                     <h4>聚类前分堆</h4>
@@ -1066,6 +1055,7 @@
 <script setup>
 import { computed, onMounted, reactive, ref } from 'vue'
 import RouteMapPanel from './components/RouteMapPanel.vue'
+import ClusterMapPanel from './components/ClusterMapPanel.vue'
 
 const currentView = ref('score')
 const companies = ref([])
@@ -1607,6 +1597,15 @@ function selectClusterGroup(groupId) {
   restoreSelectedClusterOptimization()
 }
 
+
+function selectClusterMapGroup(groupId) {
+  if (selectedClusterDisplayStage.value === 'after') {
+    selectClusterGroup(groupId)
+    return
+  }
+  const group = clusterBeforeGroups.value.find((item) => item.groupId === groupId)
+  selectClusterDisplayGroup(group, 'before')
+}
 function selectClusterDisplayGroup(group, stage) {
   selectedClusterDisplayStage.value = stage
   selectedClusterDisplayGroupId.value = group?.groupId || ''

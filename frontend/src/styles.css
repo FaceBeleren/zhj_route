@@ -1387,6 +1387,38 @@ tbody tr.active {
   height: auto;
 }
 
+.cluster-map-panel {
+  margin-top: 0;
+  margin-bottom: 12px;
+}
+
+.cluster-baidu-map {
+  height: 300px;
+}
+
+.cluster-map-fallback {
+  height: 300px;
+  border: 1px solid #d8e2ef;
+  border-radius: 8px;
+  overflow: hidden;
+  background: #f7fbff;
+}
+
+.cluster-map-fallback svg {
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+
+.cluster-map-fallback rect {
+  fill: #f7fbff;
+}
+
+.route-map-panel.expanded .cluster-map-fallback {
+  flex: 1;
+  height: auto;
+}
+
 .route-map-panel.expanded .fallback-plot {
   overflow: auto;
 }
