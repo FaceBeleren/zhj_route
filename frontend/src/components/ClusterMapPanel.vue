@@ -6,14 +6,18 @@
         <small>{{ mapStatus }}</small>
       </div>
       <div class="route-map-actions">
+        <div class="map-mode-switch" role="group" aria-label="区域地图展示方式">
+          <button type="button" :class="{ active: displayMode === 'baidu' }" @click="displayMode = 'baidu'">百度地图</button>
+          <button type="button" :class="{ active: displayMode === 'plot' }" @click="displayMode = 'plot'">直接绘图</button>
+        </div>
         <button v-if="!expanded" class="map-expand-button" type="button" @click="expanded = true">最大化</button>
         <button v-if="expanded" class="map-close-button" type="button" aria-label="关闭地图弹窗" @click="expanded = false">×</button>
       </div>
     </div>
 
-    <div v-show="baiduReady" ref="mapEl" class="baidu-route-map cluster-baidu-map"></div>
+    <div v-show="displayMode === 'baidu' && baiduReady" ref="mapEl" class="baidu-route-map cluster-baidu-map"></div>
 
-    <div v-if="!baiduReady && plotPoints.length" class="cluster-map-fallback">
+    <div v-if="displayMode === 'plot' || (!baiduReady && plotPoints.length)" class="cluster-map-fallback">
       <svg viewBox="0 0 100 100" role="img" aria-label="区域划分坐标预览">
         <rect x="0" y="0" width="100" height="100" rx="3" />
         <g v-for="group in normalizedGroups" :key="group.groupId">
@@ -52,8 +56,9 @@ let mapInstance = null
 
 const mapEl = ref(null)
 const baiduReady = ref(false)
-const mapStatus = ref('未配置百度地图 AK 时使用坐标预览')
+const mapStatus = ref('未配置百度地图 AK 时使用直接绘图')
 const expanded = ref(false)
+const displayMode = ref('baidu')
 
 const normalizedGroups = computed(() =>
   (props.groups || []).map((group) => ({
@@ -84,18 +89,27 @@ onMounted(() => renderMap())
 onBeforeUnmount(() => {
   if (mapInstance?.clearOverlays) mapInstance.clearOverlays()
 })
-watch(() => [props.groups, props.selectedGroupId, props.stageLabel, expanded.value], () => renderMap(), { deep: true })
+watch(() => [props.groups, props.selectedGroupId, props.stageLabel, expanded.value, displayMode.value], () => renderMap(), { deep: true })
 
 async function renderMap() {
   await nextTick()
-  if (!mapEl.value || !plotPoints.value.length) {
+  if (!plotPoints.value.length) {
     baiduReady.value = false
     mapStatus.value = '没有可展示的分堆坐标'
     return
   }
+  if (displayMode.value === 'plot') {
+    baiduReady.value = false
+    mapStatus.value = `${props.stageLabel}直接绘图；点击点位可切换高亮分堆`
+    return
+  }
   if (!BAIDU_MAP_AK) {
     baiduReady.value = false
-    mapStatus.value = `${props.stageLabel}坐标预览；未配置百度地图 AK`
+    mapStatus.value = `${props.stageLabel}直接绘图；未配置百度地图 AK`
+    return
+  }
+  if (!mapEl.value) {
+    baiduReady.value = false
     return
   }
   try {
@@ -107,7 +121,7 @@ async function renderMap() {
     mapStatus.value = `${props.stageLabel}百度地图展示；点击点位可切换高亮分堆`
   } catch (error) {
     baiduReady.value = false
-    mapStatus.value = `百度地图加载失败，已回退坐标预览：${error.message}`
+    mapStatus.value = `百度地图加载失败，已回退直接绘图：${error.message}`
   }
 }
 

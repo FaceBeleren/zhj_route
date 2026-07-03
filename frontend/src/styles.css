@@ -1354,6 +1354,39 @@ tbody tr.active {
   background: rgba(15, 23, 42, 0.42);
 }
 
+
+.map-mode-switch {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 2px;
+  border: 1px solid #d7e2ef;
+  border-radius: 8px;
+  background: #f3f6fa;
+}
+
+.map-mode-switch button {
+  height: 24px;
+  border: 0;
+  border-radius: 6px;
+  padding: 0 8px;
+  background: transparent;
+  color: #536274;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.map-mode-switch button.active {
+  background: #1565c0;
+  color: #ffffff;
+}
+
+.map-mode-switch button:hover:not(.active) {
+  background: #ffffff;
+  color: #1565c0;
+}
+
 .map-expand-button,
 .map-close-button {
   height: 26px;
