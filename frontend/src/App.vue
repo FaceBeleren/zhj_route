@@ -803,7 +803,10 @@
                         <strong>{{ group.groupName }}</strong>
                         <small>{{ clusterStatsText(group) }}</small>
                       </div>
-                      <button class="cluster-card-action" @click.stop="exportClusterGroup(group, 'before')">导出</button>
+                      <div class="cluster-card-actions">
+                        <button class="cluster-card-action" @click.stop="exportClusterGroup(group, 'before')">导出</button>
+                        <button class="cluster-card-action primary" @click.stop="routeFromClusterGroup(group, 'before')">生成路线</button>
+                      </div>
                     </article>
                   </div>
                   <div class="cluster-column">
@@ -820,7 +823,10 @@
                         <input v-model="group.groupName" @click.stop />
                         <small>{{ clusterStatsText(group) }}</small>
                       </div>
-                      <button class="cluster-card-action" @click.stop="exportClusterGroup(group, 'after')">导出</button>
+                      <div class="cluster-card-actions">
+                        <button class="cluster-card-action" @click.stop="exportClusterGroup(group, 'after')">导出</button>
+                        <button class="cluster-card-action primary" @click.stop="routeFromClusterGroup(group, 'after')">生成路线</button>
+                      </div>
                     </article>
                   </div>
                 </div>
@@ -1207,10 +1213,19 @@ const selectedClusterGroup = computed(() =>
   clusterAfterGroups.value.find((group) => group.groupId === selectedClusterGroupId.value) || null
 )
 const currentOptimizationFacilityIds = computed(() => {
+  if (selectedClusterDisplayGroup.value?.facilityIds?.length) {
+    return selectedClusterDisplayGroup.value.facilityIds.map((id) => String(id))
+  }
   if (selectedClusterGroup.value?.facilityIds?.length) {
     return selectedClusterGroup.value.facilityIds.map((id) => String(id))
   }
   return Array.from(selectedCompanyPointIds.value)
+})
+const currentClusterRouteKey = computed(() => {
+  if (selectedClusterDisplayGroup.value?.groupId) {
+    return `${selectedClusterDisplayStage.value}:${selectedClusterDisplayGroup.value.groupId}`
+  }
+  return '__all__'
 })
 const currentOptimizationPointCount = computed(() => currentOptimizationFacilityIds.value.length)
 const clusterPlotGroups = computed(() => {
@@ -1637,8 +1652,20 @@ function selectClusterDisplayGroup(group, stage) {
   selectedClusterDisplayGroupId.value = group?.groupId || ''
 }
 
+function routeFromClusterGroup(group, stage) {
+  if (!group?.facilityIds?.length) return
+  if (stage === 'after') {
+    selectClusterGroup(group.groupId)
+  } else {
+    selectClusterDisplayGroup(group, 'before')
+  }
+  pointKeyword.value = ''
+  showSelectedOnly.value = true
+  restoreSelectedClusterOptimization()
+  currentView.value = 'multi'
+}
 function restoreSelectedClusterOptimization() {
-  const key = selectedClusterGroupId.value || '__all__'
+  const key = currentClusterRouteKey.value
   multiOptimization.value = groupOptimizationResults.value[key] || null
   selectedMultiRouteNo.value = multiOptimization.value?.routes?.[0]?.routeNo || null
   multiRouteDisplayModes.value = {}
@@ -2032,7 +2059,7 @@ function startRouteProgress() {
   routeProgress.message = '正在发起路线规划请求'
   routeProgress.steps = buildRouteProgressSteps()
   routeProgress.taskId = ''
-  activeOptimizationGroupId.value = selectedClusterGroupId.value || '__all__'
+  activeOptimizationGroupId.value = currentClusterRouteKey.value
   routeProgress.status = 'STARTING'
   routeProgress.phase = 'PREPARE'
   routeProgress.currentRouteNo = 0
@@ -2173,7 +2200,7 @@ function resetRouteProgress() {
   routeProgress.message = ''
   routeProgress.steps = []
   routeProgress.taskId = ''
-  activeOptimizationGroupId.value = selectedClusterGroupId.value || '__all__'
+  activeOptimizationGroupId.value = currentClusterRouteKey.value
   routeProgress.status = ''
   routeProgress.phase = ''
   routeProgress.currentRouteNo = 0

@@ -1953,6 +1953,20 @@ tbody tr.active {
   height: 260px;
 }
 
+
+.cluster-card-actions {
+  display: flex !important;
+  align-items: center;
+  gap: 8px;
+  margin-left: auto;
+}
+
+.cluster-card-action.primary {
+  border-color: #1565c0;
+  background: #1565c0;
+  color: #ffffff;
+}
+
 .cluster-card-action {
   align-self: center;
   margin-left: auto;
