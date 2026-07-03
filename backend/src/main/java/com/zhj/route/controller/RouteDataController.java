@@ -6,6 +6,7 @@ import com.zhj.route.service.FacilityImportService;
 import com.zhj.route.service.RouteMapPathService;
 import com.zhj.route.service.RouteOptimizeService;
 import com.zhj.route.service.RouteExportService;
+import com.zhj.route.service.RouteClusterService;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
@@ -30,6 +31,7 @@ public class RouteDataController {
     private final RouteMapPathService routeMapPathService;
     private final RouteExportService routeExportService;
     private final FacilityImportService facilityImportService;
+    private final RouteClusterService routeClusterService;
 
     public RouteDataController(
             RouteQueryService routeQueryService,
@@ -37,13 +39,15 @@ public class RouteDataController {
             RouteOptimizeService routeOptimizeService,
             RouteMapPathService routeMapPathService,
             RouteExportService routeExportService,
-            FacilityImportService facilityImportService) {
+            FacilityImportService facilityImportService,
+            RouteClusterService routeClusterService) {
         this.routeQueryService = routeQueryService;
         this.routeConformanceService = routeConformanceService;
         this.routeOptimizeService = routeOptimizeService;
         this.routeMapPathService = routeMapPathService;
         this.routeExportService = routeExportService;
         this.facilityImportService = facilityImportService;
+        this.routeClusterService = routeClusterService;
     }
 
     @GetMapping("/companies")
@@ -110,6 +114,20 @@ public class RouteDataController {
     @PostMapping("/optimize/multi-preview/tasks/{taskId}/cancel")
     public Map<String, Object> cancelOptimizeMultiPreviewTask(@PathVariable String taskId) {
         return routeOptimizeService.cancelMultiPreviewTask(taskId);
+    }
+
+    @PostMapping("/optimize/cluster-preview")
+    public Map<String, Object> clusterPreview(@RequestBody Map<String, Object> request) {
+        return routeClusterService.preview(request);
+    }
+
+    @PostMapping("/optimize/cluster-export")
+    public ResponseEntity<byte[]> exportClusterPreview(@RequestBody Map<String, Object> request) {
+        byte[] bytes = routeExportService.exportClusterPreview(request);
+        return ResponseEntity.ok()
+                .header(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=route-clusters.xlsx")
+                .contentType(MediaType.parseMediaType("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"))
+                .body(bytes);
     }
 
     @PostMapping("/optimize/route-segments")

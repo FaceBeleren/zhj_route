@@ -9,12 +9,13 @@ public class RoutePoint {
     private final Double estimatedVolumeLiter;
     private final Double estimatedWeightKg;
     private final String containerInfo;
+    private final Double containerCount;
     private final Double litersPerTon;
     private final String weightSource;
 
     public RoutePoint(Long facilityId, String facilityName, Double longitude, Double latitude, Integer originalOrder,
                       Double estimatedVolumeLiter, Double estimatedWeightKg, String containerInfo,
-                      Double litersPerTon, String weightSource) {
+                      Double containerCount, Double litersPerTon, String weightSource) {
         this.facilityId = facilityId;
         this.facilityName = facilityName;
         this.longitude = longitude;
@@ -23,6 +24,7 @@ public class RoutePoint {
         this.estimatedVolumeLiter = estimatedVolumeLiter;
         this.estimatedWeightKg = estimatedWeightKg;
         this.containerInfo = containerInfo;
+        this.containerCount = containerCount;
         this.litersPerTon = litersPerTon;
         this.weightSource = weightSource;
     }
@@ -59,6 +61,10 @@ public class RoutePoint {
         return containerInfo;
     }
 
+    public Double getContainerCount() {
+        return containerCount;
+    }
+
     public Double getLitersPerTon() {
         return litersPerTon;
     }
@@ -71,3 +77,5 @@ public class RoutePoint {
         return longitude != null && latitude != null;
     }
 }
+
+

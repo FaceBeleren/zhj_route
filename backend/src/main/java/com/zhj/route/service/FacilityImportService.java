@@ -30,20 +30,45 @@ public class FacilityImportService {
             if (workbook.getNumberOfSheets() == 0) {
                 throw new IllegalArgumentException("Excel中没有工作表");
             }
-            Sheet sheet = workbook.getSheetAt(0);
             DataFormatter formatter = new DataFormatter();
-            Header header = findNameHeader(sheet, formatter);
-            if (header == null) {
-                throw new IllegalArgumentException("未找到名称列，请确认表头包含：名称、点位名称或设施名称");
+            List<Map<String, Object>> groups = new ArrayList<Map<String, Object>>();
+            Set<String> allNames = new LinkedHashSet<String>();
+            for (int sheetIndex = 0; sheetIndex < workbook.getNumberOfSheets(); sheetIndex++) {
+                Sheet sheet = workbook.getSheetAt(sheetIndex);
+                Header header = findNameHeader(sheet, formatter);
+                if (header == null) {
+                    continue;
+                }
+                List<String> names = readNames(sheet, formatter, header);
+                if (names.isEmpty()) {
+                    continue;
+                }
+                allNames.addAll(names);
+                Map<String, Object> group = new HashMap<String, Object>();
+                group.put("sheetIndex", sheetIndex + 1);
+                group.put("sheetName", sheet.getSheetName());
+                group.put("groupName", sheet.getSheetName());
+                group.put("headerRow", header.rowIndex + 1);
+                group.put("nameColumn", header.columnIndex + 1);
+                group.put("nameColumnTitle", header.title);
+                group.put("names", names);
+                group.put("nameCount", names.size());
+                groups.add(group);
             }
-            List<String> names = readNames(sheet, formatter, header);
+            if (groups.isEmpty()) {
+                throw new IllegalArgumentException("未找到名称列，请确认表头包含：名称、点位名称、设施名称或垃圾位置/桶位位置");
+            }
             Map<String, Object> result = new HashMap<String, Object>();
-            result.put("sheetName", sheet.getSheetName());
-            result.put("headerRow", header.rowIndex + 1);
-            result.put("nameColumn", header.columnIndex + 1);
-            result.put("nameColumnTitle", header.title);
-            result.put("names", names);
-            result.put("nameCount", names.size());
+            Map<String, Object> first = groups.get(0);
+            result.put("sheetName", first.get("sheetName"));
+            result.put("headerRow", first.get("headerRow"));
+            result.put("nameColumn", first.get("nameColumn"));
+            result.put("nameColumnTitle", first.get("nameColumnTitle"));
+            result.put("names", new ArrayList<String>(allNames));
+            result.put("nameCount", allNames.size());
+            result.put("sheetCount", workbook.getNumberOfSheets());
+            result.put("matchedSheetCount", groups.size());
+            result.put("groups", groups);
             return result;
         } catch (IllegalArgumentException e) {
             throw e;
@@ -76,7 +101,7 @@ public class FacilityImportService {
         for (int rowIndex = header.rowIndex + 1; rowIndex <= sheet.getLastRowNum(); rowIndex++) {
             Row row = sheet.getRow(rowIndex);
             String name = row == null ? "" : cellText(row.getCell(header.columnIndex), formatter);
-            if (name.isEmpty()) {
+            if (name.isEmpty() || isNameHeader(name)) {
                 emptyRows++;
                 if (emptyRows >= MAX_EMPTY_ROWS_AFTER_HEADER) {
                     break;
@@ -96,7 +121,11 @@ public class FacilityImportService {
                 || "设施名称".equals(normalized)
                 || "收集点名称".equals(normalized)
                 || "垃圾点名称".equals(normalized)
-                || "垃圾点位名称".equals(normalized);
+                || "垃圾点位名称".equals(normalized)
+                || "垃圾位置".equals(normalized)
+                || "桶位位置".equals(normalized)
+                || "垃圾位置或桶位位置".equals(normalized)
+                || (normalized.contains("垃圾") && normalized.contains("位置"));
     }
 
     private String normalizeHeader(String value) {

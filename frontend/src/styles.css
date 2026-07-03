@@ -85,8 +85,9 @@ button:disabled {
 }
 
 .view-tabs {
-  display: inline-grid;
-  grid-template-columns: repeat(3, minmax(120px, 1fr));
+  display: grid;
+  grid-template-columns: repeat(4, minmax(92px, 1fr));
+  width: min(100%, 520px);
   gap: 4px;
   margin-bottom: 14px;
   padding: 3px;
@@ -99,6 +100,7 @@ button:disabled {
   border: 0;
   border-radius: 6px;
   background: transparent;
+  white-space: nowrap;
 }
 
 .view-tabs button.active {
@@ -1678,4 +1680,213 @@ tbody tr.active {
     align-items: stretch;
     flex-direction: column;
   }
+}
+
+.cluster-panel {
+  margin-top: 16px;
+  padding: 16px;
+  border: 1px solid #d6e2f0;
+  border-radius: 8px;
+  background: #f8fbff;
+}
+
+.cluster-head,
+.cluster-actions,
+.cluster-time-config,
+.cluster-preview-layout,
+.cluster-groups {
+  display: flex;
+  gap: 12px;
+}
+
+.cluster-head {
+  justify-content: space-between;
+  align-items: flex-start;
+  margin-bottom: 12px;
+}
+
+.cluster-head h3 {
+  margin: 0 0 4px;
+  font-size: 16px;
+}
+
+.cluster-head small,
+.cluster-time-config .muted {
+  color: #5c6b82;
+}
+
+.cluster-actions {
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  align-items: end;
+}
+
+.cluster-actions label,
+.cluster-time-config label {
+  display: grid;
+  gap: 4px;
+  color: #44546a;
+  font-size: 12px;
+}
+
+.cluster-actions input,
+.cluster-time-config input,
+.cluster-card input {
+  min-height: 30px;
+  border: 1px solid #c9d7e8;
+  border-radius: 6px;
+  padding: 0 8px;
+  background: #fff;
+}
+
+.cluster-actions input {
+  width: 96px;
+}
+
+.cluster-time-config {
+  flex-wrap: wrap;
+  align-items: center;
+  padding: 10px 0;
+  border-top: 1px solid #e2eaf5;
+  border-bottom: 1px solid #e2eaf5;
+}
+
+.cluster-time-config input {
+  width: 92px;
+}
+
+.cluster-current {
+  padding: 6px 10px;
+  border-radius: 999px;
+  background: #e8f2ff;
+  color: #0f5ebd;
+  font-weight: 600;
+}
+
+.cluster-preview-layout {
+  align-items: stretch;
+  margin-top: 12px;
+}
+
+.cluster-groups {
+  flex: 1;
+  min-width: 0;
+}
+
+.cluster-column {
+  flex: 1;
+  min-width: 0;
+}
+
+.cluster-column h4 {
+  margin: 0 0 8px;
+  font-size: 14px;
+}
+
+.cluster-card {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  min-height: 58px;
+  margin-bottom: 8px;
+  padding: 10px;
+  border: 1px solid #d8e4f2;
+  border-radius: 8px;
+  background: #fff;
+}
+
+.selectable-cluster {
+  cursor: pointer;
+}
+
+.selectable-cluster.active {
+  border-color: #1f6fcc;
+  box-shadow: 0 0 0 2px rgba(31, 111, 204, 0.12);
+}
+
+.cluster-color {
+  width: 12px;
+  height: 12px;
+  margin-top: 4px;
+  border-radius: 50%;
+  flex: 0 0 auto;
+}
+
+.cluster-card > div {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.cluster-card strong,
+.cluster-card input {
+  font-weight: 700;
+  color: #1f2937;
+}
+
+.cluster-card small {
+  color: #5c6b82;
+  line-height: 1.45;
+}
+
+.cluster-plot {
+  width: 280px;
+  min-width: 240px;
+  height: 220px;
+  border: 1px solid #d8e4f2;
+  border-radius: 8px;
+  background: #fff;
+}
+
+.cluster-plot rect {
+  fill: #f7fbff;
+}
+
+.cluster-empty {
+  margin-top: 12px;
+  padding: 12px;
+  border-radius: 8px;
+  background: #fff;
+  color: #5c6b82;
+}
+
+@media (max-width: 1100px) {
+  .cluster-head,
+  .cluster-preview-layout,
+  .cluster-groups {
+    flex-direction: column;
+  }
+
+  .cluster-actions {
+    justify-content: flex-start;
+  }
+
+  .cluster-plot {
+    width: 100%;
+  }
+}
+
+.cluster-panel.standalone {
+  margin-top: 0;
+}
+
+.cluster-preview-layout.vertical {
+  flex-direction: column;
+}
+
+.cluster-plot.wide {
+  width: 100%;
+  min-width: 0;
+  height: 260px;
+}
+
+.cluster-card-action {
+  align-self: center;
+  margin-left: auto;
+  padding: 6px 10px;
+  white-space: nowrap;
+}
+
+.cluster-workspace .cluster-card {
+  align-items: center;
 }

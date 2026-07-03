@@ -56,6 +56,7 @@ public class RouteQueryService {
                 "f.name AS facilityName, f.facility_type_name AS facilityTypeName, " +
                 "f.longitude_done AS longitude, f.latitude_done AS latitude, " +
                 "container.containerInfo AS containerInfo, " +
+                "IFNULL(container.containerCount, 0) AS containerCount, " +
                 "IFNULL(container.estimatedVolumeLiter, 0) AS estimatedVolumeLiter, " +
                 "base.liters_per_ton AS litersPerTon, " +
                 "CASE " +
@@ -73,6 +74,7 @@ public class RouteQueryService {
                 "LEFT JOIN (" +
                 "SELECT facility_id, " +
                 "GROUP_CONCAT(CONCAT(container_type, '/', container_count) ORDER BY id SEPARATOR ',') AS containerInfo, " +
+                "SUM(IFNULL(container_count, 0)) AS containerCount, " +
                 "SUM(IFNULL(container_count, 0) * IFNULL(container_type, 0)) AS estimatedVolumeLiter " +
                 "FROM ljszy_facility_container_info " +
                 "WHERE been_deleted = 0 " +
@@ -88,6 +90,7 @@ public class RouteQueryService {
         String sql = "SELECT f.id AS facilityId, f.name AS facilityName, f.facility_type_name AS facilityTypeName, " +
                 "f.longitude_done AS longitude, f.latitude_done AS latitude, " +
                 "container.containerInfo AS containerInfo, " +
+                "IFNULL(container.containerCount, 0) AS containerCount, " +
                 "IFNULL(container.estimatedVolumeLiter, 0) AS estimatedVolumeLiter, " +
                 "base.liters_per_ton AS litersPerTon, " +
                 "CASE " +
@@ -104,6 +107,7 @@ public class RouteQueryService {
                 "LEFT JOIN (" +
                 "SELECT facility_id, " +
                 "GROUP_CONCAT(CONCAT(container_type, '/', container_count) ORDER BY id SEPARATOR ',') AS containerInfo, " +
+                "SUM(IFNULL(container_count, 0)) AS containerCount, " +
                 "SUM(IFNULL(container_count, 0) * IFNULL(container_type, 0)) AS estimatedVolumeLiter " +
                 "FROM ljszy_facility_container_info " +
                 "WHERE been_deleted = 0 " +
@@ -271,3 +275,4 @@ public class RouteQueryService {
         return LocalDateTime.parse(String.valueOf(value).replace(" ", "T"));
     }
 }
+

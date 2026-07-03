@@ -19,14 +19,17 @@
     </header>
 
     <nav class="view-tabs" aria-label="功能视图">
+      <button :class="{ active: currentView === 'score' }" @click="currentView = 'score'">
+        路线评分
+      </button>
       <button :class="{ active: currentView === 'workbench' }" @click="currentView = 'workbench'">
         路线详情
       </button>
+      <button :class="{ active: currentView === 'cluster' }" @click="currentView = 'cluster'">
+        区域划分
+      </button>
       <button :class="{ active: currentView === 'multi' }" @click="currentView = 'multi'">
         多路线生成
-      </button>
-      <button :class="{ active: currentView === 'score' }" @click="currentView = 'score'">
-        路线评分
       </button>
     </nav>
 
@@ -328,7 +331,7 @@
               <div class="panel-actions">
                 <button
                   @click="generateCompanyRoutes"
-                  :disabled="!selectedMultiCompany || selectedCompanyPointCount === 0 || loading"
+                  :disabled="!selectedMultiCompany || currentOptimizationPointCount === 0 || loading"
                 >
                   生成路线
                 </button>
@@ -648,6 +651,176 @@
       </section>
     </template>
 
+
+    <template v-else-if="currentView === 'cluster'">
+      <section class="multi-shell cluster-shell">
+        <aside class="panel company-panel">
+          <div class="panel-head">
+            <h2>项目公司</h2>
+            <input v-model="companyKeyword" placeholder="搜索公司" />
+          </div>
+          <div class="list">
+            <button
+              v-for="company in filteredCompanies"
+              :key="company.id"
+              class="list-item"
+              :class="{ active: selectedMultiCompany?.id === company.id }"
+              @click="selectMultiCompany(company)"
+            >
+              <span>{{ company.depName || company.id }}</span>
+              <small>{{ company.depCode || '-' }}</small>
+            </button>
+          </div>
+        </aside>
+
+        <section class="multi-main cluster-main">
+          <section class="panel cluster-panel standalone">
+            <div class="cluster-head">
+              <div>
+                <h2>区域划分</h2>
+                <small>先从当前公司点位池选择点位，或导入 Excel 名称匹配点位；多 sheet 会作为聚类前原始区域。</small>
+              </div>
+              <div class="cluster-actions">
+                <label>
+                  目标分堆数
+                  <input v-model.number="clusterTargetGroupCount" type="number" min="1" step="1" placeholder="自动" />
+                </label>
+                <button @click="triggerImportFacilityNames" :disabled="companyPoints.length === 0 || loading">上传Excel</button>
+                <button @click="generateClusterPreview" :disabled="selectedCompanyPointCount === 0 || loading">生成聚类信息</button>
+                <button @click="exportClusterPreview" :disabled="!clusterPreview || loading">导出全部分区</button>
+              </div>
+            </div>
+            <div v-if="selectedMultiCompany" class="route-overview">
+              <div>
+                <span>公司</span>
+                <strong>{{ selectedMultiCompany.depName || selectedMultiCompany.id }}</strong>
+              </div>
+              <div>
+                <span>已选点位</span>
+                <strong>{{ selectedCompanyPointCount }} / {{ companyPoints.length }}</strong>
+              </div>
+              <div>
+                <span>预计总量</span>
+                <strong>{{ formatWeight(selectedCompanyPointWeight) }}</strong>
+              </div>
+              <div>
+                <span>目标分堆</span>
+                <strong>{{ clusterPreview?.targetGroupCount || clusterTargetGroupCount || '自动' }}</strong>
+              </div>
+            </div>
+            <div class="cluster-time-config">
+              <label>每桶秒<input v-model.number="clusterTimeConfig.secondsPerContainer" type="number" min="1" step="1" /></label>
+              <label>每点分钟<input v-model.number="clusterTimeConfig.minutesPerPoint" type="number" min="0" step="0.5" /></label>
+              <label>单堆工时<input v-model.number="clusterTimeConfig.workHours" type="number" min="1" step="0.5" /></label>
+              <span v-if="selectedClusterGroup" class="cluster-current">当前优化对象：{{ selectedClusterGroup.groupName }} · {{ selectedClusterGroup.pointCount }} 点</span>
+              <span v-else class="muted">选择聚类后某一堆后，多路线生成会优先使用该堆点位。</span>
+            </div>
+            <input
+              ref="facilityImportInput"
+              class="hidden-file-input"
+              type="file"
+              accept=".xls,.xlsx"
+              @change="importFacilityNames"
+            />
+          </section>
+
+          <section v-if="selectedMultiCompany" class="panel split-panel multi-layout cluster-workspace">
+            <div>
+              <div class="panel-head compact">
+                <h2>公司点位池</h2>
+                <span class="muted">{{ selectedCompanyPointCount }} / {{ companyPoints.length }} 个点</span>
+              </div>
+              <div class="point-toolbar">
+                <input v-model="pointKeyword" placeholder="搜索点位、桶信息" />
+                <label class="inline-check">
+                  <input v-model="showSelectedOnly" type="checkbox" />
+                  只看已选
+                </label>
+              </div>
+              <div class="point-actions">
+                <button @click="selectVisibleCompanyPoints" :disabled="companyPointVisibleList.length === 0">选中当前结果</button>
+                <button @click="unselectVisibleCompanyPoints" :disabled="companyPointVisibleList.length === 0">排除当前结果</button>
+                <button @click="selectAllCompanyPoints" :disabled="companyPoints.length === 0">全选</button>
+                <button @click="clearCompanyPointSelection" :disabled="selectedCompanyPointCount === 0">清空</button>
+              </div>
+              <p v-if="facilityImportSummary" class="import-summary">{{ facilityImportSummary }}</p>
+              <ol class="point-list selectable">
+                <li v-for="point in companyPointVisibleList" :key="point.facilityId">
+                  <label class="point-select-row">
+                    <input
+                      type="checkbox"
+                      :checked="isCompanyPointSelected(point.facilityId)"
+                      @change="toggleCompanyPoint(point.facilityId)"
+                    />
+                    <span>
+                      <strong>{{ point.facilityName || point.facilityId }}</strong>
+                      <small>
+                        {{ point.facilityTypeName || '-' }} · {{ formatWeight(point.estimatedWeightKg) }}
+                        <template v-if="point.containerInfo"> · 桶 {{ point.containerInfo }}</template>
+                      </small>
+                    </span>
+                  </label>
+                </li>
+              </ol>
+            </div>
+            <div>
+              <div class="panel-head compact">
+                <h2>聚类信息</h2>
+                <span class="muted">聚类前 / 聚类后对比</span>
+              </div>
+              <div v-if="clusterPreview" class="cluster-preview-layout vertical">
+                <svg class="cluster-plot wide" viewBox="0 0 100 100" role="img" aria-label="点位分堆坐标预览">
+                  <rect x="0" y="0" width="100" height="100" rx="3" />
+                  <g v-for="group in clusterPlotGroups" :key="group.groupId">
+                    <circle
+                      v-for="point in group.points"
+                      :key="`${group.groupId}-${point.facilityId}`"
+                      :cx="clusterPlotX(point.longitude)"
+                      :cy="clusterPlotY(point.latitude)"
+                      r="1.7"
+                      :fill="group.color"
+                    />
+                  </g>
+                </svg>
+                <div class="cluster-groups">
+                  <div class="cluster-column">
+                    <h4>聚类前分堆</h4>
+                    <article v-for="group in clusterBeforeGroups" :key="group.groupId" class="cluster-card">
+                      <span class="cluster-color" :style="{ backgroundColor: group.color }"></span>
+                      <div>
+                        <strong>{{ group.groupName }}</strong>
+                        <small>{{ clusterStatsText(group) }}</small>
+                      </div>
+                      <button class="cluster-card-action" @click.stop="exportClusterGroup(group, 'before')">导出</button>
+                    </article>
+                  </div>
+                  <div class="cluster-column">
+                    <h4>聚类后分堆</h4>
+                    <article
+                      v-for="group in clusterAfterGroups"
+                      :key="group.groupId"
+                      class="cluster-card selectable-cluster"
+                      :class="{ active: selectedClusterGroupId === group.groupId }"
+                      @click="selectClusterGroup(group.groupId)"
+                    >
+                      <span class="cluster-color" :style="{ backgroundColor: group.color }"></span>
+                      <div>
+                        <input v-model="group.groupName" @click.stop />
+                        <small>{{ clusterStatsText(group) }}</small>
+                      </div>
+                      <button class="cluster-card-action" @click.stop="exportClusterGroup(group, 'after')">导出</button>
+                    </article>
+                  </div>
+                </div>
+              </div>
+              <div v-else class="cluster-empty">选择公司后，可直接用已选点位生成聚类；上传 Excel 后会先按 sheet 形成原始区域，再生成聚类后区域。</div>
+            </div>
+          </section>
+          <div v-else class="panel empty">选择公司后读取点位池</div>
+        </section>
+      </section>
+    </template>
+
     <template v-else>
       <section class="score-shell">
         <aside class="panel score-company-panel">
@@ -884,7 +1057,7 @@
 import { computed, onMounted, reactive, ref } from 'vue'
 import RouteMapPanel from './components/RouteMapPanel.vue'
 
-const currentView = ref('workbench')
+const currentView = ref('score')
 const companies = ref([])
 const routes = ref([])
 const records = ref([])
@@ -893,6 +1066,17 @@ const recordPoints = ref([])
 const companyPoints = ref([])
 const facilityImportInput = ref(null)
 const facilityImportSummary = ref('')
+const importedOriginalGroups = ref([])
+const clusterPreview = ref(null)
+const clusterTargetGroupCount = ref(null)
+const selectedClusterGroupId = ref('')
+const groupOptimizationResults = ref({})
+const activeOptimizationGroupId = ref('')
+const clusterTimeConfig = reactive({
+  secondsPerContainer: 35,
+  minutesPerPoint: 3,
+  workHours: 8
+})
 const companyAnchors = ref({
   parkingLots: [],
   transferStations: [],
@@ -1001,6 +1185,36 @@ const selectedCompanyPointCount = computed(() => selectedCompanyPointIds.value.s
 const selectedCompanyPointWeight = computed(() =>
   selectedCompanyPoints.value.reduce((sum, point) => sum + Number(point.estimatedWeightKg || 0), 0)
 )
+const clusterBeforeGroups = computed(() => clusterPreview.value?.beforeGroups || [])
+const clusterAfterGroups = computed(() => clusterPreview.value?.afterGroups || [])
+const selectedClusterGroup = computed(() =>
+  clusterAfterGroups.value.find((group) => group.groupId === selectedClusterGroupId.value) || null
+)
+const currentOptimizationFacilityIds = computed(() => {
+  if (selectedClusterGroup.value?.facilityIds?.length) {
+    return selectedClusterGroup.value.facilityIds.map((id) => String(id))
+  }
+  return Array.from(selectedCompanyPointIds.value)
+})
+const currentOptimizationPointCount = computed(() => currentOptimizationFacilityIds.value.length)
+const clusterPlotGroups = computed(() => (clusterAfterGroups.value.length ? clusterAfterGroups.value : clusterBeforeGroups.value))
+const clusterPlotBounds = computed(() => {
+  const points = clusterPlotGroups.value.flatMap((group) => group.points || [])
+    .filter((point) => Number.isFinite(Number(point.longitude)) && Number.isFinite(Number(point.latitude)))
+  if (!points.length) return { minLng: 0, maxLng: 1, minLat: 0, maxLat: 1 }
+  const lngs = points.map((point) => Number(point.longitude))
+  const lats = points.map((point) => Number(point.latitude))
+  const minLng = Math.min(...lngs)
+  const maxLng = Math.max(...lngs)
+  const minLat = Math.min(...lats)
+  const maxLat = Math.max(...lats)
+  return {
+    minLng,
+    maxLng: maxLng === minLng ? minLng + 0.01 : maxLng,
+    minLat,
+    maxLat: maxLat === minLat ? minLat + 0.01 : maxLat
+  }
+})
 const selectedMultiRoute = computed(() => {
   if (!multiOptimization.value?.routes?.length) {
     return null
@@ -1173,6 +1387,7 @@ async function selectMultiCompany(company) {
   showSelectedOnly.value = false
   selectedCompanyPointIds.value = new Set()
   facilityImportSummary.value = ''
+  resetClusterState()
   resetAnchors()
   clearMultiOptimization()
   await withLoading(async () => {
@@ -1200,16 +1415,19 @@ function toggleCompanyPoint(facilityId) {
     next.add(id)
   }
   selectedCompanyPointIds.value = next
+  resetClusterState()
   clearMultiOptimization()
 }
 
 function selectAllCompanyPoints() {
   selectedCompanyPointIds.value = new Set(companyPoints.value.map((point) => String(point.facilityId)))
+  resetClusterState()
   clearMultiOptimization()
 }
 
 function clearCompanyPointSelection() {
   selectedCompanyPointIds.value = new Set()
+  resetClusterState()
   clearMultiOptimization()
 }
 
@@ -1217,6 +1435,7 @@ function selectVisibleCompanyPoints() {
   const next = new Set(selectedCompanyPointIds.value)
   companyPointVisibleList.value.forEach((point) => next.add(String(point.facilityId)))
   selectedCompanyPointIds.value = next
+  resetClusterState()
   clearMultiOptimization()
 }
 
@@ -1224,6 +1443,7 @@ function unselectVisibleCompanyPoints() {
   const next = new Set(selectedCompanyPointIds.value)
   companyPointVisibleList.value.forEach((point) => next.delete(String(point.facilityId)))
   selectedCompanyPointIds.value = next
+  resetClusterState()
   clearMultiOptimization()
 }
 function triggerImportFacilityNames() {
@@ -1249,7 +1469,7 @@ async function importFacilityNames(event) {
       throw new Error(await response.text())
     }
     const result = await response.json()
-    applyImportedFacilityNames(result.names || [])
+    applyImportedFacilityGroups(result)
   })
 }
 
@@ -1271,6 +1491,172 @@ function applyImportedFacilityNames(names) {
   facilityImportSummary.value = `导入名称 ${importedNames.size} 个，匹配并选中 ${next.size} 个，未匹配 ${unmatched} 个`
 }
 
+
+function applyImportedFacilityGroups(result) {
+  const groups = result.groups?.length ? result.groups : [{ groupName: result.sheetName || '导入点位', names: result.names || [] }]
+  const pointByName = new Map()
+  companyPoints.value.forEach((point) => {
+    const key = normalizeFacilityName(point.facilityName)
+    if (!key) return
+    if (!pointByName.has(key)) pointByName.set(key, [])
+    pointByName.get(key).push(point)
+  })
+  const selectedIds = new Set()
+  const originalGroups = []
+  let importedNameCount = 0
+  let matchedNameCount = 0
+  const unmatchedDetails = []
+  groups.forEach((group, index) => {
+    const names = group.names || []
+    importedNameCount += names.length
+    const groupIds = []
+    const matchedNames = new Set()
+    names.forEach((name) => {
+      const normalized = normalizeFacilityName(name)
+      const matches = pointByName.get(normalized) || []
+      if (!matches.length) {
+        if (unmatchedDetails.length < 20) unmatchedDetails.push(name)
+        return
+      }
+      matchedNames.add(normalized)
+      matches.forEach((point) => {
+        const id = String(point.facilityId)
+        selectedIds.add(id)
+        groupIds.push(id)
+      })
+    })
+    matchedNameCount += matchedNames.size
+    if (groupIds.length) {
+      originalGroups.push({
+        groupId: `import-${index + 1}`,
+        groupName: group.groupName || group.sheetName || `原始分堆${index + 1}`,
+        sheetName: group.sheetName,
+        facilityIds: Array.from(new Set(groupIds))
+      })
+    }
+  })
+  selectedCompanyPointIds.value = selectedIds
+  importedOriginalGroups.value = originalGroups
+  resetClusterPreviewOnly()
+  clearMultiOptimization()
+  showSelectedOnly.value = true
+  const unmatched = Math.max(0, importedNameCount - matchedNameCount)
+  const sheetText = result.matchedSheetCount ? `，识别 ${result.matchedSheetCount} 个sheet` : ''
+  const detailText = unmatchedDetails.length ? `，未匹配示例：${unmatchedDetails.slice(0, 5).join('、')}` : ''
+  facilityImportSummary.value = `导入名称 ${importedNameCount} 个${sheetText}，匹配并选中 ${selectedIds.size} 个点位，未匹配 ${unmatched} 个${detailText}`
+}
+
+function resetClusterPreviewOnly() {
+  clusterPreview.value = null
+  selectedClusterGroupId.value = ''
+  groupOptimizationResults.value = {}
+}
+
+function resetClusterState() {
+  importedOriginalGroups.value = []
+  clusterPreview.value = null
+  selectedClusterGroupId.value = ''
+  groupOptimizationResults.value = {}
+  activeOptimizationGroupId.value = ''
+}
+
+async function generateClusterPreview() {
+  if (!selectedMultiCompany.value || selectedCompanyPointCount.value === 0) return
+  await withLoading(async () => {
+    clusterPreview.value = await api('/api/optimize/cluster-preview', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        unitId: selectedMultiCompany.value.id,
+        facilityIds: Array.from(selectedCompanyPointIds.value),
+        originalGroups: importedOriginalGroups.value,
+        targetGroupCount: clusterTargetGroupCount.value || null,
+        timeConfig: clusterTimeConfig
+      })
+    })
+    selectedClusterGroupId.value = clusterAfterGroups.value[0]?.groupId || ''
+    restoreSelectedClusterOptimization()
+  })
+}
+
+function selectClusterGroup(groupId) {
+  selectedClusterGroupId.value = groupId
+  restoreSelectedClusterOptimization()
+}
+
+function restoreSelectedClusterOptimization() {
+  const key = selectedClusterGroupId.value || '__all__'
+  multiOptimization.value = groupOptimizationResults.value[key] || null
+  selectedMultiRouteNo.value = multiOptimization.value?.routes?.[0]?.routeNo || null
+  multiRouteDisplayModes.value = {}
+  resetRouteProgress()
+}
+
+async function exportClusterPreview() {
+  if (!clusterPreview.value) return
+  await withLoading(async () => {
+    const response = await fetch('/api/optimize/cluster-export', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        company: selectedMultiCompany.value,
+        generatedAt: new Date().toISOString(),
+        ...clusterPreview.value
+      })
+    })
+    if (!response.ok) {
+      throw new Error(`${response.status} ${response.statusText}`)
+    }
+    downloadBlob(await response.blob(), `点位分堆结果-${toDateInput(new Date())}.xlsx`)
+  })
+}
+
+
+async function exportClusterGroup(group, stage) {
+  if (!group) return
+  const payload = {
+    company: selectedMultiCompany.value,
+    generatedAt: new Date().toISOString(),
+    status: clusterPreview.value?.status || 'DONE',
+    message: `${stage === 'before' ? '聚类前' : '聚类后'}-${group.groupName}`,
+    beforeGroups: stage === 'before' ? [group] : [],
+    afterGroups: stage === 'after' ? [group] : [],
+    timeConfig: clusterPreview.value?.timeConfig || clusterTimeConfig
+  }
+  await withLoading(async () => {
+    const response = await fetch('/api/optimize/cluster-export', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    })
+    if (!response.ok) {
+      throw new Error(`${response.status} ${response.statusText}`)
+    }
+    const stageName = stage === 'before' ? '聚类前' : '聚类后'
+    downloadBlob(await response.blob(), `${stageName}-${sanitizeFilename(group.groupName || group.groupId)}-${toDateInput(new Date())}.xlsx`)
+  })
+}
+
+function sanitizeFilename(value) {
+  return String(value || '分堆').replace(/[\\/:*?"<>|]/g, '_')
+}
+function clusterStatsText(group) {
+  return `${group.pointCount || 0} 点 · 桶 ${formatNumber(group.containerCount)} · 660L ${formatNumber(group.container660Count)} · 240L ${formatNumber(group.container240Count)} · ${formatVolume(group.estimatedVolumeLiter)} · ${formatWeight(group.estimatedWeightKg)} · ${formatDuration(group.operationMinutes)}`
+}
+
+function clusterPlotX(longitude) {
+  const n = Number(longitude)
+  if (!Number.isFinite(n)) return 50
+  const bounds = clusterPlotBounds.value
+  return 5 + ((n - bounds.minLng) / (bounds.maxLng - bounds.minLng)) * 90
+}
+
+function clusterPlotY(latitude) {
+  const n = Number(latitude)
+  if (!Number.isFinite(n)) return 50
+  const bounds = clusterPlotBounds.value
+  return 95 - ((n - bounds.minLat) / (bounds.maxLat - bounds.minLat)) * 90
+}
 function normalizeFacilityName(value) {
   return String(value || '')
     .replace(/[\s　]+/g, '')
@@ -1284,6 +1670,8 @@ function clearMultiOptimization() {
   multiOptimization.value = null
   selectedMultiRouteNo.value = null
   multiRouteDisplayModes.value = {}
+  groupOptimizationResults.value = {}
+  activeOptimizationGroupId.value = ''
   if (!loading.value) {
     resetRouteProgress()
   }
@@ -1496,7 +1884,7 @@ async function generateCompanyRoutes() {
         signal: routeAbortController.value.signal,
         body: JSON.stringify({
           unitId: selectedMultiCompany.value.id,
-          facilityIds: Array.from(selectedCompanyPointIds.value),
+          facilityIds: currentOptimizationFacilityIds.value,
           dispatchMode: 'USER_ORDER',
           vehicles: normalizedDispatchVehicles(),
           ...optimizeOptions,
@@ -1541,7 +1929,7 @@ function buildRouteProgressSteps() {
     {
       key: 'prepare',
       title: '整理本批点位',
-      detail: selectedCompanyPointCount.value + ' 个候选点，' + (dispatchEnabled.value ? dispatchTripCount.value + ' 趟排班' : '使用默认最大趟数')
+      detail: currentOptimizationPointCount.value + ' 个候选点，' + (dispatchEnabled.value ? dispatchTripCount.value + ' 趟排班' : '使用默认最大趟数')
     }
   ]
   if (optimizeOptions.multiRouteStrategy === 'ROAD_GLOBAL' || optimizeOptions.multiRouteStrategy === 'DIRECT_GROUP_ROAD_REFINE') {
@@ -1574,6 +1962,7 @@ function startRouteProgress() {
   routeProgress.message = '正在发起路线规划请求'
   routeProgress.steps = buildRouteProgressSteps()
   routeProgress.taskId = ''
+  activeOptimizationGroupId.value = selectedClusterGroupId.value || '__all__'
   routeProgress.status = 'STARTING'
   routeProgress.phase = 'PREPARE'
   routeProgress.currentRouteNo = 0
@@ -1620,6 +2009,8 @@ function applyRouteTask(task) {
   if (task.status === 'DONE') {
     if (task.result) {
       multiOptimization.value = task.result
+      const groupKey = activeOptimizationGroupId.value || selectedClusterGroupId.value || '__all__'
+      groupOptimizationResults.value = { ...groupOptimizationResults.value, [groupKey]: task.result }
       selectedMultiRouteNo.value = multiOptimization.value?.routes?.[0]?.routeNo || null
     }
     finishRouteProgress()
@@ -1712,6 +2103,7 @@ function resetRouteProgress() {
   routeProgress.message = ''
   routeProgress.steps = []
   routeProgress.taskId = ''
+  activeOptimizationGroupId.value = selectedClusterGroupId.value || '__all__'
   routeProgress.status = ''
   routeProgress.phase = ''
   routeProgress.currentRouteNo = 0
@@ -1761,18 +2153,22 @@ async function exportCompanyRoutes() {
     if (!response.ok) {
       throw new Error(`${response.status} ${response.statusText}`)
     }
-    const blob = await response.blob()
-    const url = URL.createObjectURL(blob)
-    const link = document.createElement('a')
-    link.href = url
-    link.download = `多路线生成结果-${toDateInput(new Date())}.xlsx`
-    document.body.appendChild(link)
-    link.click()
-    link.remove()
-    URL.revokeObjectURL(url)
+    const groupName = selectedClusterGroup.value?.groupName ? `-${selectedClusterGroup.value.groupName}` : ''
+    downloadBlob(await response.blob(), `多路线生成结果${groupName}-${toDateInput(new Date())}.xlsx`)
   })
 }
 
+
+function downloadBlob(blob, filename) {
+  const url = URL.createObjectURL(blob)
+  const link = document.createElement('a')
+  link.href = url
+  link.download = filename
+  document.body.appendChild(link)
+  link.click()
+  link.remove()
+  URL.revokeObjectURL(url)
+}
 function toggleScoreCompany(company) {
   const id = String(company.id)
   if (scoreCompanyIds.value.includes(id)) {
@@ -1875,7 +2271,7 @@ async function reloadCurrent() {
     }
     return
   }
-  if (currentView.value === 'multi') {
+  if (currentView.value === 'multi' || currentView.value === 'cluster') {
     if (selectedMultiCompany.value) {
       await selectMultiCompany(selectedMultiCompany.value)
     } else {
@@ -1969,6 +2365,12 @@ function formatVolume(value) {
   return `${n.toFixed(0)} L`
 }
 
+
+function formatNumber(value) {
+  const n = Number(value || 0)
+  if (!Number.isFinite(n)) return '0'
+  return Number.isInteger(n) ? String(n) : n.toFixed(1)
+}
 function formatLoadRate(value) {
   const n = Number(value || 0)
   if (!n) return '-'
@@ -2001,3 +2403,19 @@ function pathSourceClass(source) {
 }
 
 </script>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

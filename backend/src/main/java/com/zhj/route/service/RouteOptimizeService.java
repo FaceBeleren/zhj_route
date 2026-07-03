@@ -351,6 +351,7 @@ public class RouteOptimizeService {
                     toDouble(row.get("estimatedVolumeLiter")),
                     toDouble(row.get("estimatedWeightKg")),
                     row.get("containerInfo") == null ? null : String.valueOf(row.get("containerInfo")),
+                    toDouble(row.get("containerCount")),
                     toDouble(row.get("litersPerTon")),
                     row.get("weightSource") == null ? null : String.valueOf(row.get("weightSource"))));
         }
@@ -409,6 +410,7 @@ public class RouteOptimizeService {
             view.put("estimatedVolumeLiter", round(valueOrZero(point.getEstimatedVolumeLiter())));
             view.put("estimatedWeightKg", round(valueOrZero(point.getEstimatedWeightKg())));
             view.put("containerInfo", point.getContainerInfo());
+            view.put("containerCount", round(valueOrZero(point.getContainerCount())));
             view.put("litersPerTon", point.getLitersPerTon());
             view.put("weightSource", point.getWeightSource());
             view.put("role", i == 0 ? "START" : (i == points.size() - 1 ? "END" : "MIDDLE"));
@@ -523,7 +525,7 @@ public class RouteOptimizeService {
         String name = textOrDefault(vehicle.get(prefix + "FacilityName"), fallback.getFacilityName());
         Long facilityId = toLong(vehicle.get(prefix + "FacilityId"));
         return new RoutePoint(facilityId == null ? fallback.getFacilityId() : facilityId,
-                name, longitude, latitude, null, 0D, 0D, null, null, "ANCHOR");
+                name, longitude, latitude, null, 0D, 0D, null, 0D, null, "ANCHOR");
     }
 
     private double totalPlannedCapacity(List<DispatchTrip> plan) {
@@ -968,7 +970,7 @@ public class RouteOptimizeService {
             latitude = centroidLatitude(points);
         }
         String anchorName = textOrDefault(request.get(prefix + "FacilityName"), name);
-        return new RoutePoint(facilityId, anchorName, longitude, latitude, null, 0D, 0D, null, null, "ANCHOR");
+        return new RoutePoint(facilityId, anchorName, longitude, latitude, null, 0D, 0D, null, 0D, null, "ANCHOR");
     }
 
     private double centroidLongitude(List<RoutePoint> points) {
@@ -1205,3 +1207,5 @@ public class RouteOptimizeService {
         }
     }
 }
+
+

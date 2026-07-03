@@ -31,6 +31,19 @@ public class RouteExportService {
         }
     }
 
+
+    public byte[] exportClusterPreview(Map<String, Object> result) {
+        try (Workbook workbook = new XSSFWorkbook(); ByteArrayOutputStream out = new ByteArrayOutputStream()) {
+            CellStyle headerStyle = headerStyle(workbook);
+            writeClusterSummary(workbook, headerStyle, result);
+            writeClusterPoints(workbook, headerStyle, "聚类前点位", maps(result.get("beforeGroups")));
+            writeClusterPoints(workbook, headerStyle, "聚类后点位", maps(result.get("afterGroups")));
+            workbook.write(out);
+            return out.toByteArray();
+        } catch (IOException e) {
+            throw new IllegalStateException("导出Excel失败", e);
+        }
+    }
     private void writeSummary(Workbook workbook, CellStyle headerStyle, Map<String, Object> result) {
         Sheet sheet = workbook.createSheet("汇总");
         writeHeader(sheet, headerStyle, "指标", "值");
@@ -100,6 +113,54 @@ public class RouteExportService {
         autosize(sheet, 12);
     }
 
+
+    private void writeClusterSummary(Workbook workbook, CellStyle headerStyle, Map<String, Object> result) {
+        Sheet sheet = workbook.createSheet("分堆汇总");
+        writeHeader(sheet, headerStyle, "阶段", "堆名", "点位数", "桶数", "660L桶", "240L桶", "预计体积L", "预计重量kg", "预计作业min", "说明");
+        int rowIndex = 1;
+        rowIndex = writeClusterSummaryRows(sheet, rowIndex, "聚类前", maps(result.get("beforeGroups")));
+        writeClusterSummaryRows(sheet, rowIndex, "聚类后", maps(result.get("afterGroups")));
+        autosize(sheet, 10);
+    }
+
+    private int writeClusterSummaryRows(Sheet sheet, int rowIndex, String stage, List<Map<String, Object>> groups) {
+        for (Map<String, Object> group : groups) {
+            Row row = sheet.createRow(rowIndex++);
+            write(row, 0, stage);
+            write(row, 1, group.get("groupName"));
+            write(row, 2, group.get("pointCount"));
+            write(row, 3, group.get("containerCount"));
+            write(row, 4, group.get("container660Count"));
+            write(row, 5, group.get("container240Count"));
+            write(row, 6, group.get("estimatedVolumeLiter"));
+            write(row, 7, group.get("estimatedWeightKg"));
+            write(row, 8, group.get("operationMinutes"));
+            write(row, 9, value(group.get("explanation")));
+        }
+        return rowIndex;
+    }
+
+    private void writeClusterPoints(Workbook workbook, CellStyle headerStyle, String sheetName, List<Map<String, Object>> groups) {
+        Sheet sheet = workbook.createSheet(sheetName);
+        writeHeader(sheet, headerStyle, "堆名", "点位ID", "点位名称", "设施类型", "经度", "纬度", "桶信息", "桶数", "预计体积L", "预计重量kg");
+        int rowIndex = 1;
+        for (Map<String, Object> group : groups) {
+            for (Map<String, Object> point : maps(group.get("points"))) {
+                Row row = sheet.createRow(rowIndex++);
+                write(row, 0, group.get("groupName"));
+                write(row, 1, point.get("facilityId"));
+                write(row, 2, point.get("facilityName"));
+                write(row, 3, point.get("facilityTypeName"));
+                write(row, 4, point.get("longitude"));
+                write(row, 5, point.get("latitude"));
+                write(row, 6, point.get("containerInfo"));
+                write(row, 7, point.get("containerCount"));
+                write(row, 8, point.get("estimatedVolumeLiter"));
+                write(row, 9, point.get("estimatedWeightKg"));
+            }
+        }
+        autosize(sheet, 10);
+    }
     private CellStyle headerStyle(Workbook workbook) {
         CellStyle style = workbook.createCellStyle();
         Font font = workbook.createFont();
@@ -163,3 +224,4 @@ public class RouteExportService {
         return value == null ? "" : String.valueOf(value);
     }
 }
+
