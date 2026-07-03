@@ -55,9 +55,10 @@ public class RouteClusterService {
             throw new IllegalArgumentException("当前没有可分堆的点位");
         }
         TimeConfig timeConfig = timeConfig(request.get("timeConfig"));
+        String clusterMode = clusterMode(request.get("clusterMode"));
         List<Map<String, Object>> beforeGroups = buildBeforeGroups(points, pointById, request.get("originalGroups"), timeConfig);
         int target = targetGroupCount(request.get("targetGroupCount"), points, timeConfig);
-        List<Group> clustered = cluster(points, target, timeConfig);
+        List<Group> clustered = cluster(points, target, timeConfig, clusterMode);
         Map<String, Object> result = new LinkedHashMap<String, Object>();
         result.put("status", "DONE");
         result.put("message", "已生成点位分堆预览");
@@ -67,7 +68,8 @@ public class RouteClusterService {
         result.put("beforeGroups", beforeGroups);
         result.put("afterGroups", groupViews(clustered, "cluster", timeConfig));
         result.put("timeConfig", timeConfig.toMap());
-        result.put("algorithmNotes", Arrays.asList("地理聚类", "点数均衡", "体积/时间均衡"));
+        result.put("clusterMode", clusterMode);
+        result.put("algorithmNotes", algorithmNotes(clusterMode));
         return result;
     }
 
@@ -117,18 +119,23 @@ public class RouteClusterService {
         return groupViews(groups, "before", timeConfig);
     }
 
-    private List<Group> cluster(List<Point> points, int target, TimeConfig timeConfig) {
+    private List<Group> cluster(List<Point> points, int target, TimeConfig timeConfig, String clusterMode) {
         List<Group> groups = initialGroups(points, target);
         for (int i = 0; i < 20; i++) {
             assignByCoordinate(points, groups);
             recompute(groups);
         }
         assignMissingCoordinates(points, groups);
-        balance(groups, timeConfig);
+        boolean geoOnly = "geo".equals(clusterMode);
+        if (!geoOnly) {
+            balance(groups, timeConfig);
+        }
         for (Group group : groups) {
             group.explanation.add("地理聚类");
-            group.explanation.add("点数均衡");
-            group.explanation.add("体积/时间均衡");
+            if (!geoOnly) {
+                group.explanation.add("点数均衡");
+                group.explanation.add("体积/时间均衡");
+            }
         }
         return groups;
     }
@@ -372,6 +379,21 @@ public class RouteClusterService {
         int byCount = (int) Math.ceil(points.size() / 120D);
         int target = Math.max(1, Math.max(byTime, byCount));
         return clamp(target, 1, Math.min(Math.max(1, points.size()), 12));
+    }
+
+    private String clusterMode(Object value) {
+        String mode = text(value);
+        if ("geo".equalsIgnoreCase(mode) || "geographic".equalsIgnoreCase(mode)) {
+            return "geo";
+        }
+        return "balanced";
+    }
+
+    private List<String> algorithmNotes(String clusterMode) {
+        if ("geo".equals(clusterMode)) {
+            return Arrays.asList("纯地理聚类");
+        }
+        return Arrays.asList("地理聚类", "点数均衡", "体积/时间均衡");
     }
 
     private TimeConfig timeConfig(Object value) {

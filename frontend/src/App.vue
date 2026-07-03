@@ -682,6 +682,13 @@
               </div>
               <div class="cluster-actions">
                 <label>
+                  聚类模式
+                  <select v-model="clusterMode">
+                    <option value="balanced">地理+工作量均衡</option>
+                    <option value="geo">纯地理聚类</option>
+                  </select>
+                </label>
+                <label>
                   目标分堆数
                   <input v-model.number="clusterTargetGroupCount" type="number" min="1" step="1" placeholder="自动" />
                 </label>
@@ -1069,6 +1076,7 @@ const facilityImportSummary = ref('')
 const importedOriginalGroups = ref([])
 const clusterPreview = ref(null)
 const clusterTargetGroupCount = ref(null)
+const clusterMode = ref('balanced')
 const selectedClusterGroupId = ref('')
 const selectedClusterDisplayStage = ref('after')
 const selectedClusterDisplayGroupId = ref('')
@@ -1580,6 +1588,7 @@ async function generateClusterPreview() {
         facilityIds: Array.from(selectedCompanyPointIds.value),
         originalGroups: importedOriginalGroups.value,
         targetGroupCount: clusterTargetGroupCount.value || null,
+        clusterMode: clusterMode.value,
         timeConfig: clusterTimeConfig
       })
     })
