@@ -779,13 +779,23 @@
                       :cy="clusterPlotY(point.latitude)"
                       r="1.7"
                       :fill="group.color"
+                      :opacity="clusterGroupOpacity(group)"
+                      :r="clusterPointRadius(group)"
+                      :stroke="clusterPointStroke(group)"
+                      stroke-width="0.8"
                     />
                   </g>
                 </svg>
                 <div class="cluster-groups">
                   <div class="cluster-column">
                     <h4>聚类前分堆</h4>
-                    <article v-for="group in clusterBeforeGroups" :key="group.groupId" class="cluster-card">
+                    <article
+                      v-for="group in clusterBeforeGroups"
+                      :key="group.groupId"
+                      class="cluster-card selectable-cluster"
+                      :class="{ active: isClusterGroupHighlighted(group, 'before') }"
+                      @click="selectClusterDisplayGroup(group, 'before')"
+                    >
                       <span class="cluster-color" :style="{ backgroundColor: group.color }"></span>
                       <div>
                         <strong>{{ group.groupName }}</strong>
@@ -800,7 +810,7 @@
                       v-for="group in clusterAfterGroups"
                       :key="group.groupId"
                       class="cluster-card selectable-cluster"
-                      :class="{ active: selectedClusterGroupId === group.groupId }"
+                      :class="{ active: isClusterGroupHighlighted(group, 'after') }"
                       @click="selectClusterGroup(group.groupId)"
                     >
                       <span class="cluster-color" :style="{ backgroundColor: group.color }"></span>
@@ -1070,6 +1080,8 @@ const importedOriginalGroups = ref([])
 const clusterPreview = ref(null)
 const clusterTargetGroupCount = ref(null)
 const selectedClusterGroupId = ref('')
+const selectedClusterDisplayStage = ref('after')
+const selectedClusterDisplayGroupId = ref('')
 const groupOptimizationResults = ref({})
 const activeOptimizationGroupId = ref('')
 const clusterTimeConfig = reactive({
@@ -1197,7 +1209,10 @@ const currentOptimizationFacilityIds = computed(() => {
   return Array.from(selectedCompanyPointIds.value)
 })
 const currentOptimizationPointCount = computed(() => currentOptimizationFacilityIds.value.length)
-const clusterPlotGroups = computed(() => (clusterAfterGroups.value.length ? clusterAfterGroups.value : clusterBeforeGroups.value))
+const clusterPlotGroups = computed(() => {
+  if (selectedClusterDisplayStage.value === 'before') return clusterBeforeGroups.value
+  return clusterAfterGroups.value.length ? clusterAfterGroups.value : clusterBeforeGroups.value
+})
 const clusterPlotBounds = computed(() => {
   const points = clusterPlotGroups.value.flatMap((group) => group.points || [])
     .filter((point) => Number.isFinite(Number(point.longitude)) && Number.isFinite(Number(point.latitude)))
@@ -1549,6 +1564,8 @@ function applyImportedFacilityGroups(result) {
 function resetClusterPreviewOnly() {
   clusterPreview.value = null
   selectedClusterGroupId.value = ''
+  selectedClusterDisplayStage.value = 'after'
+  selectedClusterDisplayGroupId.value = ''
   groupOptimizationResults.value = {}
 }
 
@@ -1556,6 +1573,8 @@ function resetClusterState() {
   importedOriginalGroups.value = []
   clusterPreview.value = null
   selectedClusterGroupId.value = ''
+  selectedClusterDisplayStage.value = 'after'
+  selectedClusterDisplayGroupId.value = ''
   groupOptimizationResults.value = {}
   activeOptimizationGroupId.value = ''
 }
@@ -1575,13 +1594,22 @@ async function generateClusterPreview() {
       })
     })
     selectedClusterGroupId.value = clusterAfterGroups.value[0]?.groupId || ''
+    selectedClusterDisplayStage.value = selectedClusterGroupId.value ? 'after' : 'before'
+    selectedClusterDisplayGroupId.value = selectedClusterGroupId.value || clusterBeforeGroups.value[0]?.groupId || ''
     restoreSelectedClusterOptimization()
   })
 }
 
 function selectClusterGroup(groupId) {
   selectedClusterGroupId.value = groupId
+  selectedClusterDisplayStage.value = 'after'
+  selectedClusterDisplayGroupId.value = groupId
   restoreSelectedClusterOptimization()
+}
+
+function selectClusterDisplayGroup(group, stage) {
+  selectedClusterDisplayStage.value = stage
+  selectedClusterDisplayGroupId.value = group?.groupId || ''
 }
 
 function restoreSelectedClusterOptimization() {
@@ -1612,6 +1640,23 @@ async function exportClusterPreview() {
 }
 
 
+
+function isClusterGroupHighlighted(group, stage) {
+  return selectedClusterDisplayStage.value === stage && selectedClusterDisplayGroupId.value === group.groupId
+}
+
+function clusterGroupOpacity(group) {
+  if (!selectedClusterDisplayGroupId.value) return 0.9
+  return group.groupId === selectedClusterDisplayGroupId.value ? 1 : 0.22
+}
+
+function clusterPointRadius(group) {
+  return group.groupId === selectedClusterDisplayGroupId.value ? 2.7 : 1.5
+}
+
+function clusterPointStroke(group) {
+  return group.groupId === selectedClusterDisplayGroupId.value ? '#111827' : 'transparent'
+}
 async function exportClusterGroup(group, stage) {
   if (!group) return
   const payload = {
