@@ -1792,6 +1792,7 @@ tbody tr.active {
   flex-wrap: wrap;
   justify-content: flex-end;
   align-items: end;
+  gap: 10px;
 }
 
 .cluster-actions label,
@@ -1812,8 +1813,32 @@ tbody tr.active {
   background: #fff;
 }
 
-.cluster-actions input {
-  width: 96px;
+.cluster-actions input,
+.cluster-actions select {
+  width: 124px;
+  height: 32px;
+  border: 1px solid #c9d7e8;
+  border-radius: 7px;
+  padding: 0 9px;
+  background: #ffffff;
+  color: #24364b;
+}
+
+.cluster-actions button {
+  height: 32px;
+  border: 1px solid #b8cbe2;
+  border-radius: 7px;
+  padding: 0 12px;
+  background: #ffffff;
+  color: #24364b;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.cluster-actions button:hover:not(:disabled) {
+  border-color: #1565c0;
+  color: #1565c0;
+  background: #eef6ff;
 }
 
 .cluster-time-config {
@@ -1857,9 +1882,10 @@ tbody tr.active {
 }
 
 .cluster-card {
-  display: flex;
+  display: grid;
+  grid-template-columns: 14px minmax(0, 1fr) auto;
   gap: 10px;
-  align-items: flex-start;
+  align-items: center;
   min-height: 58px;
   margin-bottom: 8px;
   padding: 10px;
@@ -1956,9 +1982,10 @@ tbody tr.active {
 
 .cluster-card-actions {
   display: flex !important;
-  align-items: center;
-  gap: 8px;
-  margin-left: auto;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 6px;
+  margin-left: 0;
 }
 
 .cluster-card-action.primary {
@@ -1968,10 +1995,13 @@ tbody tr.active {
 }
 
 .cluster-card-action {
-  align-self: center;
-  margin-left: auto;
-  padding: 6px 10px;
+  align-self: stretch;
+  min-width: 74px;
+  margin-left: 0;
+  padding: 5px 9px;
+  border-radius: 6px;
   white-space: nowrap;
+  font-weight: 600;
 }
 
 .cluster-workspace .cluster-card {
