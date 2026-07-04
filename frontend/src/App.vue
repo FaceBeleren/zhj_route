@@ -788,6 +788,46 @@
                   :stage-label="selectedClusterDisplayStage === 'before' ? '聚类前' : '聚类后'"
                   @select-group="selectClusterMapGroup"
                 />
+                <section v-if="clusterIntersectionMatrix.rows.length" class="cluster-intersection-panel">
+                  <div class="panel-head compact">
+                    <h3>分区交集统计</h3>
+                    <span class="muted">聚类前 × 聚类后，格子越深表示重合点位越多</span>
+                  </div>
+                  <div class="cluster-heatmap-scroll">
+                    <table class="cluster-heatmap">
+                      <thead>
+                        <tr>
+                          <th>聚类前 \ 聚类后</th>
+                          <th v-for="column in clusterIntersectionMatrix.columns" :key="column.groupId">
+                            <span class="heatmap-head-dot" :style="{ backgroundColor: column.color }"></span>
+                            {{ column.groupName }}
+                          </th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        <tr v-for="row in clusterIntersectionMatrix.rows" :key="row.groupId">
+                          <th>
+                            <span class="heatmap-head-dot" :style="{ backgroundColor: row.color }"></span>
+                            {{ row.groupName }}
+                          </th>
+                          <td
+                            v-for="cell in row.cells"
+                            :key="cell.columnId"
+                            :class="{ dominant: cell.isRowDominant }"
+                            :style="heatmapCellStyle(cell)"
+                            :title="`${row.groupName} 与 ${cell.columnName} 交集 ${cell.count} 点，占原分区 ${cell.rowRatioText}`"
+                          >
+                            <strong>{{ cell.count }}</strong>
+                            <small>{{ cell.rowRatioText }}</small>
+                          </td>
+                        </tr>
+                      </tbody>
+                    </table>
+                  </div>
+                  <ul class="cluster-intersection-insights">
+                    <li v-for="item in clusterIntersectionInsights" :key="item">{{ item }}</li>
+                  </ul>
+                </section>
                 <div class="cluster-groups">
                   <div class="cluster-column">
                     <h4>聚类前分堆</h4>
@@ -1239,6 +1279,72 @@ const selectedClusterDisplayGroup = computed(() => {
 const selectedClusterDisplayFacilityIds = computed(() => {
   const ids = selectedClusterDisplayGroup.value?.facilityIds || []
   return ids.length ? new Set(ids.map((id) => String(id))) : null
+})
+const clusterIntersectionMatrix = computed(() => {
+  const columns = clusterAfterGroups.value
+  const maxCountHolder = { value: 0 }
+  const rows = clusterBeforeGroups.value.map((before) => {
+    const beforeIds = new Set((before.facilityIds || []).map((id) => String(id)))
+    const rowTotal = beforeIds.size
+    let rowMax = 0
+    const cells = columns.map((after) => {
+      const afterIds = new Set((after.facilityIds || []).map((id) => String(id)))
+      let count = 0
+      beforeIds.forEach((id) => {
+        if (afterIds.has(id)) count += 1
+      })
+      rowMax = Math.max(rowMax, count)
+      maxCountHolder.value = Math.max(maxCountHolder.value, count)
+      return {
+        columnId: after.groupId,
+        columnName: after.groupName,
+        count,
+        rowRatio: rowTotal ? count / rowTotal : 0,
+        rowRatioText: rowTotal ? `${Math.round((count / rowTotal) * 100)}%` : '-'
+      }
+    })
+    cells.forEach((cell) => {
+      cell.isRowDominant = rowMax > 0 && cell.count === rowMax
+    })
+    return {
+      groupId: before.groupId,
+      groupName: before.groupName,
+      color: before.color,
+      total: rowTotal,
+      cells
+    }
+  })
+  return {
+    columns,
+    rows,
+    maxCount: maxCountHolder.value
+  }
+})
+const clusterIntersectionInsights = computed(() => {
+  const matrix = clusterIntersectionMatrix.value
+  const insights = []
+  matrix.rows.forEach((row) => {
+    const best = [...row.cells].sort((a, b) => b.count - a.count)[0]
+    if (best && best.count > 0) {
+      insights.push(`${row.groupName} 主要进入 ${best.columnName}：${best.count}/${row.total} 点，占 ${best.rowRatioText}`)
+    }
+  })
+  matrix.columns.forEach((column) => {
+    let bestRow = null
+    let columnTotal = 0
+    matrix.rows.forEach((row) => {
+      const cell = row.cells.find((item) => item.columnId === column.groupId)
+      if (!cell) return
+      columnTotal += cell.count
+      if (!bestRow || cell.count > bestRow.count) {
+        bestRow = { rowName: row.groupName, count: cell.count }
+      }
+    })
+    if (bestRow && bestRow.count > 0 && columnTotal > 0) {
+      insights.push(`${column.groupName} 主要由 ${bestRow.rowName} 构成：${bestRow.count}/${columnTotal} 点，占 ${Math.round((bestRow.count / columnTotal) * 100)}%`)
+    }
+  })
+  return insights.slice(0, 8)
 })
 const clusterPlotBounds = computed(() => {
   const points = clusterPlotGroups.value.flatMap((group) => group.points || [])
@@ -1736,6 +1842,15 @@ async function exportClusterGroup(group, stage) {
 
 function sanitizeFilename(value) {
   return String(value || '分堆').replace(/[\\/:*?"<>|]/g, '_')
+}
+function heatmapCellStyle(cell) {
+  const maxCount = Math.max(1, clusterIntersectionMatrix.value.maxCount || 0)
+  const intensity = cell.count / maxCount
+  const alpha = cell.count ? 0.12 + intensity * 0.5 : 0
+  return {
+    backgroundColor: `rgba(37, 99, 235, ${alpha.toFixed(3)})`,
+    borderColor: cell.isRowDominant && cell.count ? 'rgba(37, 99, 235, 0.55)' : 'rgba(203, 213, 225, 0.75)'
+  }
 }
 function clusterStatsText(group) {
   return `${group.pointCount || 0} 点 · 桶 ${formatNumber(group.containerCount)} · 660L ${formatNumber(group.container660Count)} · 240L ${formatNumber(group.container240Count)} · ${formatVolume(group.estimatedVolumeLiter)} · ${formatWeight(group.estimatedWeightKg)} · ${formatDuration(group.operationMinutes)}`

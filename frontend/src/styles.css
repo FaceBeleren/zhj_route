@@ -1871,6 +1871,117 @@ tbody tr.active {
   min-width: 0;
 }
 
+.cluster-intersection-panel {
+  display: grid;
+  gap: 10px;
+  padding: 12px;
+  border: 1px solid #d8e4f2;
+  border-radius: 8px;
+  background: #ffffff;
+}
+
+.cluster-intersection-panel .panel-head {
+  padding: 0;
+  border-bottom: 0;
+}
+
+.cluster-intersection-panel h3 {
+  margin: 0;
+  font-size: 15px;
+}
+
+.cluster-heatmap-scroll {
+  overflow-x: auto;
+  padding-bottom: 2px;
+}
+
+.cluster-heatmap {
+  width: 100%;
+  min-width: 560px;
+  border-collapse: separate;
+  border-spacing: 0;
+  font-size: 13px;
+}
+
+.cluster-heatmap th,
+.cluster-heatmap td {
+  border-right: 1px solid #dbe7f5;
+  border-bottom: 1px solid #dbe7f5;
+  padding: 8px 10px;
+  text-align: center;
+  vertical-align: middle;
+}
+
+.cluster-heatmap thead th {
+  position: sticky;
+  top: 0;
+  background: #f5f9ff;
+  color: #334155;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.cluster-heatmap tbody th {
+  max-width: 180px;
+  background: #f8fbff;
+  color: #1f2937;
+  text-align: left;
+  font-weight: 700;
+}
+
+.cluster-heatmap td {
+  min-width: 86px;
+  border-top: 1px solid transparent;
+  border-left: 1px solid transparent;
+  color: #1f2937;
+}
+
+.cluster-heatmap td.dominant {
+  border-top-width: 1px;
+  border-left-width: 1px;
+  font-weight: 700;
+}
+
+.cluster-heatmap td strong,
+.cluster-heatmap td small {
+  display: block;
+}
+
+.cluster-heatmap td small {
+  margin-top: 2px;
+  color: #52627a;
+}
+
+.heatmap-head-dot {
+  display: inline-block;
+  width: 9px;
+  height: 9px;
+  margin-right: 5px;
+  border-radius: 50%;
+  vertical-align: 1px;
+}
+
+.cluster-intersection-insights {
+  display: grid;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  color: #52627a;
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.cluster-intersection-insights li::before {
+  content: "";
+  display: inline-block;
+  width: 5px;
+  height: 5px;
+  margin-right: 7px;
+  border-radius: 50%;
+  background: #1f6fcc;
+  vertical-align: 2px;
+}
 .cluster-column {
   flex: 1;
   min-width: 0;
