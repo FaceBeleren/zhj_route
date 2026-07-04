@@ -458,7 +458,17 @@
               <div v-if="!dispatchEnabled" class="dispatch-empty">
                 当前未启用车辆排班，多路线生成会使用上方额定载重、目标装载率和最大趟数。
               </div>
-              <div v-else class="dispatch-table">
+              <div v-else class="dispatch-mode-row">
+                <label>
+                  排班方式
+                  <select v-model="dispatchMode" @change="clearMultiOptimization">
+                    <option value="USER_ORDER">按车辆顺序跑完</option>
+                    <option value="ROUND_ROBIN">车辆轮询排班</option>
+                  </select>
+                </label>
+                <small>{{ dispatchMode === 'ROUND_ROBIN' ? '按额定载重大的车辆优先，每轮每车最多一趟。' : '按列表顺序先跑完一辆车的全部趟次，再排下一辆车。' }}</small>
+              </div>
+              <div v-if="dispatchEnabled" class="dispatch-table">
                 <div class="dispatch-row dispatch-row-head">
                   <span>顺序</span>
                   <span>车辆</span>
@@ -1194,6 +1204,7 @@ const selectedStartAnchorKey = ref('')
 const selectedEndAnchorKey = ref('')
 const selectedCompanyPointIds = ref(new Set())
 const dispatchVehicles = ref([])
+const dispatchMode = ref('USER_ORDER')
 
 const companyKeyword = ref('')
 const pointKeyword = ref('')
@@ -2097,7 +2108,7 @@ async function generateCompanyRoutes() {
         body: JSON.stringify({
           unitId: selectedMultiCompany.value.id,
           facilityIds: currentOptimizationFacilityIds.value,
-          dispatchMode: 'USER_ORDER',
+          dispatchMode: dispatchEnabled.value ? dispatchMode.value : 'USER_ORDER',
           vehicles: normalizedDispatchVehicles(),
           ...optimizeOptions,
           displayRoadPath: false,

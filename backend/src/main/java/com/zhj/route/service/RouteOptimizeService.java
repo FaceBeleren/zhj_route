@@ -9,6 +9,8 @@ import org.springframework.stereotype.Service;
 
 import java.math.BigDecimal;
 import java.util.ArrayList;
+import java.util.Collections;
+import java.util.Comparator;
 import java.util.HashSet;
 import java.util.HashMap;
 import java.util.List;
@@ -300,7 +302,7 @@ public class RouteOptimizeService {
         result.put("displayMode", displayRoadPath ? "ROAD" : "DIRECT");
         result.put("optimizerCostSource", useRoadPath ? "OD_OR_BAIDU" : (refineWithRoad ? "DIRECT_THEN_OD_REFINE" : "DIRECT"));
         result.put("displayPathSource", displayRoadPath ? "OD_OR_BAIDU" : "DIRECT");
-        result.put("dispatchMode", textOrDefault(request.get("dispatchMode"), "USER_ORDER"));
+        result.put("dispatchMode", dispatchMode(request));
         result.put("dispatchTripCount", dispatchPlan.size());
         result.put("totalPlannedCapacityKg", round(totalPlannedCapacity(dispatchPlan)));
         result.put("routes", routes);
@@ -479,41 +481,113 @@ public class RouteOptimizeService {
     private List<DispatchTrip> buildDispatchPlan(Map<String, Object> request, RoutePoint defaultStart, RoutePoint defaultEnd,
                                                  double defaultRatedCapacityKg, double defaultMaxCapacityKg,
                                                  double targetLoadRate) {
-        List<DispatchTrip> plan = new ArrayList<DispatchTrip>();
         List<Map<String, Object>> vehicles = maps(request.get("vehicles"));
+        if (!vehicles.isEmpty()) {
+            String dispatchMode = dispatchMode(request);
+            if ("ROUND_ROBIN".equals(dispatchMode)) {
+                return buildRoundRobinDispatchPlan(vehicles, defaultStart, defaultEnd,
+                        defaultRatedCapacityKg, defaultMaxCapacityKg, targetLoadRate);
+            }
+            return buildUserOrderDispatchPlan(vehicles, defaultStart, defaultEnd,
+                    defaultRatedCapacityKg, defaultMaxCapacityKg, targetLoadRate);
+        }
+
+        List<DispatchTrip> plan = new ArrayList<DispatchTrip>();
+        int maxRoutes = maxRoutes(request);
+        for (int routeNo = 1; routeNo <= maxRoutes; routeNo++) {
+            RoutePoint start = routeNo == 1 ? defaultStart : defaultEnd;
+            plan.add(new DispatchTrip(1, "legacy", "默认车辆", "", routeNo,
+                    defaultRatedCapacityKg, defaultMaxCapacityKg, defaultRatedCapacityKg * targetLoadRate,
+                    start, defaultEnd));
+        }
+        return plan;
+    }
+
+    private List<DispatchTrip> buildUserOrderDispatchPlan(List<Map<String, Object>> vehicles, RoutePoint defaultStart,
+                                                          RoutePoint defaultEnd, double defaultRatedCapacityKg,
+                                                          double defaultMaxCapacityKg, double targetLoadRate) {
+        List<DispatchTrip> plan = new ArrayList<DispatchTrip>();
         int vehicleIndex = 1;
         for (Map<String, Object> vehicle : vehicles) {
-            double rated = positiveOrDefault(toDouble(vehicle.get("ratedCapacityKg")), defaultRatedCapacityKg);
-            double max = positiveOrDefault(toDouble(vehicle.get("maxCapacityKg")), rated);
-            int tripCount = positiveOrDefault(toInteger(vehicle.get("tripCount")), 1);
-            RoutePoint start = anchorPointFromVehicle(vehicle, "start", defaultStart);
-            RoutePoint end = anchorPointFromVehicle(vehicle, "end", defaultEnd);
-            for (int tripNo = 1; tripNo <= tripCount; tripNo++) {
-                plan.add(new DispatchTrip(
-                        vehicleIndex,
-                        textOrDefault(vehicle.get("vehicleId"), "vehicle-" + vehicleIndex),
-                        textOrDefault(vehicle.get("vehicleName"), "车辆" + vehicleIndex),
-                        textOrDefault(vehicle.get("vehicleType"), ""),
-                        tripNo,
-                        rated,
-                        max,
-                        rated * targetLoadRate,
-                        start,
-                        end));
+            VehiclePlan vehiclePlan = vehiclePlan(vehicle, vehicleIndex, defaultStart, defaultEnd,
+                    defaultRatedCapacityKg, defaultMaxCapacityKg, targetLoadRate);
+            for (int tripNo = 1; tripNo <= vehiclePlan.tripCount; tripNo++) {
+                plan.add(dispatchTrip(vehiclePlan, tripNo));
             }
             vehicleIndex++;
         }
-        if (!plan.isEmpty()) {
-            return plan;
-        }
+        return plan;
+    }
 
-        int maxRoutes = maxRoutes(request);
-        for (int routeNo = 1; routeNo <= maxRoutes; routeNo++) {
-            plan.add(new DispatchTrip(1, "legacy", "默认车辆", "", routeNo,
-                    defaultRatedCapacityKg, defaultMaxCapacityKg, defaultRatedCapacityKg * targetLoadRate,
-                    defaultStart, defaultEnd));
+    private List<DispatchTrip> buildRoundRobinDispatchPlan(List<Map<String, Object>> vehicles, RoutePoint defaultStart,
+                                                           RoutePoint defaultEnd, double defaultRatedCapacityKg,
+                                                           double defaultMaxCapacityKg, double targetLoadRate) {
+        List<VehiclePlan> vehiclePlans = new ArrayList<VehiclePlan>();
+        int vehicleIndex = 1;
+        int maxTripCount = 0;
+        for (Map<String, Object> vehicle : vehicles) {
+            VehiclePlan vehiclePlan = vehiclePlan(vehicle, vehicleIndex, defaultStart, defaultEnd,
+                    defaultRatedCapacityKg, defaultMaxCapacityKg, targetLoadRate);
+            vehiclePlans.add(vehiclePlan);
+            maxTripCount = Math.max(maxTripCount, vehiclePlan.tripCount);
+            vehicleIndex++;
+        }
+        Collections.sort(vehiclePlans, new Comparator<VehiclePlan>() {
+            public int compare(VehiclePlan a, VehiclePlan b) {
+                int rated = Double.compare(b.ratedCapacityKg, a.ratedCapacityKg);
+                return rated != 0 ? rated : Integer.compare(a.vehicleIndex, b.vehicleIndex);
+            }
+        });
+        List<DispatchTrip> plan = new ArrayList<DispatchTrip>();
+        for (int tripNo = 1; tripNo <= maxTripCount; tripNo++) {
+            for (VehiclePlan vehiclePlan : vehiclePlans) {
+                if (tripNo <= vehiclePlan.tripCount) {
+                    plan.add(dispatchTrip(vehiclePlan, tripNo));
+                }
+            }
         }
         return plan;
+    }
+
+    private VehiclePlan vehiclePlan(Map<String, Object> vehicle, int vehicleIndex, RoutePoint defaultStart,
+                                    RoutePoint defaultEnd, double defaultRatedCapacityKg,
+                                    double defaultMaxCapacityKg, double targetLoadRate) {
+        double rated = positiveOrDefault(toDouble(vehicle.get("ratedCapacityKg")), defaultRatedCapacityKg);
+        double max = positiveOrDefault(toDouble(vehicle.get("maxCapacityKg")), Math.max(rated, defaultMaxCapacityKg));
+        int tripCount = positiveOrDefault(toInteger(vehicle.get("tripCount")), 1);
+        RoutePoint start = anchorPointFromVehicle(vehicle, "start", defaultStart);
+        RoutePoint end = anchorPointFromVehicle(vehicle, "end", defaultEnd);
+        return new VehiclePlan(
+                vehicleIndex,
+                textOrDefault(vehicle.get("vehicleId"), "vehicle-" + vehicleIndex),
+                textOrDefault(vehicle.get("vehicleName"), "车辆" + vehicleIndex),
+                textOrDefault(vehicle.get("vehicleType"), ""),
+                tripCount,
+                rated,
+                max,
+                rated * targetLoadRate,
+                start,
+                end);
+    }
+
+    private DispatchTrip dispatchTrip(VehiclePlan vehiclePlan, int tripNo) {
+        RoutePoint tripStart = tripNo == 1 ? vehiclePlan.start : vehiclePlan.end;
+        return new DispatchTrip(
+                vehiclePlan.vehicleIndex,
+                vehiclePlan.vehicleId,
+                vehiclePlan.vehicleName,
+                vehiclePlan.vehicleType,
+                tripNo,
+                vehiclePlan.ratedCapacityKg,
+                vehiclePlan.maxCapacityKg,
+                vehiclePlan.targetLoadWeightKg,
+                tripStart,
+                vehiclePlan.end);
+    }
+
+    private String dispatchMode(Map<String, Object> request) {
+        String value = textOrDefault(request.get("dispatchMode"), "USER_ORDER").trim().toUpperCase();
+        return "ROUND_ROBIN".equals(value) ? "ROUND_ROBIN" : "USER_ORDER";
     }
 
     private RoutePoint anchorPointFromVehicle(Map<String, Object> vehicle, String prefix, RoutePoint fallback) {
@@ -1168,6 +1242,33 @@ public class RouteOptimizeService {
         return Math.round(value * 100D) / 100D;
     }
 
+    private static class VehiclePlan {
+        private final int vehicleIndex;
+        private final String vehicleId;
+        private final String vehicleName;
+        private final String vehicleType;
+        private final int tripCount;
+        private final double ratedCapacityKg;
+        private final double maxCapacityKg;
+        private final double targetLoadWeightKg;
+        private final RoutePoint start;
+        private final RoutePoint end;
+
+        private VehiclePlan(int vehicleIndex, String vehicleId, String vehicleName, String vehicleType, int tripCount,
+                            double ratedCapacityKg, double maxCapacityKg, double targetLoadWeightKg,
+                            RoutePoint start, RoutePoint end) {
+            this.vehicleIndex = vehicleIndex;
+            this.vehicleId = vehicleId;
+            this.vehicleName = vehicleName;
+            this.vehicleType = vehicleType;
+            this.tripCount = tripCount;
+            this.ratedCapacityKg = ratedCapacityKg;
+            this.maxCapacityKg = maxCapacityKg;
+            this.targetLoadWeightKg = targetLoadWeightKg;
+            this.start = start;
+            this.end = end;
+        }
+    }
     private static class DispatchTrip {
         private final int vehicleIndex;
         private final String vehicleId;
