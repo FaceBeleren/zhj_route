@@ -353,6 +353,14 @@
                 最大趟数
                 <input v-model.number="optimizeOptions.maxRoutes" type="number" min="1" step="1" />
               </label>
+              <label>
+                每桶秒
+                <input v-model.number="optimizeOptions.secondsPerContainer" type="number" min="1" step="1" />
+              </label>
+              <label>
+                每点分钟
+                <input v-model.number="optimizeOptions.minutesPerPoint" type="number" min="0" step="0.5" />
+              </label>
               <div class="route-mode-card optimizer-mode-card strategy-mode-card">
                 <label class="strategy-select">
                   <span>规划策略</span>
@@ -624,7 +632,9 @@
                       <small>
                         {{ route.vehicleType || '未填车型' }} · 额定 {{ formatWeight(route.ratedCapacityKg) }} ·
                         {{ route.pointCount }} 点 · {{ formatWeight(route.estimatedWeightKg) }} ·
-                        {{ formatDistance(route.distance) }} · {{ formatDuration(route.durationMinutes) }} · 装载率 {{ formatLoadRate(route.loadRate) }} ·
+                        {{ formatDistance(route.distance) }} · 行驶 {{ formatDuration(route.travelDurationMinutes) }} ·
+                        作业 {{ formatDuration(route.operationDurationMinutes) }} · 合计 {{ formatDuration(route.totalDurationMinutes || route.durationMinutes) }} ·
+                        装载率 {{ formatLoadRate(route.loadRate) }} ·
                         {{ pathSourceSummary(route.segments) }}
                       </small>
                     </div>
@@ -660,6 +670,31 @@
                   :show-original="false"
                   optimized-label="生成路线"
                 />
+                <div v-if="selectedMultiRoute" class="route-time-detail">
+                  <div class="route-time-summary">
+                    <span>行驶 {{ formatDuration(selectedMultiRouteDisplayTravelDuration) }}</span>
+                    <span>作业 {{ formatDuration(selectedMultiRoute.operationDurationMinutes) }}</span>
+                    <strong>合计 {{ formatDuration(selectedMultiRouteDisplayTotalDuration) }}</strong>
+                  </div>
+                  <div class="route-time-table">
+                    <div class="route-time-row head">
+                      <span>顺序</span>
+                      <span>点位</span>
+                      <span>上一段行驶</span>
+                      <span>点位作业</span>
+                    </div>
+                    <div v-for="point in selectedMultiRoute.points" :key="`time-${selectedMultiRoute.routeNo}-${point.order}-${point.facilityId}`" class="route-time-row">
+                      <span>{{ point.order }}</span>
+                      <span>{{ point.facilityName || point.facilityId }} <small>{{ routePointRoleLabel(point) }}</small></span>
+                      <span v-if="segmentBeforePoint(selectedMultiRouteDisplaySegments, point.order)">
+                        {{ formatDistance(segmentBeforePoint(selectedMultiRouteDisplaySegments, point.order).distance) }} ·
+                        {{ formatDuration(segmentBeforePoint(selectedMultiRouteDisplaySegments, point.order).durationMinutes) }}
+                      </span>
+                      <span v-else>-</span>
+                      <span>{{ formatDuration(point.operationDurationMinutes) }}</span>
+                    </div>
+                  </div>
+                </div>
                 <div v-if="multiOptimization.unassignedPoints?.length" class="unassigned-points">
                   <strong>未分配点位</strong>
                   <span v-for="point in multiOptimization.unassignedPoints" :key="point.facilityId">
@@ -1241,6 +1276,8 @@ const optimizeOptions = reactive({
   ratedCapacityKg: 5000,
   targetLoadRate: 0.9,
   maxRoutes: 10,
+  secondsPerContainer: 35,
+  minutesPerPoint: 3,
   useRoadPath: false,
   multiRouteStrategy: 'DIRECT_GROUP',
   displayRoadPath: false,
@@ -1404,12 +1441,22 @@ const selectedMultiRouteDisplaySegments = computed(() => {
   }
   return route.segments || []
 })
+const selectedMultiRouteDisplayTravelDuration = computed(() => {
+  const route = selectedMultiRoute.value
+  if (!route) return 0
+  return selectedMultiRouteRoadDisplay.value && route.roadDurationMinutes ? route.roadDurationMinutes : route.travelDurationMinutes
+})
+const selectedMultiRouteDisplayTotalDuration = computed(() => {
+  const route = selectedMultiRoute.value
+  if (!route) return 0
+  return Number(selectedMultiRouteDisplayTravelDuration.value || 0) + Number(route.operationDurationMinutes || 0)
+})
 const selectedMultiRouteDisplaySummary = computed(() => {
   const route = selectedMultiRoute.value
   if (!route) return ''
   const segments = selectedMultiRouteDisplaySegments.value
   const distance = selectedMultiRouteRoadDisplay.value && route.roadDistance ? route.roadDistance : route.distance
-  const duration = selectedMultiRouteRoadDisplay.value && route.roadDurationMinutes ? route.roadDurationMinutes : route.durationMinutes
+  const duration = selectedMultiRouteDisplayTotalDuration.value || route.durationMinutes
   return formatDistance(distance) + ' · ' + formatDuration(duration) + ' · ' + pathSourceSummary(segments)
 })
 const companyPointVisibleList = computed(() =>
@@ -2656,6 +2703,16 @@ function planningStrategyLabel(strategy) {
   if (strategy === 'DIRECT_GROUP_ROAD_REFINE') return '直线分组 + 道路精排'
   if (strategy === 'ROAD_GLOBAL') return '全程实际距离'
   return '直线快速分组'
+}
+
+function segmentBeforePoint(segments = [], pointOrder) {
+  return (segments || []).find((segment) => Number(segment.order) === Number(pointOrder) - 1)
+}
+
+function routePointRoleLabel(point) {
+  if (point?.role === "START") return "起点"
+  if (point?.role === "END") return "终点"
+  return "收运点"
 }
 
 function pathSourceSummary(segments = []) {

@@ -408,6 +408,10 @@ public class RouteOptimizeService {
     }
 
     private List<Map<String, Object>> pointViews(List<RoutePoint> points) {
+        return pointViews(points, null);
+    }
+
+    private List<Map<String, Object>> pointViews(List<RoutePoint> points, Map<String, Object> request) {
         List<Map<String, Object>> views = new ArrayList<Map<String, Object>>();
         for (int i = 0; i < points.size(); i++) {
             RoutePoint point = points.get(i);
@@ -422,6 +426,7 @@ public class RouteOptimizeService {
             view.put("estimatedWeightKg", round(valueOrZero(point.getEstimatedWeightKg())));
             view.put("containerInfo", point.getContainerInfo());
             view.put("containerCount", round(valueOrZero(point.getContainerCount())));
+            view.put("operationDurationMinutes", round(operationDuration(point, request, i == 0 || i == points.size() - 1)));
             view.put("litersPerTon", point.getLitersPerTon());
             view.put("weightSource", point.getWeightSource());
             view.put("role", i == 0 ? "START" : (i == points.size() - 1 ? "END" : "MIDDLE"));
@@ -689,9 +694,14 @@ public class RouteOptimizeService {
         view.put("estimatedWeightKg", round(weight));
         view.put("estimatedVolumeLiter", round(sumEstimatedVolume(collected)));
         view.put("loadRate", trip.ratedCapacityKg <= 0D ? 0D : round(weight / trip.ratedCapacityKg));
+        double travelDurationMinutes = sumSegmentDuration(segments);
+        double operationDurationMinutes = sumOperationDuration(collected, request);
         view.put("distance", round(sumSegmentDistance(segments)));
-        view.put("durationMinutes", round(sumSegmentDuration(segments)));
-        view.put("points", pointViews(route));
+        view.put("travelDurationMinutes", round(travelDurationMinutes));
+        view.put("operationDurationMinutes", round(operationDurationMinutes));
+        view.put("totalDurationMinutes", round(travelDurationMinutes + operationDurationMinutes));
+        view.put("durationMinutes", round(travelDurationMinutes + operationDurationMinutes));
+        view.put("points", pointViews(route, request));
         view.put("segments", segments);
         view.put("polyline", polyline(route));
         return view;
@@ -1187,6 +1197,31 @@ public class RouteOptimizeService {
             total += valueOrZero(point.getEstimatedVolumeLiter());
         }
         return total;
+    }
+
+    private double sumOperationDuration(List<RoutePoint> points, Map<String, Object> request) {
+        double total = 0D;
+        for (RoutePoint point : points) {
+            total += operationDuration(point, request, false);
+        }
+        return total;
+    }
+
+    private double operationDuration(RoutePoint point, Map<String, Object> request, boolean routeAnchor) {
+        if (point == null || request == null || routeAnchor || "ANCHOR".equals(point.getWeightSource())) {
+            return 0D;
+        }
+        double secondsPerContainer = requestNumber(request, "secondsPerContainer", 35D);
+        double minutesPerPoint = requestNumber(request, "minutesPerPoint", 3D);
+        return valueOrZero(point.getContainerCount()) * secondsPerContainer / 60D + minutesPerPoint;
+    }
+
+    private double requestNumber(Map<String, Object> request, String key, double fallback) {
+        if (request == null) {
+            return fallback;
+        }
+        Double value = toDouble(request.get(key));
+        return value == null ? fallback : value;
     }
 
     private double valueOrZero(Double value) {
