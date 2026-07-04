@@ -386,12 +386,22 @@
                   <option value="facility">设施点</option>
                   <option value="parking">停车场</option>
                   <option value="manual">手填</option>
+                  <option value="disposalAny">处置场任选</option>
+                  <option value="terminalAny">处置场及中转站任选</option>
                 </select>
               </label>
-              <label>
+              <label v-if="!isEndCandidateMode">
                 终点筛选
                 <select v-model="selectedEndAnchorKey" :disabled="endAnchorMode === 'manual'" @change="applySelectedEndAnchor">
                   <option value="">请选择</option>
+                  <option v-for="anchor in endAnchorOptions" :key="anchor.key" :value="anchor.key">
+                    {{ anchor.label }}
+                  </option>
+                </select>
+              </label>
+              <label v-else class="wide-control">
+                候选终点
+                <select v-model="selectedEndCandidateKeys" multiple @change="applySelectedEndCandidates">
                   <option v-for="anchor in endAnchorOptions" :key="anchor.key" :value="anchor.key">
                     {{ anchor.label }}
                   </option>
@@ -1202,6 +1212,7 @@ const startAnchorMode = ref('parking')
 const endAnchorMode = ref('facility')
 const selectedStartAnchorKey = ref('')
 const selectedEndAnchorKey = ref('')
+const selectedEndCandidateKeys = ref([])
 const selectedCompanyPointIds = ref(new Set())
 const dispatchVehicles = ref([])
 const dispatchMode = ref('USER_ORDER')
@@ -1420,6 +1431,7 @@ const companyPointVisibleList = computed(() =>
 )
 const startAnchorOptions = computed(() => anchorOptionsByMode(startAnchorMode.value))
 const endAnchorOptions = computed(() => anchorOptionsByMode(endAnchorMode.value))
+const isEndCandidateMode = computed(() => endAnchorMode.value === 'disposalAny' || endAnchorMode.value === 'terminalAny')
 const routeProgressPercent = computed(() => {
   const total = routeProgress.steps.length
   if (!routeProgress.visible || total === 0) return 0
@@ -1944,6 +1956,19 @@ function syncVehiclesWithDefaultCapacity() {
   clearMultiOptimization()
 }
 
+function normalizedEndCandidates() {
+  if (!isEndCandidateMode.value) {
+    return []
+  }
+  return selectedEndCandidateAnchors().map((anchor) => ({
+    facilityId: anchor.facilityId,
+    facilityName: anchor.facilityName,
+    facilityType: anchor.facilityType,
+    facilityTypeName: anchor.facilityTypeName,
+    longitude: Number(anchor.longitude),
+    latitude: Number(anchor.latitude)
+  }))
+}
 function normalizedDispatchVehicles() {
   if (!dispatchEnabled.value) {
     return []
@@ -2009,6 +2034,15 @@ function anchorOptionsByMode(mode) {
   if (mode === 'facility') {
     return anchorOptions(companyAnchors.value.facilityAnchors, '设施点', 'facility')
   }
+  if (mode === 'disposalAny') {
+    return anchorOptions(companyAnchors.value.disposalSites, '处置场', 'disposal')
+  }
+  if (mode === 'terminalAny') {
+    return [
+      ...anchorOptions(companyAnchors.value.disposalSites, '处置场', 'disposal'),
+      ...anchorOptions(companyAnchors.value.transferStations, '中转站', 'transfer')
+    ]
+  }
   return []
 }
 
@@ -2054,6 +2088,12 @@ function onAnchorModeChange(prefix) {
     return
   }
   selectedEndAnchorKey.value = ''
+  selectedEndCandidateKeys.value = []
+  if (isEndCandidateMode.value) {
+    selectedEndCandidateKeys.value = endAnchorOptions.value.map((anchor) => anchor.key)
+    applySelectedEndCandidates()
+    return
+  }
   applyAnchorToOptions(null, 'end')
 }
 
@@ -2063,6 +2103,16 @@ function applySelectedStartAnchor() {
 
 function applySelectedEndAnchor() {
   applyAnchorToOptions(findAnchor(selectedEndAnchorKey.value, endAnchorMode.value), 'end')
+}
+
+function applySelectedEndCandidates() {
+  const first = selectedEndCandidateAnchors()[0]
+  applyAnchorToOptions(first || null, 'end')
+}
+
+function selectedEndCandidateAnchors() {
+  const selected = new Set(selectedEndCandidateKeys.value)
+  return endAnchorOptions.value.filter((anchor) => selected.has(anchor.key))
 }
 
 function applyAnchorToOptions(anchor, prefix) {
@@ -2110,6 +2160,8 @@ async function generateCompanyRoutes() {
           facilityIds: currentOptimizationFacilityIds.value,
           dispatchMode: dispatchEnabled.value ? dispatchMode.value : 'USER_ORDER',
           vehicles: normalizedDispatchVehicles(),
+          endSelectionMode: endAnchorMode.value,
+          endCandidates: normalizedEndCandidates(),
           ...optimizeOptions,
           displayRoadPath: false,
           useRoadPath: optimizeOptions.multiRouteStrategy === 'ROAD_GLOBAL'

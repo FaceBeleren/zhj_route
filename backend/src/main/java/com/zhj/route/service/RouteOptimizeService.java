@@ -232,7 +232,8 @@ public class RouteOptimizeService {
         if (task != null) {
             task.prepare(sourcePoints.size(), dispatchPlan.size(), planningStrategy);
         }
-        List<RoutePoint> matrixPoints = distancePoints(sourcePoints, dispatchPlan);
+        List<RoutePoint> endCandidates = endCandidates(request, end);
+        List<RoutePoint> matrixPoints = distancePoints(sourcePoints, dispatchPlan, endCandidates);
         distanceContext.preload(matrixPoints);
         if (displayContext != distanceContext && displayContext != refineContext) {
             displayContext.preload(matrixPoints);
@@ -240,6 +241,7 @@ public class RouteOptimizeService {
         log.info("Multi route optimize started: routeId={}, unitId={}, companyMode={}, candidatePoints={}, dispatchTrips={}, strategy={}, mode={}, displayMode={}, targetLoadKg={}, maxKg={}",
                 routeId, unitId, companyMode, sourcePoints.size(), dispatchPlan.size(), planningStrategy, useRoadPath ? "ROAD" : "DIRECT", displayRoadPath ? "ROAD" : "DIRECT", targetLoadWeightKg, maxCapacityKg);
         int routeNo = 1;
+        Map<String, RoutePoint> lastEndByVehicle = new HashMap<String, RoutePoint>();
         for (DispatchTrip trip : dispatchPlan) {
             assertNotCancelled(task);
             if (remaining.isEmpty()) {
@@ -249,7 +251,13 @@ public class RouteOptimizeService {
                 task.route(routeNo, dispatchPlan.size(), trip.vehicleName, trip.tripNo, "ROUTE_BUILD",
                         "正在生成第 " + routeNo + " 趟路线", 0, remaining.size());
             }
-            List<RoutePoint> route = buildCapacityRoute(trip.start, trip.end, remaining, trip.targetLoadWeightKg, trip.maxCapacityKg, distanceContext);
+            RoutePoint effectiveStart = trip.tripNo == 1 ? trip.start : lastEndByVehicle.get(trip.vehicleId);
+            if (effectiveStart == null) {
+                effectiveStart = trip.start;
+            }
+            RouteChoice routeChoice = chooseBestEndRoute(trip, effectiveStart, endCandidates, remaining, distanceContext);
+            List<RoutePoint> route = routeChoice.route;
+            DispatchTrip effectiveTrip = trip.withStartAndEnd(effectiveStart, routeChoice.end);
             if (refineWithRoad) {
                 if (task != null) {
                     task.route(routeNo, dispatchPlan.size(), trip.vehicleName, trip.tripNo, "ROUTE_REFINE",
@@ -266,7 +274,8 @@ public class RouteOptimizeService {
                 task.route(routeNo, dispatchPlan.size(), trip.vehicleName, trip.tripNo, "SEGMENT_BUILD",
                         "正在整理第 " + routeNo + " 趟地图数据", collected.size(), remaining.size());
             }
-            Map<String, Object> routeView = multiRouteView(routeNo, route, request, trip, displayContext);
+            Map<String, Object> routeView = multiRouteView(routeNo, route, request, effectiveTrip, displayContext);
+            lastEndByVehicle.put(effectiveTrip.vehicleId, effectiveTrip.end);
             routes.add(routeView);
             if (task != null) {
                 task.routeDone(routeNo, routes.size(), pointsInRoutes(routes), remaining.size());
@@ -471,6 +480,31 @@ public class RouteOptimizeService {
         return refined.getOptimizedPoints();
     }
 
+    private RouteChoice chooseBestEndRoute(DispatchTrip trip, RoutePoint start, List<RoutePoint> endCandidates,
+                                           List<RoutePoint> remaining, DistanceContext distanceContext) {
+        RouteChoice best = null;
+        List<RoutePoint> candidates = endCandidates.isEmpty() ? new ArrayList<RoutePoint>() : endCandidates;
+        if (candidates.isEmpty()) {
+            candidates.add(trip.end);
+        }
+        for (RoutePoint candidateEnd : candidates) {
+            List<RoutePoint> route = buildCapacityRoute(start, candidateEnd, remaining,
+                    trip.targetLoadWeightKg, trip.maxCapacityKg, distanceContext);
+            double distance = routeDistance(route, distanceContext);
+            if (best == null || distance < best.distance) {
+                best = new RouteChoice(candidateEnd, route, distance);
+            }
+        }
+        return best;
+    }
+
+    private double routeDistance(List<RoutePoint> route, DistanceContext distanceContext) {
+        double total = 0D;
+        for (int i = 0; i < route.size() - 1; i++) {
+            total += distanceContext.distance(route.get(i), route.get(i + 1));
+        }
+        return total;
+    }
     private List<RoutePoint> collectedPoints(List<RoutePoint> route) {
         if (route.size() <= 2) {
             return new ArrayList<RoutePoint>();
@@ -590,6 +624,31 @@ public class RouteOptimizeService {
         return "ROUND_ROBIN".equals(value) ? "ROUND_ROBIN" : "USER_ORDER";
     }
 
+    private List<RoutePoint> endCandidates(Map<String, Object> request, RoutePoint fallbackEnd) {
+        List<RoutePoint> candidates = new ArrayList<RoutePoint>();
+        for (Map<String, Object> row : maps(request.get("endCandidates"))) {
+            RoutePoint candidate = anchorPointFromMap(row, fallbackEnd);
+            if (candidate != null && candidate.hasCoordinate()) {
+                addUniquePoint(candidates, candidate);
+            }
+        }
+        if (candidates.isEmpty()) {
+            candidates.add(fallbackEnd);
+        }
+        return candidates;
+    }
+
+    private RoutePoint anchorPointFromMap(Map<String, Object> row, RoutePoint fallback) {
+        Double longitude = toDouble(row.get("longitude"));
+        Double latitude = toDouble(row.get("latitude"));
+        if (longitude == null || latitude == null) {
+            return null;
+        }
+        Long facilityId = toLong(row.get("facilityId"));
+        String name = textOrDefault(row.get("facilityName"), fallback.getFacilityName());
+        return new RoutePoint(facilityId == null ? fallback.getFacilityId() : facilityId,
+                name, longitude, latitude, null, 0D, 0D, null, 0D, null, "ANCHOR");
+    }
     private RoutePoint anchorPointFromVehicle(Map<String, Object> vehicle, String prefix, RoutePoint fallback) {
         Double longitude = toDouble(vehicle.get(prefix + "Longitude"));
         Double latitude = toDouble(vehicle.get(prefix + "Latitude"));
@@ -685,11 +744,15 @@ public class RouteOptimizeService {
         path.add(coordinate);
     }
 
-    private List<RoutePoint> distancePoints(List<RoutePoint> sourcePoints, List<DispatchTrip> dispatchPlan) {
+    private List<RoutePoint> distancePoints(List<RoutePoint> sourcePoints, List<DispatchTrip> dispatchPlan,
+                                            List<RoutePoint> endCandidates) {
         List<RoutePoint> points = new ArrayList<RoutePoint>(sourcePoints);
         for (DispatchTrip trip : dispatchPlan) {
             addUniquePoint(points, trip.start);
             addUniquePoint(points, trip.end);
+        }
+        for (RoutePoint endCandidate : endCandidates) {
+            addUniquePoint(points, endCandidate);
         }
         return points;
     }
@@ -1294,6 +1357,23 @@ public class RouteOptimizeService {
             this.targetLoadWeightKg = targetLoadWeightKg;
             this.start = start;
             this.end = end;
+        }
+
+        private DispatchTrip withStartAndEnd(RoutePoint start, RoutePoint end) {
+            return new DispatchTrip(vehicleIndex, vehicleId, vehicleName, vehicleType, tripNo,
+                    ratedCapacityKg, maxCapacityKg, targetLoadWeightKg, start, end);
+        }
+    }
+
+    private static class RouteChoice {
+        private final RoutePoint end;
+        private final List<RoutePoint> route;
+        private final double distance;
+
+        private RouteChoice(RoutePoint end, List<RoutePoint> route, double distance) {
+            this.end = end;
+            this.route = route;
+            this.distance = distance;
         }
     }
     private static class InsertChoice {

@@ -867,6 +867,16 @@ tbody tr.active {
   background: #eef2f6;
   cursor: not-allowed;
 }
+
+.optimizer-controls .wide-control {
+  grid-column: span 2;
+}
+
+.optimizer-controls select[multiple] {
+  height: auto;
+  min-height: 82px;
+  padding: 4px 6px;
+}
 .route-mode-toggle {
   position: relative;
   min-height: 28px;
