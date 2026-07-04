@@ -57,8 +57,8 @@ public class RouteClusterService {
         TimeConfig timeConfig = timeConfig(request.get("timeConfig"));
         String clusterMode = clusterMode(request.get("clusterMode"));
         List<Map<String, Object>> beforeGroups = buildBeforeGroups(points, pointById, request.get("originalGroups"), timeConfig);
-        int target = targetGroupCount(request.get("targetGroupCount"), points, timeConfig);
-        List<Group> clustered = cluster(points, target, timeConfig, clusterMode);
+        int target = targetGroupCount(request.get("targetGroupCount"), points);
+        List<Group> clustered = cluster(points, target, clusterMode);
         Map<String, Object> result = new LinkedHashMap<String, Object>();
         result.put("status", "DONE");
         result.put("message", "已生成点位分堆预览");
@@ -119,7 +119,7 @@ public class RouteClusterService {
         return groupViews(groups, "before", timeConfig);
     }
 
-    private List<Group> cluster(List<Point> points, int target, TimeConfig timeConfig, String clusterMode) {
+    private List<Group> cluster(List<Point> points, int target, String clusterMode) {
         List<Group> groups = initialGroups(points, target);
         for (int i = 0; i < 20; i++) {
             assignByCoordinate(points, groups);
@@ -128,13 +128,13 @@ public class RouteClusterService {
         assignMissingCoordinates(points, groups);
         boolean geoOnly = "geo".equals(clusterMode);
         if (!geoOnly) {
-            balance(groups, timeConfig);
+            balanceByCountAndCompactness(groups);
         }
         for (Group group : groups) {
             group.explanation.add("地理聚类");
             if (!geoOnly) {
                 group.explanation.add("点数均衡");
-                group.explanation.add("体积/时间均衡");
+                group.explanation.add("紧凑度优化");
             }
         }
         return groups;
@@ -210,40 +210,69 @@ public class RouteClusterService {
         }
     }
 
-    private void balance(List<Group> groups, TimeConfig timeConfig) {
+    private void balanceByCountAndCompactness(List<Group> groups) {
         if (groups.size() <= 1) {
             return;
         }
         int totalCount = 0;
-        double totalWork = 0D;
         for (Group group : groups) {
             totalCount += group.points.size();
-            totalWork += operationMinutes(group.points, timeConfig);
         }
         double avgCount = totalCount * 1D / groups.size();
-        double avgWork = totalWork / groups.size();
-        for (int pass = 0; pass < 4; pass++) {
+        int minCount = Math.max(1, (int) Math.floor(avgCount * 0.65D));
+        int maxCount = Math.max(minCount, (int) Math.ceil(avgCount * 1.35D));
+        for (int pass = 0; pass < 8; pass++) {
             for (Group low : groups) {
-                if (low.points.size() >= Math.max(1D, avgCount * 0.4D)) {
+                if (low.points.size() >= minCount) {
                     continue;
                 }
                 Group high = largestGroup(groups);
-                if (high == low || high.points.size() <= avgCount) {
+                if (high == low || high.points.size() <= minCount) {
                     continue;
                 }
                 moveNearestBoundaryPoint(high, low);
             }
             for (Group high : groups) {
-                if (operationMinutes(high.points, timeConfig) <= avgWork * 1.25D && high.points.size() <= avgCount * 1.35D) {
+                if (high.points.size() <= maxCount) {
                     continue;
                 }
-                Group low = lightestGroup(groups, timeConfig);
+                Group low = nearestAcceptingGroup(high, groups, maxCount);
                 if (low == high) {
                     continue;
                 }
                 moveNearestBoundaryPoint(high, low);
             }
+            improveCompactness(groups, minCount, maxCount);
             recompute(groups);
+        }
+    }
+
+    private void improveCompactness(List<Group> groups, int minCount, int maxCount) {
+        for (Group from : groups) {
+            if (from.points.size() <= minCount) {
+                continue;
+            }
+            Move best = null;
+            for (Point point : new ArrayList<Point>(from.points)) {
+                double fromDistance = distanceToGroup(point, from);
+                for (Group to : groups) {
+                    if (to == from || to.points.size() >= maxCount) {
+                        continue;
+                    }
+                    double toDistance = distanceToGroup(point, to);
+                    double improvement = fromDistance - toDistance;
+                    if (improvement <= 0D) {
+                        continue;
+                    }
+                    if (best == null || improvement > best.improvement) {
+                        best = new Move(point, from, to, improvement);
+                    }
+                }
+            }
+            if (best != null) {
+                best.from.points.remove(best.point);
+                best.to.points.add(best.point);
+            }
         }
     }
 
@@ -308,14 +337,29 @@ public class RouteClusterService {
         return best;
     }
 
-    private Group lightestGroup(List<Group> groups, TimeConfig timeConfig) {
-        Group best = groups.get(0);
+    private Group nearestAcceptingGroup(Group source, List<Group> groups, int maxCount) {
+        Group best = source;
+        double bestDistance = Double.MAX_VALUE;
         for (Group group : groups) {
-            if (operationMinutes(group.points, timeConfig) < operationMinutes(best.points, timeConfig)) {
+            if (group == source || group.points.size() >= maxCount) {
+                continue;
+            }
+            double distance = groupDistance(source, group);
+            if (distance < bestDistance) {
+                bestDistance = distance;
                 best = group;
             }
         }
         return best;
+    }
+
+    private double groupDistance(Group a, Group b) {
+        if (a.centerLongitude == null || a.centerLatitude == null || b.centerLongitude == null || b.centerLatitude == null) {
+            return Double.MAX_VALUE / 2D;
+        }
+        double x = a.centerLongitude - b.centerLongitude;
+        double y = a.centerLatitude - b.centerLatitude;
+        return x * x + y * y;
     }
 
     private List<Map<String, Object>> groupViews(List<Group> groups, String prefix, TimeConfig timeConfig) {
@@ -369,16 +413,49 @@ public class RouteClusterService {
         return ids;
     }
 
-    private int targetGroupCount(Object targetValue, List<Point> points, TimeConfig timeConfig) {
+    private int targetGroupCount(Object targetValue, List<Point> points) {
         Integer explicit = integer(targetValue);
         if (explicit != null && explicit > 0) {
             return clamp(explicit, 1, Math.max(1, points.size()));
         }
-        double totalMinutes = operationMinutes(points, timeConfig);
-        int byTime = (int) Math.ceil(totalMinutes / Math.max(1D, timeConfig.workHours * 60D));
         int byCount = (int) Math.ceil(points.size() / 120D);
-        int target = Math.max(1, Math.max(byTime, byCount));
+        int bySpread = estimateBySpread(points);
+        int target = Math.max(1, Math.max(byCount, bySpread));
         return clamp(target, 1, Math.min(Math.max(1, points.size()), 12));
+    }
+
+    private int estimateBySpread(List<Point> points) {
+        double minLongitude = Double.MAX_VALUE;
+        double maxLongitude = -Double.MAX_VALUE;
+        double minLatitude = Double.MAX_VALUE;
+        double maxLatitude = -Double.MAX_VALUE;
+        int coordinateCount = 0;
+        for (Point point : points) {
+            if (!point.hasCoordinate()) {
+                continue;
+            }
+            minLongitude = Math.min(minLongitude, point.longitude);
+            maxLongitude = Math.max(maxLongitude, point.longitude);
+            minLatitude = Math.min(minLatitude, point.latitude);
+            maxLatitude = Math.max(maxLatitude, point.latitude);
+            coordinateCount++;
+        }
+        if (coordinateCount < 2) {
+            return 1;
+        }
+        double longitudeSpan = Math.max(0D, maxLongitude - minLongitude);
+        double latitudeSpan = Math.max(0D, maxLatitude - minLatitude);
+        double spread = Math.sqrt(longitudeSpan * longitudeSpan + latitudeSpan * latitudeSpan);
+        if (spread < 0.04D) {
+            return 1;
+        }
+        if (spread < 0.08D) {
+            return 2;
+        }
+        if (spread < 0.14D) {
+            return 3;
+        }
+        return 4;
     }
 
     private String clusterMode(Object value) {
@@ -393,7 +470,7 @@ public class RouteClusterService {
         if ("geo".equals(clusterMode)) {
             return Arrays.asList("纯地理聚类");
         }
-        return Arrays.asList("地理聚类", "点数均衡", "体积/时间均衡");
+        return Arrays.asList("地理聚类", "点数均衡", "紧凑度优化");
     }
 
     private TimeConfig timeConfig(Object value) {
@@ -578,6 +655,19 @@ public class RouteClusterService {
         }
     }
 
+    private static class Move {
+        private final Point point;
+        private final Group from;
+        private final Group to;
+        private final double improvement;
+
+        private Move(Point point, Group from, Group to, double improvement) {
+            this.point = point;
+            this.from = from;
+            this.to = to;
+            this.improvement = improvement;
+        }
+    }
     private static class TimeConfig {
         private double secondsPerContainer = 35D;
         private double minutesPerPoint = 3D;

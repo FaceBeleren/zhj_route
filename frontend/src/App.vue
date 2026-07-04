@@ -687,7 +687,7 @@
                 <label>
                   聚类模式
                   <select v-model="clusterMode">
-                    <option value="balanced">地理+工作量均衡</option>
+                    <option value="balanced">地理+点数紧凑优化</option>
                     <option value="geo">纯地理聚类</option>
                   </select>
                 </label>
@@ -719,9 +719,9 @@
               </div>
             </div>
             <div class="cluster-time-config">
+              <span class="muted">作业统计口径（仅用于展示，不参与聚类）</span>
               <label>每桶秒<input v-model.number="clusterTimeConfig.secondsPerContainer" type="number" min="1" step="1" /></label>
               <label>每点分钟<input v-model.number="clusterTimeConfig.minutesPerPoint" type="number" min="0" step="0.5" /></label>
-              <label>单堆工时<input v-model.number="clusterTimeConfig.workHours" type="number" min="1" step="0.5" /></label>
               <span v-if="selectedClusterGroup" class="cluster-current">当前优化对象：{{ selectedClusterGroup.groupName }} · {{ selectedClusterGroup.pointCount }} 点</span>
               <span v-else class="muted">选择聚类后某一堆后，多路线生成会优先使用该堆点位。</span>
             </div>
