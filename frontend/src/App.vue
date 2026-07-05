@@ -407,14 +407,29 @@
                   </option>
                 </select>
               </label>
-              <label v-else class="wide-control">
-                候选终点（本趟自动择优）
-                <select v-model="selectedEndCandidateKeys" multiple @change="applySelectedEndCandidates">
-                  <option v-for="anchor in endAnchorOptions" :key="anchor.key" :value="anchor.key">
-                    {{ anchor.label }}
-                  </option>
-                </select>
-              </label>
+              <div v-else class="wide-control candidate-select-field">
+                <span>候选终点（本趟自动择优）</span>
+                <div class="candidate-select">
+                  <button type="button" class="candidate-select-trigger" @click="endCandidateDropdownOpen = !endCandidateDropdownOpen">
+                    <span>{{ endCandidateSummary }}</span>
+                    <strong>{{ endCandidateDropdownOpen ? '收起' : '展开' }}</strong>
+                  </button>
+                  <div v-if="endCandidateDropdownOpen" class="candidate-select-menu">
+                    <button
+                      v-for="anchor in endAnchorOptions"
+                      :key="anchor.key"
+                      type="button"
+                      class="candidate-select-option"
+                      :class="{ active: isEndCandidateSelected(anchor.key) }"
+                      @click="toggleEndCandidate(anchor.key)"
+                    >
+                      <span>{{ anchor.label }}</span>
+                      <strong v-if="isEndCandidateSelected(anchor.key)">✓</strong>
+                    </button>
+                    <div v-if="endAnchorOptions.length === 0" class="candidate-select-empty">暂无可选终点</div>
+                  </div>
+                </div>
+              </div>
               <label>
                 起点经度
                 <input v-model.number="optimizeOptions.startLongitude" :disabled="startAnchorMode !== 'manual'" type="number" step="0.000001" placeholder="手填" />
@@ -1249,6 +1264,7 @@ const endAnchorMode = ref('facility')
 const selectedStartAnchorKey = ref('')
 const selectedEndAnchorKey = ref('')
 const selectedEndCandidateKeys = ref([])
+const endCandidateDropdownOpen = ref(false)
 const selectedCompanyPointIds = ref(new Set())
 const dispatchVehicles = ref([])
 const dispatchMode = ref('USER_ORDER')
@@ -1480,6 +1496,12 @@ const companyPointVisibleList = computed(() =>
 const startAnchorOptions = computed(() => anchorOptionsByMode(startAnchorMode.value))
 const endAnchorOptions = computed(() => anchorOptionsByMode(endAnchorMode.value))
 const isEndCandidateMode = computed(() => endAnchorMode.value === 'disposalAny' || endAnchorMode.value === 'terminalAny')
+const endCandidateSummary = computed(() => {
+  const selected = selectedEndCandidateAnchors()
+  if (selected.length === 0) return '请选择候选终点'
+  if (selected.length === endAnchorOptions.value.length) return `已选择全部 ${selected.length} 个终点`
+  return `已选择 ${selected.length} 个终点`
+})
 const routeProgressPercent = computed(() => {
   const total = routeProgress.steps.length
   if (!routeProgress.visible || total === 0) return 0
@@ -2147,6 +2169,7 @@ function onAnchorModeChange(prefix) {
   }
   selectedEndAnchorKey.value = ''
   selectedEndCandidateKeys.value = []
+  endCandidateDropdownOpen.value = false
   if (isEndCandidateMode.value) {
     selectedEndCandidateKeys.value = endAnchorOptions.value.map((anchor) => anchor.key)
     applySelectedEndCandidates()
@@ -2161,6 +2184,21 @@ function applySelectedStartAnchor() {
 
 function applySelectedEndAnchor() {
   applyAnchorToOptions(findAnchor(selectedEndAnchorKey.value, endAnchorMode.value), 'end')
+}
+
+function isEndCandidateSelected(key) {
+  return selectedEndCandidateKeys.value.includes(key)
+}
+
+function toggleEndCandidate(key) {
+  const selected = new Set(selectedEndCandidateKeys.value)
+  if (selected.has(key)) {
+    selected.delete(key)
+  } else {
+    selected.add(key)
+  }
+  selectedEndCandidateKeys.value = Array.from(selected)
+  applySelectedEndCandidates()
 }
 
 function applySelectedEndCandidates() {
