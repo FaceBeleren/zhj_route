@@ -408,7 +408,7 @@
                 </select>
               </label>
               <label v-else class="wide-control">
-                候选终点
+                候选终点（本趟自动择优）
                 <select v-model="selectedEndCandidateKeys" multiple @change="applySelectedEndCandidates">
                   <option v-for="anchor in endAnchorOptions" :key="anchor.key" :value="anchor.key">
                     {{ anchor.label }}
@@ -482,9 +482,10 @@
                   <select v-model="dispatchMode" @change="clearMultiOptimization">
                     <option value="USER_ORDER">按车辆顺序跑完</option>
                     <option value="ROUND_ROBIN">车辆轮询排班</option>
+                    <option value="USER_ORDER_THEN_ROUND_ROBIN">顺序跑完后轮询兜底</option>
                   </select>
                 </label>
-                <small>{{ dispatchMode === 'ROUND_ROBIN' ? '按额定载重大的车辆优先，每轮每车最多一趟。' : '按列表顺序先跑完一辆车的全部趟次，再排下一辆车。' }}</small>
+                <small>{{ dispatchModeHint }}</small>
               </div>
               <div v-if="dispatchEnabled" class="dispatch-table">
                 <div class="dispatch-row dispatch-row-head">
@@ -502,7 +503,7 @@
                   <input v-model="vehicle.vehicleType" @input="clearMultiOptimization" placeholder="车型" />
                   <input v-model.number="vehicle.ratedCapacityKg" @input="clearMultiOptimization" type="number" min="1" step="100" />
                   <input v-model.number="vehicle.maxCapacityKg" @input="clearMultiOptimization" type="number" min="1" step="100" />
-                  <input v-model.number="vehicle.tripCount" @input="clearMultiOptimization" type="number" min="1" step="1" />
+                  <input v-model.number="vehicle.tripCount" @input="clearMultiOptimization" :disabled="dispatchMode === 'ROUND_ROBIN'" :title="dispatchMode === 'ROUND_ROBIN' ? '轮询模式按最大趟数生成，不读取单车趟数' : ''" type="number" min="1" step="1" />
                   <div class="dispatch-row-actions">
                     <button @click="moveDispatchVehicle(index, -1)" :disabled="index === 0">上移</button>
                     <button @click="moveDispatchVehicle(index, 1)" :disabled="index === dispatchVehicles.length - 1">下移</button>
@@ -1495,6 +1496,16 @@ const routeModeSummary = computed(() => {
   const routing = planningStrategyLabel(optimizeOptions.multiRouteStrategy)
   return routing
 })
+const dispatchModeHint = computed(() => {
+  if (dispatchMode.value === 'ROUND_ROBIN') {
+    return '忽略每辆车趟数，按最大趟数大车优先轮询；适合只知道车辆清单、让系统自行派车。'
+  }
+  if (dispatchMode.value === 'USER_ORDER_THEN_ROUND_ROBIN') {
+    return '先按列表顺序跑完每辆车填写的趟数；若仍未达到最大趟数或仍有剩余点位，再按大车优先轮询兜底。'
+  }
+  return '按列表顺序先跑完一辆车填写的全部趟次，再排下一辆车；适合用户已明确派车表。'
+})
+
 const routeProgressDetail = computed(() => {
   if (!routeProgress.taskId) return ''
   const parts = []
