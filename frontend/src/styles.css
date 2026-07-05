@@ -361,6 +361,11 @@ button:disabled {
   grid-template-columns: minmax(220px, 1.4fr) minmax(180px, 1fr);
 }
 
+.single-preview-mode-card {
+  grid-template-columns: repeat(2, minmax(150px, 1fr));
+  align-items: center;
+}
+
 .strategy-select {
   min-height: 28px;
   display: grid;

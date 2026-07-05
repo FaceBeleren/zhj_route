@@ -143,18 +143,20 @@
             <div class="panel-head">
               <h2>{{ currentTypeName }}概览</h2>
               <div class="panel-actions route-preview-actions">
-                <div class="route-mode-card compact">
-                  <label class="route-mode-toggle route-preview-toggle">
-                    <span>算路</span>
-                    <input v-model="optimizeOptions.useRoadPath" type="checkbox" />
-                    <i></i>
-                    <small>{{ optimizeOptions.useRoadPath ? '实际距离' : '直线距离' }}</small>
+                <div class="route-mode-card compact single-preview-mode-card">
+                  <label class="strategy-select">
+                    <span>算路策略</span>
+                    <select :value="optimizeOptions.useRoadPath ? 'ROAD_GLOBAL' : 'DIRECT_GROUP'" @change="changeSingleRouteStrategy($event.target.value)">
+                      <option value="DIRECT_GROUP">直线距离</option>
+                      <option value="ROAD_GLOBAL">实际距离</option>
+                    </select>
                   </label>
-                  <label class="route-mode-toggle route-preview-toggle">
-                    <span>展示</span>
-                    <input v-model="optimizeOptions.displayRoadPath" type="checkbox" />
-                    <i></i>
-                    <small>{{ optimizeOptions.displayRoadPath ? '道路折线' : '点位直线' }}</small>
+                  <label class="strategy-select">
+                    <span>地图展示</span>
+                    <select v-model="optimizeOptions.displayRoadPath" @change="onSingleDisplayModeChange">
+                      <option :value="false">点位直线</option>
+                      <option :value="true">道路折线</option>
+                    </select>
                   </label>
                 </div>
                 <button @click="previewOptimize" :disabled="!selectedRoute || loading">优化预览</button>
@@ -272,6 +274,14 @@
                 </div>
                 <div class="sequence">
                   <span v-for="point in optimization.optimizedSequence" :key="point">{{ point }}</span>
+                </div>
+                <div class="route-display-toolbar">
+                  <span>地图展示</span>
+                  <button :class="{ active: !optimizeOptions.displayRoadPath }" @click.stop="setSingleRouteDisplay(false)">点位直线</button>
+                  <button :class="{ active: optimizeOptions.displayRoadPath }" :disabled="loading" @click.stop="setSingleRouteDisplay(true)">
+                    {{ loading && optimizeOptions.displayRoadPath ? '加载道路...' : '道路折线' }}
+                  </button>
+                  <small>{{ optimization.displayMode === 'ROAD' ? '当前展示道路折线' : '当前展示点位直线' }}</small>
                 </div>
                 <RouteMapPanel
                   :original-points="planPoints"
@@ -406,13 +416,46 @@
             </div>
             <div>
               <div class="panel-head compact"><h2>拆分结果</h2><button @click="exportCompanyRoutes" :disabled="!multiOptimization || loading">导出Excel</button></div>
-              <div v-if="routeProgress.visible" class="planning-progress compact-progress"><div><strong>路线规划进度</strong><span>{{ routeProgress.message }}</span></div><strong>{{ routeProgressPercent }}%</strong></div>
+              <div v-if="routeProgress.visible" class="planning-progress">
+                <div class="planning-progress-head">
+                  <div>
+                    <strong>路线规划进度</strong>
+                    <small>{{ routeProgress.message }}</small>
+                    <small v-if="routeProgressDetail">{{ routeProgressDetail }}</small>
+                  </div>
+                  <span>{{ routeProgressPercent }}%</span>
+                </div>
+                <div class="planning-progress-bar">
+                  <i :style="{ width: routeProgressPercent + '%' }"></i>
+                </div>
+                <ol>
+                  <li
+                    v-for="(step, index) in routeProgress.steps"
+                    :key="step.key"
+                    :class="progressStepClass(index)"
+                  >
+                    <span>{{ progressStepMark(index) }}</span>
+                    <div>
+                      <strong>{{ step.title }}</strong>
+                      <small>{{ step.detail }}</small>
+                    </div>
+                  </li>
+                </ol>
+              </div>
               <div v-if="multiOptimization" class="optimization-box">
                 <strong>{{ multiOptimization.status }}</strong>
                 <p>{{ multiOptimization.message }}</p>
                 <div class="optimization-metrics"><span>拆分路线 {{ multiOptimization.routeCount || 0 }}</span><span>已分配 {{ multiOptimization.assignedPointCount || 0 }}</span><span>未分配 {{ multiOptimization.unassignedPointCount || 0 }}</span><span>已分配量 {{ formatWeight(multiOptimization.assignedWeightKg) }}</span></div>
                 <div class="multi-routes split-routes-result">
                   <article v-for="route in multiOptimization.routes" :key="route.routeNo" class="multi-route-card" :class="{ active: selectedMultiRouteNo === route.routeNo }" @click="selectedMultiRouteNo = route.routeNo"><div><strong>第 {{ route.routeNo }} 趟 · {{ route.vehicleName || '默认车辆' }} 第{{ route.tripNo || route.routeNo }}趟</strong><small>{{ route.pointCount }} 点 · {{ formatWeight(route.estimatedWeightKg) }} · {{ formatDistance(route.distance) }} · 合计 {{ formatDuration(route.totalDurationMinutes || route.durationMinutes) }}</small></div><div class="sequence route-point-sequence"><span v-for="point in route.points" :key="`${route.routeNo}-${point.order}-${point.facilityId}`">{{ point.facilityName || point.facilityId }}</span></div></article>
+                </div>
+                <div v-if="selectedMultiRoute" class="route-display-toolbar">
+                  <span>地图展示</span>
+                  <button :class="{ active: !selectedMultiRouteRoadDisplay }" @click.stop="setSelectedMultiRouteDisplay(false)">点位直线</button>
+                  <button :class="{ active: selectedMultiRouteRoadDisplay }" :disabled="routeSegmentLoading" @click.stop="setSelectedMultiRouteDisplay(true)">
+                    {{ routeSegmentLoading ? '加载道路...' : '道路折线' }}
+                  </button>
+                  <small>{{ selectedMultiRouteDisplaySummary }}</small>
                 </div>
                 <RouteMapPanel v-if="selectedMultiRoute" :original-points="[]" :optimized-points="selectedMultiRoute.points || []" :optimized-segments="selectedMultiRouteDisplaySegments" :show-original="false" optimized-label="拆分路线" />
               </div>
@@ -2413,6 +2456,24 @@ async function previewOptimize() {
       })
     })
   })
+}
+
+function changeSingleRouteStrategy(value) {
+  optimizeOptions.useRoadPath = value === 'ROAD_GLOBAL'
+}
+
+async function onSingleDisplayModeChange() {
+  if (optimization.value) {
+    await previewOptimize()
+  }
+}
+
+async function setSingleRouteDisplay(useRoad) {
+  if (optimizeOptions.displayRoadPath === useRoad) return
+  optimizeOptions.displayRoadPath = useRoad
+  if (optimization.value) {
+    await previewOptimize()
+  }
 }
 
 async function generateSplitRoutes() {
