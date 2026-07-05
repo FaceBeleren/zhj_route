@@ -53,6 +53,8 @@ const BAIDU_MAP_AK = import.meta.env.VITE_BAIDU_MAP_AK || ''
 const BAIDU_SCRIPT_TIMEOUT_MS = 8000
 let baiduMapLoader = null
 let mapInstance = null
+let mapViewportFitted = false
+let mapControlsAdded = false
 
 const mapEl = ref(null)
 const baiduReady = ref(false)
@@ -126,12 +128,18 @@ async function renderMap() {
 }
 
 function drawBaiduMap(BMap) {
-  if (mapInstance?.clearOverlays) mapInstance.clearOverlays()
-  mapInstance = new BMap.Map(mapEl.value)
-  const center = centerPoint(plotPoints.value)
-  mapInstance.centerAndZoom(new BMap.Point(center.longitude, center.latitude), zoomLevel(plotPoints.value))
-  mapInstance.enableScrollWheelZoom(true)
-  addMapControls(BMap)
+  if (!mapInstance) {
+    mapInstance = new BMap.Map(mapEl.value)
+    const center = centerPoint(plotPoints.value)
+    mapInstance.centerAndZoom(new BMap.Point(center.longitude, center.latitude), zoomLevel(plotPoints.value))
+    mapInstance.enableScrollWheelZoom(true)
+    addMapControls(BMap)
+  } else if (mapInstance.clearOverlays) {
+    mapInstance.clearOverlays()
+    if (typeof mapInstance.checkResize === 'function') {
+      mapInstance.checkResize()
+    }
+  }
   normalizedGroups.value.forEach((group) => {
     const highlighted = !props.selectedGroupId || group.groupId === props.selectedGroupId
     group.points.forEach((point, index) => {
@@ -152,18 +160,24 @@ function drawBaiduMap(BMap) {
       }
     })
   })
-  fitMapViewport(BMap)
+  fitMapViewportOnce(BMap)
 }
 
 function addMapControls(BMap) {
+  if (mapControlsAdded) return
+  mapControlsAdded = true
   ;[() => new BMap.NavigationControl(), () => new BMap.ScaleControl(), () => new BMap.MapTypeControl()].forEach((createControl) => {
     try { mapInstance.addControl(createControl()) } catch (error) {}
   })
 }
 
-function fitMapViewport(BMap) {
+function fitMapViewportOnce(BMap) {
+  if (mapViewportFitted) return
   const viewport = plotPoints.value.map((point) => new BMap.Point(point.longitude, point.latitude))
-  if (viewport.length > 1) mapInstance.setViewport(viewport, { margins: [48, 48, 48, 48] })
+  if (viewport.length > 1) {
+    mapInstance.setViewport(viewport, { margins: [48, 48, 48, 48] })
+    mapViewportFitted = true
+  }
 }
 
 function loadBaiduMap() {

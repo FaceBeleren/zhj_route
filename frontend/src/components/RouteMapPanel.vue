@@ -183,6 +183,8 @@ const playbackSpeed = ref(1)
 const playbackRunning = ref(false)
 const playbackDistance = ref(0)
 let mapInstance = null
+let mapViewportFitted = false
+let mapControlsAdded = false
 let playbackMarker = null
 let playbackAnimationFrame = null
 let playbackFrameTime = 0
@@ -276,14 +278,18 @@ async function renderMap() {
 }
 
 function drawBaiduMap(BMap) {
-  if (mapInstance?.clearOverlays) {
+  if (!mapInstance) {
+    mapInstance = new BMap.Map(mapEl.value)
+    const center = centerPoint(allPoints.value)
+    mapInstance.centerAndZoom(new BMap.Point(center.longitude, center.latitude), zoomLevel(allPoints.value))
+    mapInstance.enableScrollWheelZoom(true)
+    addMapControls(BMap)
+  } else if (mapInstance.clearOverlays) {
     mapInstance.clearOverlays()
+    if (typeof mapInstance.checkResize === 'function') {
+      mapInstance.checkResize()
+    }
   }
-  mapInstance = new BMap.Map(mapEl.value)
-  const center = centerPoint(allPoints.value)
-  mapInstance.centerAndZoom(new BMap.Point(center.longitude, center.latitude), zoomLevel(allPoints.value))
-  mapInstance.enableScrollWheelZoom(true)
-  addMapControls(BMap)
 
   if (showOriginalLine.value) {
     drawPolyline(BMap, originalGeometryPoints.value, '#d84f4f', 4, 0.8, 'dashed')
@@ -311,7 +317,7 @@ function drawBaiduMap(BMap) {
     }
   })
   drawPlaybackMarker(BMap)
-  fitMapViewport(BMap)
+  fitMapViewportOnce(BMap)
 }
 
 function drawPlaybackMarker(BMap) {
@@ -340,6 +346,8 @@ function updatePlaybackMarker() {
 }
 
 function addMapControls(BMap) {
+  if (mapControlsAdded) return
+  mapControlsAdded = true
   const controlConstructors = [
     () => new BMap.NavigationControl(),
     () => new BMap.ScaleControl(),
@@ -355,12 +363,14 @@ function addMapControls(BMap) {
   })
 }
 
-function fitMapViewport(BMap) {
+function fitMapViewportOnce(BMap) {
+  if (mapViewportFitted) return
   const viewport = allPoints.value.map((point) => new BMap.Point(point.longitude, point.latitude))
   if (viewport.length > 1) {
     mapInstance.setViewport(viewport, {
       margins: [48, 48, 48, 48]
     })
+    mapViewportFitted = true
   }
 }
 
