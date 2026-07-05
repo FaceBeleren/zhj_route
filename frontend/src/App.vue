@@ -25,6 +25,9 @@
       <button :class="{ active: currentView === 'workbench' }" @click="currentView = 'workbench'">
         路线详情
       </button>
+      <button :class="{ active: currentView === 'split' }" @click="currentView = 'split'">
+        路线拆分
+      </button>
       <button :class="{ active: currentView === 'cluster' }" @click="currentView = 'cluster'">
         区域划分
       </button>
@@ -297,6 +300,111 @@
                 </div>
               </div>
               <div v-else class="empty">点击“优化预览”生成单路线优化结果</div>
+            </div>
+          </section>
+        </section>
+      </section>
+    </template>
+
+    <template v-else-if="currentView === 'split'">
+      <section class="multi-shell split-route-shell">
+        <aside class="panel company-panel">
+          <div class="panel-head">
+            <h2>项目公司</h2>
+            <input v-model="companyKeyword" placeholder="搜索公司" />
+          </div>
+          <div class="list">
+            <button v-for="company in filteredCompanies" :key="company.id" class="list-item" :class="{ active: selectedSplitCompany?.id === company.id }" @click="selectSplitCompany(company)">
+              <span>{{ company.depName || company.id }}</span>
+              <small>{{ company.depCode || '-' }}</small>
+            </button>
+          </div>
+        </aside>
+
+        <section class="panel route-panel">
+          <div class="route-panel-head">
+            <div class="panel-head">
+              <h2>待拆分路线</h2>
+              <span class="muted">{{ selectedSplitCompany?.depName || '请选择公司' }}</span>
+            </div>
+          </div>
+          <div class="list route-list">
+            <button v-for="route in splitRoutes" :key="route.id" class="list-item" :class="{ active: selectedSplitRoute?.id === route.id }" @click="selectSplitRoute(route)">
+              <span>{{ route.routeName || route.id }}</span>
+              <small>{{ route.dataTypeName || '路线' }} ID {{ route.id }}</small>
+            </button>
+            <div v-if="selectedSplitCompany && splitRoutes.length === 0" class="empty">暂无可拆分路线</div>
+          </div>
+        </section>
+
+        <section class="multi-main split-route-main">
+          <section class="panel">
+            <div class="panel-head">
+              <div>
+                <h2>单路线拆分</h2>
+                <span class="muted">把一条已有路线或岗位的规划点位拆成多趟实际收运路线</span>
+              </div>
+              <div class="panel-actions">
+                <button @click="generateSplitRoutes" :disabled="!selectedSplitRoute || splitPlanPoints.length === 0 || loading">拆分生成</button>
+                <button v-if="routeProgress.visible && !routeProgress.done && !routeProgress.failed" class="secondary" @click="stopRouteGeneration">停止</button>
+              </div>
+            </div>
+            <div class="optimizer-controls">
+              <label>额定载重 kg<input v-model.number="optimizeOptions.ratedCapacityKg" type="number" min="1" step="100" /></label>
+              <label>目标装载率<input v-model.number="optimizeOptions.targetLoadRate" type="number" min="0.1" max="1" step="0.05" /></label>
+              <label>最大趟数<input v-model.number="optimizeOptions.maxRoutes" type="number" min="1" step="1" /></label>
+              <label>每桶秒<input v-model.number="optimizeOptions.secondsPerContainer" type="number" min="1" step="1" /></label>
+              <label>每点分钟<input v-model.number="optimizeOptions.minutesPerPoint" type="number" min="0" step="0.5" /></label>
+              <div class="route-mode-card optimizer-mode-card strategy-mode-card">
+                <label class="strategy-select"><span>规划策略</span><select v-model="optimizeOptions.multiRouteStrategy"><option value="DIRECT_GROUP">直线快速分组</option><option value="DIRECT_GROUP_ROAD_REFINE">直线分组 + 道路精排</option><option value="ROAD_GLOBAL">全程实际距离</option></select></label>
+              </div>
+              <label>起点类型<select v-model="startAnchorMode" @change="onAnchorModeChange('start')"><option value="facility">设施点</option><option value="parking">停车场</option><option value="manual">手填</option></select></label>
+              <label>起点筛选<select v-model="selectedStartAnchorKey" :disabled="startAnchorMode === 'manual'" @change="applySelectedStartAnchor"><option value="">请选择</option><option v-for="anchor in startAnchorOptions" :key="anchor.key" :value="anchor.key">{{ anchor.label }}</option></select></label>
+              <label>终点类型<select v-model="endAnchorMode" @change="onAnchorModeChange('end')"><option value="facility">设施点</option><option value="parking">停车场</option><option value="manual">手填</option><option value="disposalAny">处置场任选</option><option value="terminalAny">处置场及中转站任选</option></select></label>
+              <label v-if="!isEndCandidateMode">终点筛选<select v-model="selectedEndAnchorKey" :disabled="endAnchorMode === 'manual'" @change="applySelectedEndAnchor"><option value="">请选择</option><option v-for="anchor in endAnchorOptions" :key="anchor.key" :value="anchor.key">{{ anchor.label }}</option></select></label>
+              <div v-else class="wide-control candidate-select-field">
+                <span>候选终点（本趟自动择优）</span>
+                <div class="candidate-select">
+                  <button type="button" class="candidate-select-trigger" @click="endCandidateDropdownOpen = !endCandidateDropdownOpen"><span>{{ endCandidateSummary }}</span><strong>{{ endCandidateDropdownOpen ? '收起' : '展开' }}</strong></button>
+                  <div v-if="endCandidateDropdownOpen" class="candidate-select-menu">
+                    <button v-for="anchor in endAnchorOptions" :key="anchor.key" type="button" class="candidate-select-option" :class="{ active: isEndCandidateSelected(anchor.key) }" @click="toggleEndCandidate(anchor.key)"><span>{{ anchor.label }}</span><strong v-if="isEndCandidateSelected(anchor.key)">✓</strong></button>
+                    <div v-if="endAnchorOptions.length === 0" class="candidate-select-empty">暂无可选终点</div>
+                  </div>
+                </div>
+              </div>
+              <label>起点经度<input v-model.number="optimizeOptions.startLongitude" :disabled="startAnchorMode !== 'manual'" type="number" step="0.000001" placeholder="手填" /></label>
+              <label>起点纬度<input v-model.number="optimizeOptions.startLatitude" :disabled="startAnchorMode !== 'manual'" type="number" step="0.000001" placeholder="手填" /></label>
+              <label>终点经度<input v-model.number="optimizeOptions.endLongitude" :disabled="endAnchorMode !== 'manual'" type="number" step="0.000001" placeholder="手填" /></label>
+              <label>终点纬度<input v-model.number="optimizeOptions.endLatitude" :disabled="endAnchorMode !== 'manual'" type="number" step="0.000001" placeholder="手填" /></label>
+            </div>
+            <div v-if="selectedSplitRoute" class="route-overview">
+              <div><span>原路线</span><strong>{{ selectedSplitRoute.routeName || selectedSplitRoute.id }}</strong></div>
+              <div><span>规划点位</span><strong>{{ splitPlanPoints.length }}</strong></div>
+              <div><span>预计重量</span><strong>{{ formatWeight(splitPlanWeight) }}</strong></div>
+              <div><span>预计体积</span><strong>{{ formatVolume(splitPlanVolume) }}</strong></div>
+            </div>
+          </section>
+
+          <section v-if="selectedSplitRoute" class="panel split-panel multi-layout">
+            <div>
+              <div class="panel-head compact"><h2>原路线点位</h2></div>
+              <ol class="point-list split-point-list">
+                <li v-for="point in splitPlanPoints" :key="point.facilityId"><span>{{ point.facilityName || point.facilityId }}</span><small>{{ point.facilityTypeName || '-' }} · {{ formatWeight(point.estimatedWeightKg) }}<template v-if="point.containerInfo"> · 桶 {{ point.containerInfo }}</template></small></li>
+              </ol>
+            </div>
+            <div>
+              <div class="panel-head compact"><h2>拆分结果</h2><button @click="exportCompanyRoutes" :disabled="!multiOptimization || loading">导出Excel</button></div>
+              <div v-if="routeProgress.visible" class="planning-progress compact-progress"><div><strong>路线规划进度</strong><span>{{ routeProgress.message }}</span></div><strong>{{ routeProgressPercent }}%</strong></div>
+              <div v-if="multiOptimization" class="optimization-box">
+                <strong>{{ multiOptimization.status }}</strong>
+                <p>{{ multiOptimization.message }}</p>
+                <div class="optimization-metrics"><span>拆分路线 {{ multiOptimization.routeCount || 0 }}</span><span>已分配 {{ multiOptimization.assignedPointCount || 0 }}</span><span>未分配 {{ multiOptimization.unassignedPointCount || 0 }}</span><span>已分配量 {{ formatWeight(multiOptimization.assignedWeightKg) }}</span></div>
+                <div class="multi-routes split-routes-result">
+                  <article v-for="route in multiOptimization.routes" :key="route.routeNo" class="multi-route-card" :class="{ active: selectedMultiRouteNo === route.routeNo }" @click="selectedMultiRouteNo = route.routeNo"><div><strong>第 {{ route.routeNo }} 趟 · {{ route.vehicleName || '默认车辆' }} 第{{ route.tripNo || route.routeNo }}趟</strong><small>{{ route.pointCount }} 点 · {{ formatWeight(route.estimatedWeightKg) }} · {{ formatDistance(route.distance) }} · 合计 {{ formatDuration(route.totalDurationMinutes || route.durationMinutes) }}</small></div><div class="sequence route-point-sequence"><span v-for="point in route.points" :key="`${route.routeNo}-${point.order}-${point.facilityId}`">{{ point.facilityName || point.facilityId }}</span></div></article>
+                </div>
+                <RouteMapPanel v-if="selectedMultiRoute" :original-points="[]" :optimized-points="selectedMultiRoute.points || []" :optimized-segments="selectedMultiRouteDisplaySegments" :show-original="false" optimized-label="拆分路线" />
+              </div>
+              <div v-else class="empty">点击“拆分生成”后，将把该路线点位拆成多趟路线。</div>
             </div>
           </section>
         </section>
@@ -1190,8 +1298,10 @@ import ClusterMapPanel from './components/ClusterMapPanel.vue'
 const currentView = ref('score')
 const companies = ref([])
 const routes = ref([])
+const splitRoutes = ref([])
 const records = ref([])
 const planPoints = ref([])
+const splitPlanPoints = ref([])
 const recordPoints = ref([])
 const companyPoints = ref([])
 const facilityImportInput = ref(null)
@@ -1256,6 +1366,8 @@ const selectedScoreTrip = ref(null)
 
 const selectedCompany = ref(null)
 const selectedMultiCompany = ref(null)
+const selectedSplitCompany = ref(null)
+const selectedSplitRoute = ref(null)
 const selectedRoute = ref(null)
 const selectedRecord = ref(null)
 const selectedMultiRouteNo = ref(null)
@@ -1518,6 +1630,13 @@ const routeModeSummary = computed(() => {
   const routing = planningStrategyLabel(optimizeOptions.multiRouteStrategy)
   return routing
 })
+const splitPlanWeight = computed(() =>
+  splitPlanPoints.value.reduce((sum, point) => sum + Number(point.estimatedWeightKg || 0), 0)
+)
+const splitPlanVolume = computed(() =>
+  splitPlanPoints.value.reduce((sum, point) => sum + Number(point.estimatedVolumeLiter || 0), 0)
+)
+
 const dispatchModeHint = computed(() => {
   if (dispatchMode.value === 'ROUND_ROBIN') {
     return '忽略每辆车趟数，按最大趟数大车优先轮询；适合只知道车辆清单、让系统自行派车。'
@@ -1624,6 +1743,33 @@ async function selectRoute(route) {
     ])
     planPoints.value = points
     records.value = routeRecords
+  })
+}
+
+async function selectSplitCompany(company) {
+  selectedSplitCompany.value = company
+  selectedSplitRoute.value = null
+  splitRoutes.value = []
+  splitPlanPoints.value = []
+  resetAnchors()
+  clearMultiOptimization()
+  await withLoading(async () => {
+    const [routeRows, anchors] = await Promise.all([
+      api(`/api/companies/${company.id}/routes?dataType=${dataType.value}`),
+      api(`/api/companies/${company.id}/route-anchors`)
+    ])
+    splitRoutes.value = routeRows
+    companyAnchors.value = normalizeAnchors(anchors)
+    applyDefaultAnchors()
+  })
+}
+
+async function selectSplitRoute(route) {
+  selectedSplitRoute.value = route
+  splitPlanPoints.value = []
+  clearMultiOptimization()
+  await withLoading(async () => {
+    splitPlanPoints.value = await api(`/api/routes/${route.id}/plan-points`)
   })
 }
 
@@ -2241,6 +2387,44 @@ async function previewOptimize() {
   })
 }
 
+async function generateSplitRoutes() {
+  if (!selectedSplitRoute.value || !selectedSplitCompany.value) return
+  activeOptimizationGroupId.value = ''
+  startRouteProgress()
+  routeAbortController.value = new AbortController()
+  await withLoading(async () => {
+    try {
+      const task = await api('/api/optimize/multi-preview/tasks', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        signal: routeAbortController.value.signal,
+        body: JSON.stringify({
+          routeId: selectedSplitRoute.value.id,
+          unitId: selectedSplitCompany.value.id,
+          dispatchMode: dispatchEnabled.value ? dispatchMode.value : 'USER_ORDER',
+          vehicles: normalizedDispatchVehicles(),
+          endSelectionMode: endAnchorMode.value,
+          endCandidates: normalizedEndCandidates(),
+          ...optimizeOptions,
+          displayRoadPath: false,
+          useRoadPath: optimizeOptions.multiRouteStrategy === 'ROAD_GLOBAL'
+        })
+      })
+      applyRouteTask(task)
+      startRouteTaskPolling(task.taskId)
+    } catch (err) {
+      if (err?.name === 'AbortError') {
+        cancelRouteProgress()
+      } else {
+        failRouteProgress(err)
+        throw err
+      }
+    } finally {
+      routeAbortController.value = null
+    }
+  })
+}
+
 async function generateCompanyRoutes() {
   if (!selectedMultiCompany.value) return
   startRouteProgress()
@@ -2637,6 +2821,14 @@ async function reloadCurrent() {
   if (currentView.value === 'score') {
     if (scoreCompanyIds.value.length > 0) {
       await loadCompanyScores()
+    } else {
+      await loadCompanies()
+    }
+    return
+  }
+  if (currentView.value === 'split') {
+    if (selectedSplitCompany.value) {
+      await selectSplitCompany(selectedSplitCompany.value)
     } else {
       await loadCompanies()
     }

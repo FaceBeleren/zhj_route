@@ -86,8 +86,8 @@ button:disabled {
 
 .view-tabs {
   display: grid;
-  grid-template-columns: repeat(4, minmax(92px, 1fr));
-  width: min(100%, 520px);
+  grid-template-columns: repeat(5, minmax(92px, 1fr));
+  width: min(100%, 640px);
   gap: 4px;
   margin-bottom: 14px;
   padding: 3px;

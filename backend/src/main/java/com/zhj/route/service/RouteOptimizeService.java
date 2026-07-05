@@ -214,9 +214,16 @@ public class RouteOptimizeService {
             result.put("unassignedPointCount", sourcePoints.size());
             return result;
         } else {
-            start = sourcePoints.get(0);
-            end = sourcePoints.get(sourcePoints.size() - 1);
-            remaining.addAll(sourcePoints.subList(1, sourcePoints.size() - 1));
+            boolean requestAnchors = hasAnchorCoordinate(request, "start") || hasAnchorCoordinate(request, "end");
+            if (requestAnchors) {
+                start = anchorPoint(request, sourcePoints, "start", -1L, "拆分起点");
+                end = anchorPoint(request, sourcePoints, "end", -2L, "拆分终点");
+                remaining.addAll(sourcePoints);
+            } else {
+                start = sourcePoints.get(0);
+                end = sourcePoints.get(sourcePoints.size() - 1);
+                remaining.addAll(sourcePoints.subList(1, sourcePoints.size() - 1));
+            }
         }
 
         String planningStrategy = multiRouteStrategy(request);
@@ -1148,7 +1155,11 @@ public class RouteOptimizeService {
         if (companyMode) {
             return "已按公司点位池、预计垃圾量和目标装载率生成多路线预览。若公司维护了场站坐标，则使用传入的真实起终点；未传坐标时回退到点位中心。" + distanceMode;
         }
-        return "已按路线点位池、预计垃圾量和目标装载率生成多路线预览。当前暂用原路线首尾点作为起终点锚点。" + distanceMode;
+        return "已按路线点位池、预计垃圾量和目标装载率生成多路线预览。传入起终点坐标时使用页面配置；未传坐标时回退到原路线首尾点。" + distanceMode;
+    }
+
+    private boolean hasAnchorCoordinate(Map<String, Object> request, String prefix) {
+        return toDouble(request.get(prefix + "Longitude")) != null && toDouble(request.get(prefix + "Latitude")) != null;
     }
 
     private RoutePoint anchorPoint(Map<String, Object> request, List<RoutePoint> points, String prefix,
