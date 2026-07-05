@@ -817,6 +817,8 @@
                       <span>顺序</span>
                       <span>点位</span>
                       <span>上一段行驶</span>
+                      <span>桶信息</span>
+                      <span>总桶数</span>
                       <span>点位作业</span>
                     </div>
                     <div v-for="point in selectedMultiRoute.points" :key="`time-${selectedMultiRoute.routeNo}-${point.order}-${point.facilityId}`" class="route-time-row">
@@ -827,6 +829,8 @@
                         {{ formatDuration(segmentBeforePoint(selectedMultiRouteDisplaySegments, point.order).durationMinutes) }}
                       </span>
                       <span v-else>-</span>
+                      <span :title="point.containerInfo || '-'">{{ point.containerInfo || '-' }}</span>
+                      <span>{{ formatNumber(point.containerCount) }}</span>
                       <span>{{ formatDuration(point.operationDurationMinutes) }}</span>
                     </div>
                   </div>
@@ -2926,10 +2930,16 @@ function formatDistanceAbs(value) {
 function formatDuration(value) {
   const n = Number(value || 0)
   if (!n) return '0 min'
+  if (n > 0 && n < 1) {
+    return `${Math.max(1, Math.round(n * 60))} s`
+  }
   if (n >= 60) {
     const hours = Math.floor(n / 60)
     const minutes = Math.round(n % 60)
     return `${hours} h ${minutes} min`
+  }
+  if (n < 10) {
+    return `${n.toFixed(1)} min`
   }
   return `${n.toFixed(0)} min`
 }
