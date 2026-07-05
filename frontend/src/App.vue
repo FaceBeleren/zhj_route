@@ -1019,46 +1019,6 @@
                   :stage-label="selectedClusterDisplayStage === 'before' ? '聚类前' : '聚类后'"
                   @select-group="selectClusterMapGroup"
                 />
-                <section v-if="clusterIntersectionMatrix.rows.length" class="cluster-intersection-panel">
-                  <div class="panel-head compact">
-                    <h3>分区交集统计</h3>
-                    <span class="muted">聚类前 × 聚类后，格子越深表示重合点位越多</span>
-                  </div>
-                  <div class="cluster-heatmap-scroll">
-                    <table class="cluster-heatmap">
-                      <thead>
-                        <tr>
-                          <th>聚类前 \ 聚类后</th>
-                          <th v-for="column in clusterIntersectionMatrix.columns" :key="column.groupId">
-                            <span class="heatmap-head-dot" :style="{ backgroundColor: column.color }"></span>
-                            {{ column.groupName }}
-                          </th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        <tr v-for="row in clusterIntersectionMatrix.rows" :key="row.groupId">
-                          <th>
-                            <span class="heatmap-head-dot" :style="{ backgroundColor: row.color }"></span>
-                            {{ row.groupName }}
-                          </th>
-                          <td
-                            v-for="cell in row.cells"
-                            :key="cell.columnId"
-                            :class="{ dominant: cell.isRowDominant }"
-                            :style="heatmapCellStyle(cell)"
-                            :title="`${row.groupName} 与 ${cell.columnName} 交集 ${cell.count} 点，占原分区 ${cell.rowRatioText}`"
-                          >
-                            <strong>{{ cell.count }}</strong>
-                            <small>{{ cell.rowRatioText }}</small>
-                          </td>
-                        </tr>
-                      </tbody>
-                    </table>
-                  </div>
-                  <ul class="cluster-intersection-insights">
-                    <li v-for="item in clusterIntersectionInsights" :key="item">{{ item }}</li>
-                  </ul>
-                </section>
                 <div class="cluster-groups">
                   <div class="cluster-column">
                     <h4>聚类前分堆</h4>
@@ -1101,6 +1061,46 @@
                     </article>
                   </div>
                 </div>
+                <section v-if="clusterIntersectionMatrix.rows.length" class="cluster-intersection-panel">
+                  <div class="panel-head compact">
+                    <h3>分区交集统计</h3>
+                    <span class="muted">聚类前 × 聚类后，格子越深表示重合点位越多</span>
+                  </div>
+                  <div class="cluster-heatmap-scroll">
+                    <table class="cluster-heatmap">
+                      <thead>
+                        <tr>
+                          <th>聚类前 \ 聚类后</th>
+                          <th v-for="column in clusterIntersectionMatrix.columns" :key="column.groupId">
+                            <span class="heatmap-head-dot" :style="{ backgroundColor: column.color }"></span>
+                            {{ column.groupName }}
+                          </th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        <tr v-for="row in clusterIntersectionMatrix.rows" :key="row.groupId">
+                          <th>
+                            <span class="heatmap-head-dot" :style="{ backgroundColor: row.color }"></span>
+                            {{ row.groupName }}
+                          </th>
+                          <td
+                            v-for="cell in row.cells"
+                            :key="cell.columnId"
+                            :class="{ dominant: cell.isRowDominant }"
+                            :style="heatmapCellStyle(cell)"
+                            :title="`${row.groupName} 与 ${cell.columnName} 交集 ${cell.count} 点，占原分区 ${cell.rowRatioText}`"
+                          >
+                            <strong>{{ cell.count }}</strong>
+                            <small>{{ cell.rowRatioText }}</small>
+                          </td>
+                        </tr>
+                      </tbody>
+                    </table>
+                  </div>
+                  <ul class="cluster-intersection-insights">
+                    <li v-for="item in clusterIntersectionInsights" :key="item">{{ item }}</li>
+                  </ul>
+                </section>
               </div>
               <div v-else class="cluster-empty">选择公司后，可直接用已选点位生成聚类；上传 Excel 后会先按 sheet 形成原始区域，再生成聚类后区域。</div>
             </div>
