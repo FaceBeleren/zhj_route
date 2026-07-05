@@ -196,6 +196,39 @@ button:disabled {
   gap: 14px;
 }
 
+.split-route-shell {
+  grid-template-columns: minmax(220px, 260px) minmax(260px, 320px) minmax(0, 1fr);
+}
+
+.split-route-main,
+.split-route-main > .panel,
+.split-route-shell .route-panel {
+  min-width: 0;
+}
+
+.split-type-segment {
+  margin: 10px 12px 0;
+}
+
+.split-source-note {
+  margin: 8px 12px 12px;
+  color: #66758a;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.split-route-main .panel-head {
+  flex-wrap: wrap;
+}
+
+.split-route-main .optimizer-controls {
+  grid-template-columns: repeat(4, minmax(120px, 1fr));
+}
+
+.split-route-main .optimizer-controls .wide-control {
+  grid-column: span 2;
+}
+
 .score-company-panel {
   height: calc(100vh - 198px);
   display: flex;

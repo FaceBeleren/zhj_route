@@ -327,13 +327,25 @@
               <h2>待拆分路线</h2>
               <span class="muted">{{ selectedSplitCompany?.depName || '请选择公司' }}</span>
             </div>
+            <div class="type-segment split-type-segment">
+              <button
+                v-for="option in dataTypeOptions"
+                :key="option.value"
+                :class="{ active: dataType === option.value }"
+                :disabled="loading"
+                @click="changeSplitDataType(option.value)"
+              >
+                {{ option.label }}
+              </button>
+            </div>
+            <p class="split-source-note">来源与“路线详情”一致，当前展示 {{ currentTypeName }}。</p>
           </div>
           <div class="list route-list">
             <button v-for="route in splitRoutes" :key="route.id" class="list-item" :class="{ active: selectedSplitRoute?.id === route.id }" @click="selectSplitRoute(route)">
               <span>{{ route.routeName || route.id }}</span>
-              <small>{{ route.dataTypeName || '路线' }} ID {{ route.id }}</small>
+              <small>{{ route.dataTypeName || currentTypeName }} ID {{ route.id }}</small>
             </button>
-            <div v-if="selectedSplitCompany && splitRoutes.length === 0" class="empty">暂无可拆分路线</div>
+            <div v-if="selectedSplitCompany && splitRoutes.length === 0" class="empty">当前 {{ currentTypeName }} 暂无可拆分数据，可切换来源类型。</div>
           </div>
         </section>
 
@@ -1744,6 +1756,18 @@ async function selectRoute(route) {
     planPoints.value = points
     records.value = routeRecords
   })
+}
+
+async function changeSplitDataType(value) {
+  if (dataType.value === value) return
+  dataType.value = value
+  selectedSplitRoute.value = null
+  splitRoutes.value = []
+  splitPlanPoints.value = []
+  clearMultiOptimization()
+  if (selectedSplitCompany.value) {
+    await selectSplitCompany(selectedSplitCompany.value)
+  }
 }
 
 async function selectSplitCompany(company) {
