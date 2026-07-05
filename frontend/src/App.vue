@@ -151,13 +151,6 @@
                       <option value="ROAD_GLOBAL">实际距离</option>
                     </select>
                   </label>
-                  <label class="strategy-select">
-                    <span>地图展示</span>
-                    <select v-model="optimizeOptions.displayRoadPath" @change="onSingleDisplayModeChange">
-                      <option :value="false">点位直线</option>
-                      <option :value="true">道路折线</option>
-                    </select>
-                  </label>
                 </div>
                 <button @click="previewOptimize" :disabled="!selectedRoute || loading">优化预览</button>
               </div>
@@ -2460,12 +2453,6 @@ async function previewOptimize() {
 
 function changeSingleRouteStrategy(value) {
   optimizeOptions.useRoadPath = value === 'ROAD_GLOBAL'
-}
-
-async function onSingleDisplayModeChange() {
-  if (optimization.value) {
-    await previewOptimize()
-  }
 }
 
 async function setSingleRouteDisplay(useRoad) {

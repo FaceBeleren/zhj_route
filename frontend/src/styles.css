@@ -362,7 +362,7 @@ button:disabled {
 }
 
 .single-preview-mode-card {
-  grid-template-columns: repeat(2, minmax(150px, 1fr));
+  grid-template-columns: minmax(180px, 1fr);
   align-items: center;
 }
 
