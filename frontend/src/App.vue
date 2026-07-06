@@ -2563,7 +2563,7 @@ function buildRouteProgressSteps() {
       detail: currentOptimizationPointCount.value + ' 个候选点，' + (dispatchEnabled.value ? dispatchTripCount.value + ' 趟排班' : '使用默认最大趟数')
     }
   ]
-  if (optimizeOptions.multiRouteStrategy === 'ROAD_GLOBAL' || optimizeOptions.multiRouteStrategy === 'DIRECT_GROUP_ROAD_REFINE') {
+  if (optimizeOptions.multiRouteStrategy === 'ROAD_GLOBAL') {
     steps.push(
       { key: 'cache-check', title: '调取 OD 缓存', detail: '批量读取本批点位已有道路点对' },
       { key: 'pair-resolve', title: '处理缺失点对', detail: '缓存未命中时按配置百度补算或直线回退' }
@@ -2657,6 +2657,9 @@ function applyRouteTask(task) {
 function routePhaseIndex(phase) {
   const keyMap = {
     PREPARE: 'prepare',
+    OD_PRELOAD: 'cache-check',
+    PAIR_RESOLVE: 'pair-resolve',
+    DIRECT_DISTANCE: 'direct-distance',
     ROUTE_BUILD: 'route-build',
     ROUTE_REFINE: 'route-refine',
     SEGMENT_BUILD: 'segment-build',

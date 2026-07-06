@@ -241,7 +241,15 @@ public class RouteOptimizeService {
         }
         List<RoutePoint> endCandidates = endCandidates(request, end);
         List<RoutePoint> matrixPoints = distancePoints(sourcePoints, dispatchPlan, endCandidates);
+        if (task != null) {
+            task.update("RUNNING", useRoadPath ? "OD_PRELOAD" : "DIRECT_DISTANCE",
+                    useRoadPath ? "正在批量读取 OD 缓存" : "正在构建直线距离矩阵");
+        }
         distanceContext.preload(matrixPoints);
+        if (task != null) {
+            task.update("RUNNING", useRoadPath ? "PAIR_RESOLVE" : "DIRECT_DISTANCE",
+                    useRoadPath ? "正在构建道路距离矩阵并处理缺失点对" : "正在构建直线距离矩阵");
+        }
         MatrixDistanceContext routeDistanceContext = new MatrixDistanceContext(matrixPoints, distanceContext);
         if (displayContext != distanceContext && displayContext != refineContext) {
             displayContext.preload(matrixPoints);
