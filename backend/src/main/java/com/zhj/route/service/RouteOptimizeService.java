@@ -242,6 +242,7 @@ public class RouteOptimizeService {
         List<RoutePoint> endCandidates = endCandidates(request, end);
         List<RoutePoint> matrixPoints = distancePoints(sourcePoints, dispatchPlan, endCandidates);
         distanceContext.preload(matrixPoints);
+        MatrixDistanceContext routeDistanceContext = new MatrixDistanceContext(matrixPoints, distanceContext);
         if (displayContext != distanceContext && displayContext != refineContext) {
             displayContext.preload(matrixPoints);
         }
@@ -262,7 +263,9 @@ public class RouteOptimizeService {
             if (effectiveStart == null) {
                 effectiveStart = trip.start;
             }
-            RouteChoice routeChoice = chooseBestEndRoute(trip, effectiveStart, endCandidates, remaining, distanceContext);
+            long routeStartedAt = System.currentTimeMillis();
+            routeDistanceContext.resetRouteStats();
+            RouteChoice routeChoice = chooseBestEndRoute(trip, effectiveStart, endCandidates, remaining, routeDistanceContext);
             List<RoutePoint> route = routeChoice.route;
             DispatchTrip effectiveTrip = trip.withStartAndEnd(effectiveStart, routeChoice.end);
             if (refineWithRoad) {
@@ -287,9 +290,9 @@ public class RouteOptimizeService {
             if (task != null) {
                 task.routeDone(routeNo, routes.size(), pointsInRoutes(routes), remaining.size());
             }
-            log.info("Multi route built: routeNo={}, vehicle={}, tripNo={}, points={}, weightKg={}, distance={}, remaining={}",
+            log.info("Multi route built: routeNo={}, vehicle={}, tripNo={}, points={}, weightKg={}, distance={}, remaining={}, routeElapsed={}ms, matrixStats={}",
                     routeNo, trip.vehicleName, trip.tripNo, routeView.get("pointCount"), routeView.get("estimatedWeightKg"),
-                    routeView.get("distance"), remaining.size());
+                    routeView.get("distance"), remaining.size(), System.currentTimeMillis() - routeStartedAt, routeDistanceContext.routeSummary());
             routeNo++;
         }
 
@@ -444,7 +447,7 @@ public class RouteOptimizeService {
 
     private List<RoutePoint> buildCapacityRoute(RoutePoint start, RoutePoint end, List<RoutePoint> remaining,
                                                 double targetLoadWeightKg, double maxCapacityKg,
-                                                SingleRouteOptimizer.DistanceCalculator distanceCalculator) {
+                                                MatrixDistanceContext distanceCalculator) {
         List<RoutePoint> route = new ArrayList<RoutePoint>();
         route.add(start);
         route.add(end);
@@ -493,7 +496,7 @@ public class RouteOptimizeService {
     }
 
     private RouteChoice chooseBestEndRoute(DispatchTrip trip, RoutePoint start, List<RoutePoint> endCandidates,
-                                           List<RoutePoint> remaining, DistanceContext distanceContext) {
+                                           List<RoutePoint> remaining, MatrixDistanceContext distanceContext) {
         RouteChoice best = null;
         List<RoutePoint> candidates = endCandidates.isEmpty() ? new ArrayList<RoutePoint>() : endCandidates;
         if (candidates.isEmpty()) {
@@ -510,7 +513,7 @@ public class RouteOptimizeService {
         return best;
     }
 
-    private double routeDistance(List<RoutePoint> route, DistanceContext distanceContext) {
+    private double routeDistance(List<RoutePoint> route, MatrixDistanceContext distanceContext) {
         double total = 0D;
         for (int i = 0; i < route.size() - 1; i++) {
             total += distanceContext.distance(route.get(i), route.get(i + 1));
@@ -959,6 +962,85 @@ public class RouteOptimizeService {
         }
     }
 
+    private class MatrixDistanceContext implements SingleRouteOptimizer.DistanceCalculator {
+        private final DistanceContext delegate;
+        private final Map<String, Integer> indexByKey = new HashMap<String, Integer>();
+        private final double[][] distanceMeters;
+        private final int pointCount;
+        private long routeDistanceCalls;
+        private long routeMatrixHits;
+        private long routeDelegateFallbacks;
+
+        private MatrixDistanceContext(List<RoutePoint> points, DistanceContext delegate) {
+            long startedAt = System.currentTimeMillis();
+            this.delegate = delegate;
+            List<RoutePoint> uniquePoints = new ArrayList<RoutePoint>();
+            for (RoutePoint point : points) {
+                String key = matrixPointKey(point);
+                if (!indexByKey.containsKey(key)) {
+                    indexByKey.put(key, uniquePoints.size());
+                    uniquePoints.add(point);
+                }
+            }
+            this.pointCount = uniquePoints.size();
+            this.distanceMeters = new double[pointCount][pointCount];
+            long matrixEntries = 0L;
+            long roadEntries = 0L;
+            long directEntries = 0L;
+            for (int i = 0; i < pointCount; i++) {
+                if (Thread.currentThread().isInterrupted()) {
+                    throw new CancellationException("多路线任务已取消");
+                }
+                RoutePoint from = uniquePoints.get(i);
+                for (int j = 0; j < pointCount; j++) {
+                    if (i == j) {
+                        distanceMeters[i][j] = 0D;
+                    } else {
+                        RouteMapPathService.ResolvedPath resolvedPath = delegate.resolve(from, uniquePoints.get(j));
+                        distanceMeters[i][j] = resolvedPath.getDistanceMeters() == null
+                                ? singleRouteOptimizer.distance(from, uniquePoints.get(j))
+                                : resolvedPath.getDistanceMeters();
+                        matrixEntries++;
+                        String source = resolvedPath.getSource();
+                        if (source != null && (source.startsWith("OD") || source.startsWith("BAIDU"))) {
+                            roadEntries++;
+                        } else {
+                            directEntries++;
+                        }
+                    }
+                }
+            }
+            log.info("Route distance matrix built: mode={}, points={}, entries={}, roadEntries={}, directEntries={}, elapsed={}ms, delegateStats={}",
+                    delegate.useRoadPath ? "ROAD" : "DIRECT", pointCount, matrixEntries,
+                    roadEntries, directEntries, System.currentTimeMillis() - startedAt, delegate.summary());
+        }
+
+        @Override
+        public double distance(RoutePoint from, RoutePoint to) {
+            routeDistanceCalls++;
+            Integer fromIndex = indexByKey.get(matrixPointKey(from));
+            Integer toIndex = indexByKey.get(matrixPointKey(to));
+            if (fromIndex != null && toIndex != null) {
+                routeMatrixHits++;
+                return distanceMeters[fromIndex][toIndex];
+            }
+            routeDelegateFallbacks++;
+            return delegate.distance(from, to);
+        }
+
+        private void resetRouteStats() {
+            routeDistanceCalls = 0L;
+            routeMatrixHits = 0L;
+            routeDelegateFallbacks = 0L;
+        }
+
+        private String routeSummary() {
+            return "matrixPoints=" + pointCount
+                    + ", routeDistanceCalls=" + routeDistanceCalls
+                    + ", matrixHits=" + routeMatrixHits
+                    + ", delegateFallbacks=" + routeDelegateFallbacks;
+        }
+    }
     private class DistanceContext implements SingleRouteOptimizer.DistanceCalculator {
         private final boolean useRoadPath;
         private final Map<String, RouteMapPathService.ResolvedPath> resolvedCache = new HashMap<String, RouteMapPathService.ResolvedPath>();
@@ -1057,6 +1139,12 @@ public class RouteOptimizeService {
         }
     }
 
+    private String matrixPointKey(RoutePoint point) {
+        if (point.getFacilityId() != null) {
+            return "ID:" + point.getFacilityId();
+        }
+        return "XY:" + point.getLongitude() + "," + point.getLatitude();
+    }
     private boolean useRoadPath(Map<String, Object> request) {
         Object value = request.get("useRoadPath");
         return value != null && Boolean.parseBoolean(String.valueOf(value));
