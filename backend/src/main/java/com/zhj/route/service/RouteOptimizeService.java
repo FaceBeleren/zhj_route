@@ -248,7 +248,7 @@ public class RouteOptimizeService {
         distanceContext.preload(matrixPoints);
         if (task != null) {
             task.update("RUNNING", useRoadPath ? "PAIR_RESOLVE" : "DIRECT_DISTANCE",
-                    useRoadPath ? "正在构建道路距离矩阵并处理缺失点对" : "正在构建直线距离矩阵");
+                    useRoadPath ? "正在构建道路距离矩阵，缓存缺失点对使用直线回退" : "正在构建直线距离矩阵");
         }
         MatrixDistanceContext routeDistanceContext = new MatrixDistanceContext(matrixPoints, distanceContext);
         if (displayContext != distanceContext && displayContext != refineContext) {
@@ -1004,7 +1004,7 @@ public class RouteOptimizeService {
                     if (i == j) {
                         distanceMeters[i][j] = 0D;
                     } else {
-                        RouteMapPathService.ResolvedPath resolvedPath = delegate.resolve(from, uniquePoints.get(j));
+                        RouteMapPathService.ResolvedPath resolvedPath = delegate.resolveForMatrix(from, uniquePoints.get(j));
                         distanceMeters[i][j] = resolvedPath.getDistanceMeters() == null
                                 ? singleRouteOptimizer.distance(from, uniquePoints.get(j))
                                 : resolvedPath.getDistanceMeters();
@@ -1103,6 +1103,29 @@ public class RouteOptimizeService {
             countSource(resolvedPath.getSource());
             if (useRoadPath && cacheMisses % 100 == 0) {
                 log.info("Route distance resolving progress: {}", summary());
+            }
+            return resolvedPath;
+        }
+
+        private RouteMapPathService.ResolvedPath resolveForMatrix(RoutePoint from, RoutePoint to) {
+            if (Thread.currentThread().isInterrupted()) {
+                throw new CancellationException("多路线任务已取消");
+            }
+            resolveCalls++;
+            String key = pointKey(from) + "->" + pointKey(to) + "#" + (useRoadPath ? "ROAD" : "DIRECT") + "#MATRIX";
+            if (resolvedCache.containsKey(key)) {
+                cacheHits++;
+                return resolvedCache.get(key);
+            }
+            cacheMisses++;
+            RouteMapPathService.ResolvedPath resolvedPath = useRoadPath ? preloadedResolvedPath(from, to) : null;
+            if (resolvedPath == null) {
+                resolvedPath = directResolvedPath(from, to);
+            }
+            resolvedCache.put(key, resolvedPath);
+            countSource(resolvedPath.getSource());
+            if (useRoadPath && cacheMisses % 1000 == 0) {
+                log.info("Route distance matrix resolving progress: {}", summary());
             }
             return resolvedPath;
         }
