@@ -782,9 +782,11 @@ public class RouteOptimizeService {
             segment.put("toFacilityId", to.getFacilityId());
             segment.put("toFacilityName", to.getFacilityName());
             segment.put("distance", round(distance));
-            segment.put("durationMinutes", round(resolvedPath.getDurationSeconds() == null
-                    ? minutes(distance, speedKmh)
-                    : resolvedPath.getDurationSeconds() / 60D));
+            segment.put("durationMinutes", round(minutes(distance, speedKmh)));
+            segment.put("odDurationMinutes", resolvedPath.getDurationSeconds() == null
+                    ? null
+                    : round(resolvedPath.getDurationSeconds() / 60D));
+            segment.put("durationSource", "ESTIMATED_SPEED");
             segment.put("pathSource", resolvedPath.getSource());
             segment.put("path", resolvedPath.getPath());
             segments.add(segment);
