@@ -440,7 +440,7 @@
                 <p>{{ multiOptimization.message }}</p>
                 <div class="optimization-metrics"><span>拆分路线 {{ multiOptimization.routeCount || 0 }}</span><span>已分配 {{ multiOptimization.assignedPointCount || 0 }}</span><span>未分配 {{ multiOptimization.unassignedPointCount || 0 }}</span><span>已分配量 {{ formatWeight(multiOptimization.assignedWeightKg) }}</span></div>
                 <div class="multi-routes split-routes-result">
-                  <article v-for="route in multiOptimization.routes" :key="route.routeNo" class="multi-route-card" :class="{ active: selectedMultiRouteNo === route.routeNo }" @click="selectedMultiRouteNo = route.routeNo"><div><strong>第 {{ route.routeNo }} 趟 · {{ route.vehicleName || '默认车辆' }} 第{{ route.tripNo || route.routeNo }}趟</strong><small>{{ route.pointCount }} 点 · {{ formatWeight(route.estimatedWeightKg) }} · {{ formatDistance(route.distance) }} · 合计 {{ formatDuration(route.totalDurationMinutes || route.durationMinutes) }}</small></div><div class="sequence route-point-sequence"><span v-for="point in route.points" :key="`${route.routeNo}-${point.order}-${point.facilityId}`">{{ point.facilityName || point.facilityId }}</span></div></article>
+                  <article v-for="route in multiOptimization.routes" :key="route.routeNo" class="multi-route-card" :class="{ active: selectedMultiRouteNo === route.routeNo }" @click="selectedMultiRouteNo = route.routeNo"><div><strong>第 {{ route.routeNo }} 趟 · {{ route.vehicleName || '默认车辆' }} 第{{ route.tripNo || route.routeNo }}趟</strong><small>{{ route.pointCount }} 点 · {{ formatWeight(route.estimatedWeightKg) }} · {{ formatDistance(routeDisplayDistance(route)) }} · 合计 {{ formatDuration(routeDisplayTotalDuration(route)) }}</small></div><div class="sequence route-point-sequence"><span v-for="point in route.points" :key="`${route.routeNo}-${point.order}-${point.facilityId}`">{{ point.facilityName || point.facilityId }}</span></div></article>
                 </div>
                 <div v-if="selectedMultiRoute" class="route-display-toolbar">
                   <span>地图展示</span>
@@ -804,10 +804,10 @@
                       <small>
                         {{ route.vehicleType || '未填车型' }} · 额定 {{ formatWeight(route.ratedCapacityKg) }} ·
                         {{ route.pointCount }} 点 · {{ formatWeight(route.estimatedWeightKg) }} ·
-                        {{ formatDistance(route.distance) }} · 行驶 {{ formatDuration(route.travelDurationMinutes) }} ·
-                        作业 {{ formatDuration(route.operationDurationMinutes) }} · 合计 {{ formatDuration(route.totalDurationMinutes || route.durationMinutes) }} ·
+                        {{ formatDistance(routeDisplayDistance(route)) }} · 行驶 {{ formatDuration(routeDisplayTravelDuration(route)) }} ·
+                        作业 {{ formatDuration(route.operationDurationMinutes) }} · 合计 {{ formatDuration(routeDisplayTotalDuration(route)) }} ·
                         装载率 {{ formatLoadRate(route.loadRate) }} ·
-                        {{ pathSourceSummary(route.segments) }}
+                        {{ pathSourceSummary(routeDisplaySegments(route)) }}
                       </small>
                     </div>
                     <div class="sequence route-point-sequence">
@@ -1617,26 +1617,45 @@ const selectedMultiRouteRoadDisplay = computed(() => {
 const selectedMultiRouteDisplaySegments = computed(() => {
   const route = selectedMultiRoute.value
   if (!route) return []
-  if (selectedMultiRouteRoadDisplay.value && route.roadSegments?.length) {
+  return routeDisplaySegments(route)
+})
+function routeRoadDisplay(route) {
+  return !!(route?.routeNo && multiRouteDisplayModes.value[route.routeNo] === 'ROAD')
+}
+function routeDisplaySegments(route) {
+  if (!route) return []
+  if (routeRoadDisplay(route) && route.roadSegments?.length) {
     return route.roadSegments
   }
   return route.segments || []
-})
+}
+function routeDisplayDistance(route) {
+  if (!route) return 0
+  return routeRoadDisplay(route) && route.roadDistance ? route.roadDistance : route.distance
+}
+function routeDisplayTravelDuration(route) {
+  if (!route) return 0
+  return routeRoadDisplay(route) && route.roadDurationMinutes ? route.roadDurationMinutes : route.travelDurationMinutes
+}
+function routeDisplayTotalDuration(route) {
+  if (!route) return 0
+  return Number(routeDisplayTravelDuration(route) || 0) + Number(route.operationDurationMinutes || 0)
+}
 const selectedMultiRouteDisplayTravelDuration = computed(() => {
   const route = selectedMultiRoute.value
   if (!route) return 0
-  return selectedMultiRouteRoadDisplay.value && route.roadDurationMinutes ? route.roadDurationMinutes : route.travelDurationMinutes
+  return routeDisplayTravelDuration(route)
 })
 const selectedMultiRouteDisplayTotalDuration = computed(() => {
   const route = selectedMultiRoute.value
   if (!route) return 0
-  return Number(selectedMultiRouteDisplayTravelDuration.value || 0) + Number(route.operationDurationMinutes || 0)
+  return routeDisplayTotalDuration(route)
 })
 const selectedMultiRouteDisplaySummary = computed(() => {
   const route = selectedMultiRoute.value
   if (!route) return ''
   const segments = selectedMultiRouteDisplaySegments.value
-  const distance = selectedMultiRouteRoadDisplay.value && route.roadDistance ? route.roadDistance : route.distance
+  const distance = routeDisplayDistance(route)
   const duration = selectedMultiRouteDisplayTotalDuration.value || route.durationMinutes
   return formatDistance(distance) + ' · ' + formatDuration(duration) + ' · ' + pathSourceSummary(segments)
 })
