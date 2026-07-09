@@ -7,12 +7,14 @@ import com.zhj.route.service.RouteMapPathService;
 import com.zhj.route.service.RouteOptimizeService;
 import com.zhj.route.service.RouteExportService;
 import com.zhj.route.service.RouteClusterService;
+import com.zhj.route.service.RoutePlanService;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
@@ -32,6 +34,7 @@ public class RouteDataController {
     private final RouteExportService routeExportService;
     private final FacilityImportService facilityImportService;
     private final RouteClusterService routeClusterService;
+    private final RoutePlanService routePlanService;
 
     public RouteDataController(
             RouteQueryService routeQueryService,
@@ -40,7 +43,8 @@ public class RouteDataController {
             RouteMapPathService routeMapPathService,
             RouteExportService routeExportService,
             FacilityImportService facilityImportService,
-            RouteClusterService routeClusterService) {
+            RouteClusterService routeClusterService,
+            RoutePlanService routePlanService) {
         this.routeQueryService = routeQueryService;
         this.routeConformanceService = routeConformanceService;
         this.routeOptimizeService = routeOptimizeService;
@@ -48,6 +52,46 @@ public class RouteDataController {
         this.routeExportService = routeExportService;
         this.facilityImportService = facilityImportService;
         this.routeClusterService = routeClusterService;
+        this.routePlanService = routePlanService;
+    }
+
+
+    @PostMapping("/route-plans/groups")
+    public Map<String, Object> saveRoutePlanGroup(@RequestBody Map<String, Object> request) {
+        return routePlanService.saveGroup(request);
+    }
+
+    @PostMapping("/route-plans/routes")
+    public Map<String, Object> saveRoutePlanRoute(@RequestBody Map<String, Object> request) {
+        return routePlanService.saveRoute(request);
+    }
+
+    @GetMapping("/route-plans/groups")
+    public List<Map<String, Object>> routePlanGroups(
+            @RequestParam(required = false) String unitId,
+            @RequestParam(required = false) String sourceType,
+            @RequestParam(required = false) String keyword) {
+        return routePlanService.groups(unitId, sourceType, keyword);
+    }
+
+    @GetMapping("/route-plans/groups/{id}")
+    public Map<String, Object> routePlanGroup(@PathVariable Long id) {
+        return routePlanService.group(id);
+    }
+
+    @GetMapping("/route-plans/routes/{id}")
+    public Map<String, Object> routePlanRoute(@PathVariable Long id) {
+        return routePlanService.route(id);
+    }
+
+    @DeleteMapping("/route-plans/groups/{id}")
+    public Map<String, Object> deleteRoutePlanGroup(@PathVariable Long id) {
+        return routePlanService.deleteGroup(id);
+    }
+
+    @DeleteMapping("/route-plans/routes/{id}")
+    public Map<String, Object> deleteRoutePlanRoute(@PathVariable Long id) {
+        return routePlanService.deleteRoute(id);
     }
 
     @GetMapping("/companies")
