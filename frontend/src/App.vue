@@ -1508,7 +1508,7 @@ import RouteMapPanel from './components/RouteMapPanel.vue'
 import ClusterMapPanel from './components/ClusterMapPanel.vue'
 
 const LOGIN_USERNAME = 'admin'
-const LOGIN_PASSWORD = 'zhj521%@！'
+const LOGIN_PASSWORD = 'zhj521%@!'
 const LOGIN_SESSION_KEY = 'zhj_route_authenticated'
 
 const authenticated = ref(window.sessionStorage.getItem(LOGIN_SESSION_KEY) === '1')
