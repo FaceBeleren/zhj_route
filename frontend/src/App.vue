@@ -1,5 +1,24 @@
 <template>
-  <main class="app-shell">
+  <section v-if="!authenticated" class="login-shell">
+    <form class="login-card" @submit.prevent="handleLogin">
+      <div>
+        <h1>路线分析</h1>
+        <p>车辆作业路径规划临时访问入口</p>
+      </div>
+      <label>
+        账号
+        <input v-model.trim="loginForm.username" autocomplete="username" placeholder="请输入账号" />
+      </label>
+      <label>
+        密码
+        <input v-model="loginForm.password" autocomplete="current-password" type="password" placeholder="请输入密码" />
+      </label>
+      <p v-if="loginError" class="login-error">{{ loginError }}</p>
+      <button type="submit">登录</button>
+    </form>
+  </section>
+
+  <main v-else class="app-shell">
     <header class="topbar">
       <div>
         <h1>路线分析</h1>
@@ -15,6 +34,7 @@
           <input v-model="filters.endDate" type="date" />
         </label>
         <button @click="reloadCurrent" :disabled="loading">刷新</button>
+        <button class="secondary" @click="handleLogout">退出</button>
       </div>
     </header>
 
@@ -1487,6 +1507,17 @@ import { computed, onMounted, reactive, ref } from 'vue'
 import RouteMapPanel from './components/RouteMapPanel.vue'
 import ClusterMapPanel from './components/ClusterMapPanel.vue'
 
+const LOGIN_USERNAME = 'admin'
+const LOGIN_PASSWORD = 'zhj521%@！'
+const LOGIN_SESSION_KEY = 'zhj_route_authenticated'
+
+const authenticated = ref(window.sessionStorage.getItem(LOGIN_SESSION_KEY) === '1')
+const loginForm = reactive({
+  username: '',
+  password: ''
+})
+const loginError = ref('')
+
 const currentView = ref('saved')
 const companies = ref([])
 const routes = ref([])
@@ -1949,8 +1980,32 @@ const plannedCapacityKg = computed(() =>
 )
 
 onMounted(async () => {
-  await Promise.all([loadCompanies(), loadRouteMapStatus(), loadSavedGroups()])
+  if (authenticated.value) {
+    await initializeAppData()
+  }
 })
+
+async function initializeAppData() {
+  await Promise.all([loadCompanies(), loadRouteMapStatus(), loadSavedGroups()])
+}
+
+async function handleLogin() {
+  if (loginForm.username === LOGIN_USERNAME && loginForm.password === LOGIN_PASSWORD) {
+    window.sessionStorage.setItem(LOGIN_SESSION_KEY, '1')
+    authenticated.value = true
+    loginError.value = ''
+    loginForm.password = ''
+    await initializeAppData()
+    return
+  }
+  loginError.value = '账号或密码错误'
+}
+
+function handleLogout() {
+  window.sessionStorage.removeItem(LOGIN_SESSION_KEY)
+  authenticated.value = false
+  loginForm.password = ''
+}
 
 async function api(path, options) {
   const response = await fetch(path, options)

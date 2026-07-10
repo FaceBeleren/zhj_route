@@ -2509,3 +2509,64 @@ tbody tr.active {
     width: 100%;
   }
 }
+
+
+.login-shell {
+  min-height: 100vh;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: linear-gradient(135deg, #edf4fb 0%, #f7fafc 48%, #e9f1f9 100%);
+}
+
+.login-card {
+  width: min(420px, 100%);
+  display: grid;
+  gap: 16px;
+  padding: 28px;
+  border: 1px solid #d4e0ed;
+  border-radius: 10px;
+  background: #ffffff;
+  box-shadow: 0 18px 48px rgba(23, 45, 77, 0.14);
+}
+
+.login-card h1 {
+  margin: 0;
+  font-size: 26px;
+  color: #17233d;
+}
+
+.login-card p {
+  margin: 6px 0 0;
+  color: #68798d;
+}
+
+.login-card label {
+  display: grid;
+  gap: 6px;
+  color: #41566f;
+  font-size: 14px;
+}
+
+.login-card input {
+  height: 40px;
+  border: 1px solid #c8d6e5;
+  border-radius: 7px;
+  padding: 0 12px;
+  background: #fff;
+}
+
+.login-card button {
+  height: 40px;
+  border-color: #1565c0;
+  border-radius: 7px;
+  background: #1565c0;
+  color: #fff;
+  font-weight: 600;
+}
+
+.login-error {
+  margin: -4px 0 0 !important;
+  color: #b91c1c !important;
+  font-size: 13px;
+}
