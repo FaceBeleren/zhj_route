@@ -96,7 +96,10 @@
               <h2>路线方案库</h2>
               <span class="muted">保存后的路线优化、拆分和多路线方案</span>
             </div>
-            <button @click="loadSavedGroups" :disabled="loading">刷新</button>
+            <div class="panel-actions">
+              <button @click="openRouteImportDialog" :disabled="loading">导入展示</button>
+              <button @click="loadSavedGroups" :disabled="loading">刷新</button>
+            </div>
           </div>
           <div class="saved-filter-grid">
             <input v-model="savedFilters.keyword" placeholder="搜索方案、公司、来源路线" @keyup.enter="loadSavedGroups" />
@@ -105,6 +108,7 @@
               <option value="SINGLE_OPTIMIZE">单路线优化</option>
               <option value="SPLIT">路线拆分</option>
               <option value="MULTI">多路线生成</option>
+              <option value="IMPORT">导入路线</option>
             </select>
             <select v-model="savedFilters.unitId" @change="loadSavedGroups">
               <option value="">全部公司</option>
@@ -128,7 +132,56 @@
         </aside>
 
         <section class="panel saved-plan-detail-panel">
-          <template v-if="selectedSavedGroup">
+          <template v-if="importedRoutePreview">
+            <div class="panel-head">
+              <div>
+                <h2>{{ importedRoutePreview.routeName }}</h2>
+                <span class="muted">导入路线 · {{ importedRoutePreview.unitName || '未选择公司' }} · sheet1：{{ importedRoutePreview.sheetName }}</span>
+              </div>
+              <div class="panel-actions">
+                <button @click="saveImportedRoute" :disabled="loading || !importedRoutePreview.points?.length">保存路线</button>
+                <button class="secondary" @click="clearImportedRoutePreview">关闭预览</button>
+              </div>
+            </div>
+            <div class="optimization-metrics saved-plan-metrics">
+              <span>导入行 {{ importedRoutePreview.totalCount || 0 }}</span>
+              <span>匹配 {{ importedRoutePreview.matchedCount || 0 }}</span>
+              <span>未匹配 {{ importedRoutePreview.unmatchedCount || 0 }}</span>
+              <span>{{ importedRouteDisplaySummary }}</span>
+            </div>
+            <p v-if="importedRoutePreview.unmatchedCount" class="route-import-warning">
+              有 {{ importedRoutePreview.unmatchedCount }} 行未匹配到坐标，已在地图连线中跳过；明细中红色行表示未匹配原始行。
+            </p>
+            <div class="route-display-toolbar saved-display-toolbar">
+              <span>地图展示</span>
+              <button :class="{ active: importedRouteDisplayMode === 'DIRECT' }" @click.stop="setImportedRouteDisplay(false)">点位直线</button>
+              <button :class="{ active: importedRouteDisplayMode === 'ROAD' }" :disabled="routeSegmentLoading" @click.stop="setImportedRouteDisplay(true)">
+                {{ routeSegmentLoading ? '加载道路...' : '道路折线' }}
+              </button>
+              <small>{{ importedRouteDisplaySummary }}</small>
+            </div>
+            <RouteMapPanel
+              :original-points="[]"
+              :optimized-points="importedRoutePreview.points || []"
+              :optimized-segments="importedRouteDisplaySegments"
+              :show-original="false"
+              optimized-label="导入路线"
+            />
+            <div class="route-time-table saved-point-table imported-route-table">
+              <div class="route-time-row head">
+                <span>原始行</span><span>Excel名称</span><span>匹配结果</span><span>类型</span><span>状态</span><span>地图顺序</span>
+              </div>
+              <div v-for="row in importedRoutePreview.rows || []" :key="`import-row-${row.order}-${row.inputName}`" class="route-time-row" :class="{ unmatched: !row.matched }">
+                <span>{{ row.order }}</span>
+                <span>{{ row.inputName }}</span>
+                <span>{{ row.point?.facilityName || '-' }}</span>
+                <span>{{ row.point?.facilityTypeName || '-' }}</span>
+                <span>{{ row.matched ? '已匹配' : row.message }}</span>
+                <span>{{ row.matched ? row.mapOrder || '-' : '跳过' }}</span>
+              </div>
+            </div>
+          </template>
+          <template v-else-if="selectedSavedGroup">
             <div class="panel-head">
               <div>
                 <h2>{{ selectedSavedGroup.groupName }}</h2>
@@ -1477,6 +1530,40 @@
 
 
 
+    <div v-if="routeImportDialog.visible" class="modal-mask" @click.self="closeRouteImportDialog">
+      <section class="modal-card save-plan-modal">
+        <div class="panel-head">
+          <div>
+            <h2>导入路线展示</h2>
+            <span class="muted">只读取 Excel 的 sheet1，并按名称在所选公司下匹配点位和场站</span>
+          </div>
+          <button class="secondary" @click="closeRouteImportDialog">关闭</button>
+        </div>
+        <div class="route-import-form">
+          <label>
+            项目公司
+            <select v-model="routeImportDialog.unitId">
+              <option value="">请选择公司</option>
+              <option v-for="company in companies" :key="company.id" :value="company.id">{{ company.depName || company.id }}</option>
+            </select>
+          </label>
+          <label>
+            路线名称
+            <input v-model.trim="routeImportDialog.routeName" placeholder="不填则使用sheet名称" />
+          </label>
+          <label>
+            Excel文件
+            <input ref="routeImportInput" type="file" accept=".xls,.xlsx" @change="handleRouteImportFileChange" />
+          </label>
+          <p v-if="routeImportDialog.error" class="login-error">{{ routeImportDialog.error }}</p>
+        </div>
+        <div class="modal-actions">
+          <button class="secondary" @click="closeRouteImportDialog">取消</button>
+          <button @click="importRoutePreview" :disabled="loading || !routeImportDialog.unitId || !routeImportDialog.file">导入</button>
+        </div>
+      </section>
+    </div>
+
     <div v-if="saveDialog.visible" class="modal-mask" @click.self="closeSaveDialog">
       <section class="modal-card save-plan-modal">
         <div class="panel-head">
@@ -1575,6 +1662,16 @@ const saveDialog = reactive({
   name: '',
   payload: null
 })
+const routeImportInput = ref(null)
+const routeImportDialog = reactive({
+  visible: false,
+  unitId: '',
+  routeName: '',
+  file: null,
+  error: ''
+})
+const importedRoutePreview = ref(null)
+const importedRouteDisplayMode = ref('DIRECT')
 const routeProgress = reactive({
   visible: false,
   activeIndex: -1,
@@ -1866,6 +1963,19 @@ const selectedSavedRouteDisplaySummary = computed(() => {
   const route = selectedSavedRoute.value
   if (!route) return ''
   return formatDistance(savedRouteDisplayDistance(route)) + ' · ' + formatDuration(savedRouteDisplayTotalDuration(route)) + ' · ' + savedRouteDisplaySummary(route)
+})
+const importedRouteDisplaySegments = computed(() => {
+  const route = importedRoutePreview.value
+  if (!route) return []
+  if (importedRouteDisplayMode.value === 'ROAD' && hasRoadSegments(route.roadSegments)) return route.roadSegments
+  return route.segments || []
+})
+const importedRouteDisplaySummary = computed(() => {
+  const route = importedRoutePreview.value
+  if (!route) return ''
+  const distance = importedRouteDisplayMode.value === 'ROAD' && route.roadDistance ? route.roadDistance : route.distance
+  const travel = importedRouteDisplayMode.value === 'ROAD' && route.roadDurationMinutes ? route.roadDurationMinutes : route.travelDurationMinutes
+  return formatDistance(distance) + ' · ' + formatDuration(travel) + ' · ' + pathSourceSummary(importedRouteDisplaySegments.value)
 })
 function savedRouteRoadDisplay(route) {
   return !!(route?.id && savedRouteDisplayModes.value[route.id] === 'ROAD')
@@ -3059,6 +3169,126 @@ function progressStepMark(index) {
 }
 
 
+
+function openRouteImportDialog() {
+  routeImportDialog.visible = true
+  routeImportDialog.error = ''
+  if (!routeImportDialog.unitId && savedFilters.unitId) {
+    routeImportDialog.unitId = savedFilters.unitId
+  }
+}
+
+function closeRouteImportDialog() {
+  routeImportDialog.visible = false
+  routeImportDialog.error = ''
+}
+
+function handleRouteImportFileChange(event) {
+  routeImportDialog.file = event.target.files?.[0] || null
+}
+
+async function importRoutePreview() {
+  if (!routeImportDialog.unitId || !routeImportDialog.file) return
+  const company = companies.value.find((item) => String(item.id) === String(routeImportDialog.unitId))
+  const form = new FormData()
+  form.append('unitId', routeImportDialog.unitId)
+  form.append('file', routeImportDialog.file)
+  await withLoading(async () => {
+    const response = await fetch('/api/import/route-preview', { method: 'POST', body: form })
+    if (!response.ok) throw new Error(`${response.status} ${response.statusText}`)
+    const preview = await response.json()
+    const routeName = routeImportDialog.routeName || preview.routeName || '导入路线'
+    const direct = await api('/api/optimize/route-segments', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ points: preview.points || [], displayRoadPath: false })
+    })
+    importedRoutePreview.value = {
+      ...preview,
+      routeName,
+      unitId: routeImportDialog.unitId,
+      unitName: company?.depName || routeImportDialog.unitId,
+      points: preview.points || [],
+      segments: direct.segments || [],
+      distance: direct.distance,
+      travelDurationMinutes: direct.durationMinutes,
+      pathSourceSummary: pathSourceSummary(direct.segments || [])
+    }
+    importedRouteDisplayMode.value = 'DIRECT'
+    selectedSavedGroup.value = null
+    selectedSavedRouteId.value = null
+    closeRouteImportDialog()
+  })
+}
+
+async function setImportedRouteDisplay(useRoad) {
+  const route = importedRoutePreview.value
+  if (!route) return
+  if (!useRoad) {
+    importedRouteDisplayMode.value = 'DIRECT'
+    return
+  }
+  importedRouteDisplayMode.value = 'ROAD'
+  if (hasRoadSegments(route.roadSegments)) return
+  routeSegmentLoading.value = true
+  try {
+    const result = await api('/api/optimize/route-segments', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ points: route.points || [], displayRoadPath: true })
+    })
+    route.roadSegments = result.segments || []
+    route.roadDistance = result.distance
+    route.roadDurationMinutes = result.durationMinutes
+  } catch (err) {
+    error.value = err.message || String(err)
+    importedRouteDisplayMode.value = 'DIRECT'
+  } finally {
+    routeSegmentLoading.value = false
+  }
+}
+
+function clearImportedRoutePreview() {
+  importedRoutePreview.value = null
+  importedRouteDisplayMode.value = 'DIRECT'
+}
+
+async function saveImportedRoute() {
+  const route = importedRoutePreview.value
+  if (!route?.points?.length) return
+  const payload = {
+    mode: 'route',
+    sourceType: 'IMPORT',
+    unitId: route.unitId,
+    unitName: route.unitName,
+    planningStrategy: 'IMPORT_DISPLAY',
+    defaultDisplayMode: importedRouteDisplayMode.value,
+    routeName: route.routeName,
+    groupName: route.routeName,
+    route: routeSnapshotForSave(route),
+    summary: {
+      totalCount: route.totalCount,
+      matchedCount: route.matchedCount,
+      unmatchedCount: route.unmatchedCount,
+      sheetName: route.sheetName
+    },
+    request: {
+      importRows: route.rows,
+      source: 'excel-sheet1'
+    }
+  }
+  await withLoading(async () => {
+    const saved = await api('/api/route-plans/routes', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    })
+    await loadSavedGroups()
+    clearImportedRoutePreview()
+    await selectSavedGroup({ id: saved.groupId })
+  })
+}
+
 async function loadSavedGroups() {
   const params = new URLSearchParams()
   if (savedFilters.keyword) params.set('keyword', savedFilters.keyword)
@@ -3074,6 +3304,8 @@ async function loadSavedGroups() {
 }
 
 async function selectSavedGroup(group) {
+  importedRoutePreview.value = null
+  importedRouteDisplayMode.value = 'DIRECT'
   await withLoading(async () => {
     selectedSavedGroup.value = await api('/api/route-plans/groups/' + group.id)
     selectedSavedRouteId.value = selectedSavedGroup.value.routes?.[0]?.id || null
@@ -3278,6 +3510,7 @@ function sourceTypeLabel(value) {
   if (value === 'SINGLE_OPTIMIZE') return '单路线优化'
   if (value === 'SPLIT') return '路线拆分'
   if (value === 'MULTI') return '多路线生成'
+  if (value === 'IMPORT') return '导入路线'
   return value || '-'
 }
 

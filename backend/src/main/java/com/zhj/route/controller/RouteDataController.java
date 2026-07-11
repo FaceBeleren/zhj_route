@@ -203,6 +203,14 @@ public class RouteDataController {
         return facilityImportService.extractNames(file);
     }
 
+
+    @PostMapping("/import/route-preview")
+    public Map<String, Object> importRoutePreview(
+            @RequestParam("unitId") String unitId,
+            @RequestParam("file") MultipartFile file) {
+        return facilityImportService.importRoutePreview(unitId, file);
+    }
+
     @GetMapping("/conformance/companies/score")
     public List<Map<String, Object>> companyScores(
             @RequestParam(required = false) String unitIds,
