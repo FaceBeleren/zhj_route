@@ -3195,7 +3195,10 @@ async function importRoutePreview() {
   form.append('file', routeImportDialog.file)
   await withLoading(async () => {
     const response = await fetch('/api/import/route-preview', { method: 'POST', body: form })
-    if (!response.ok) throw new Error(`${response.status} ${response.statusText}`)
+    if (!response.ok) {
+      const body = await response.json().catch(() => null)
+      throw new Error(body?.message || `${response.status} ${response.statusText}`)
+    }
     const preview = await response.json()
     const routeName = routeImportDialog.routeName || preview.routeName || '导入路线'
     const direct = await api('/api/optimize/route-segments', {

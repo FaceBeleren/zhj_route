@@ -6,6 +6,7 @@ import org.apache.poi.ss.usermodel.Row;
 import org.apache.poi.ss.usermodel.Sheet;
 import org.apache.poi.ss.usermodel.Workbook;
 import org.apache.poi.ss.usermodel.WorkbookFactory;
+import org.springframework.dao.DataAccessException;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.web.multipart.MultipartFile;
@@ -93,6 +94,50 @@ public class FacilityImportService {
         if (file == null || file.isEmpty()) {
             throw new IllegalArgumentException("请选择要导入的Excel文件");
         }
+        ParsedRouteSheet parsed = parseRouteSheet(file);
+        Map<String, Map<String, Object>> candidates = routeDisplayCandidates(unitId);
+        List<Map<String, Object>> rows = new ArrayList<Map<String, Object>>();
+        List<Map<String, Object>> points = new ArrayList<Map<String, Object>>();
+        int order = 1;
+        for (String name : parsed.orderedNames) {
+            Map<String, Object> row = new HashMap<String, Object>();
+            row.put("order", order);
+            row.put("inputName", name);
+            Map<String, Object> matched = candidates.get(normalizeName(name));
+            if (matched == null) {
+                row.put("matched", false);
+                row.put("message", "未匹配到公司点位或场站");
+            } else {
+                row.put("matched", true);
+                row.put("point", matched);
+                Map<String, Object> point = new HashMap<String, Object>(matched);
+                point.put("order", points.size() + 1);
+                point.put("role", "MIDDLE");
+                points.add(point);
+                row.put("mapOrder", points.size());
+            }
+            rows.add(row);
+            order++;
+        }
+        if (!points.isEmpty()) {
+            points.get(0).put("role", "START");
+            points.get(points.size() - 1).put("role", "END");
+        }
+        Map<String, Object> result = new HashMap<String, Object>();
+        result.put("sheetName", parsed.sheetName);
+        result.put("headerRow", parsed.header.rowIndex + 1);
+        result.put("nameColumn", parsed.header.columnIndex + 1);
+        result.put("nameColumnTitle", parsed.header.title);
+        result.put("rows", rows);
+        result.put("points", points);
+        result.put("totalCount", parsed.orderedNames.size());
+        result.put("matchedCount", points.size());
+        result.put("unmatchedCount", parsed.orderedNames.size() - points.size());
+        result.put("routeName", parsed.sheetName == null || parsed.sheetName.trim().isEmpty() ? "导入路线" : parsed.sheetName);
+        return result;
+    }
+
+    private ParsedRouteSheet parseRouteSheet(MultipartFile file) {
         try (InputStream inputStream = file.getInputStream(); Workbook workbook = WorkbookFactory.create(inputStream)) {
             if (workbook.getNumberOfSheets() == 0) {
                 throw new IllegalArgumentException("Excel中没有工作表");
@@ -103,47 +148,7 @@ public class FacilityImportService {
             if (header == null) {
                 throw new IllegalArgumentException("sheet1未找到名称列，请确认表头包含：名称、点位名称、设施名称或垃圾位置/桶位位置");
             }
-            List<String> orderedNames = readOrderedNames(sheet, formatter, header);
-            Map<String, Map<String, Object>> candidates = routeDisplayCandidates(unitId);
-            List<Map<String, Object>> rows = new ArrayList<Map<String, Object>>();
-            List<Map<String, Object>> points = new ArrayList<Map<String, Object>>();
-            int order = 1;
-            for (String name : orderedNames) {
-                Map<String, Object> row = new HashMap<String, Object>();
-                row.put("order", order);
-                row.put("inputName", name);
-                Map<String, Object> matched = candidates.get(normalizeName(name));
-                if (matched == null) {
-                    row.put("matched", false);
-                    row.put("message", "未匹配到公司点位或场站");
-                } else {
-                    row.put("matched", true);
-                    row.put("point", matched);
-                    Map<String, Object> point = new HashMap<String, Object>(matched);
-                    point.put("order", points.size() + 1);
-                    point.put("role", "MIDDLE");
-                    points.add(point);
-                    row.put("mapOrder", points.size());
-                }
-                rows.add(row);
-                order++;
-            }
-            if (!points.isEmpty()) {
-                points.get(0).put("role", "START");
-                points.get(points.size() - 1).put("role", "END");
-            }
-            Map<String, Object> result = new HashMap<String, Object>();
-            result.put("sheetName", sheet.getSheetName());
-            result.put("headerRow", header.rowIndex + 1);
-            result.put("nameColumn", header.columnIndex + 1);
-            result.put("nameColumnTitle", header.title);
-            result.put("rows", rows);
-            result.put("points", points);
-            result.put("totalCount", orderedNames.size());
-            result.put("matchedCount", points.size());
-            result.put("unmatchedCount", orderedNames.size() - points.size());
-            result.put("routeName", sheet.getSheetName() == null || sheet.getSheetName().trim().isEmpty() ? "导入路线" : sheet.getSheetName());
-            return result;
+            return new ParsedRouteSheet(sheet.getSheetName(), header, readOrderedNames(sheet, formatter, header));
         } catch (IllegalArgumentException e) {
             throw e;
         } catch (Exception e) {
@@ -255,7 +260,11 @@ public class FacilityImportService {
                 "AND (equip.typeId = '4' OR equip.typeName = '停车场') " +
                 "AND equip.longitudeDone IS NOT NULL AND equip.latitudeDone IS NOT NULL " +
                 "ORDER BY equip.name, equip.id";
-        return jdbcTemplate.queryForList(sql, unitId);
+        try {
+            return jdbcTemplate.queryForList(sql, unitId);
+        } catch (DataAccessException e) {
+            return new ArrayList<Map<String, Object>>();
+        }
     }
 
     private void putCandidate(Map<String, Map<String, Object>> result, Map<String, Object> point) {
@@ -293,6 +302,18 @@ public class FacilityImportService {
             return "";
         }
         return formatter.formatCellValue(cell).trim();
+    }
+
+    private static class ParsedRouteSheet {
+        private final String sheetName;
+        private final Header header;
+        private final List<String> orderedNames;
+
+        private ParsedRouteSheet(String sheetName, Header header, List<String> orderedNames) {
+            this.sheetName = sheetName;
+            this.header = header;
+            this.orderedNames = orderedNames;
+        }
     }
 
     private static class Header {
