@@ -250,7 +250,7 @@ public class FacilityImportService {
     }
 
     private List<Map<String, Object>> queryParkingCandidates(String unitId) {
-        String sql = "SELECT equip.id AS facilityId, equip.name AS facilityName, equip.typeId AS facilityType, " +
+        String sql = "SELECT equip.id AS originalFacilityId, equip.name AS facilityName, equip.typeId AS facilityType, " +
                 "equip.typeName AS facilityTypeName, equip.longitudeDone AS longitude, equip.latitudeDone AS latitude, " +
                 "0 AS containerCount, 0 AS estimatedVolumeLiter, 0 AS estimatedWeightKg, 'PARKING' AS anchorSource " +
                 "FROM sszhgl.sszhgl_equipment equip " +
@@ -261,7 +261,12 @@ public class FacilityImportService {
                 "AND equip.longitudeDone IS NOT NULL AND equip.latitudeDone IS NOT NULL " +
                 "ORDER BY equip.name, equip.id";
         try {
-            return jdbcTemplate.queryForList(sql, unitId);
+            List<Map<String, Object>> rows = jdbcTemplate.queryForList(sql, unitId);
+            long id = -900000000001L;
+            for (Map<String, Object> row : rows) {
+                row.put("facilityId", id--);
+            }
+            return rows;
         } catch (DataAccessException e) {
             return new ArrayList<Map<String, Object>>();
         }
