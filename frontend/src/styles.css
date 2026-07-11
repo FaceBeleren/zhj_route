@@ -333,6 +333,39 @@ button:disabled {
   flex-wrap: wrap;
 }
 
+.saved-plan-actions {
+  align-items: center;
+  flex-wrap: nowrap;
+  gap: 10px;
+}
+
+.saved-plan-actions .action-pill {
+  min-width: 86px;
+  height: 38px;
+  border-radius: 8px;
+  padding: 0 16px;
+  font-weight: 700;
+  white-space: nowrap;
+  box-shadow: 0 1px 2px rgba(21, 101, 192, 0.12);
+}
+
+.saved-plan-actions .action-pill.primary {
+  border-color: #1565c0;
+  background: #1565c0;
+  color: #fff;
+}
+
+.saved-plan-actions .action-pill.secondary {
+  border-color: #bfd1e4;
+  background: #f4f8fc;
+  color: #1f4f7a;
+}
+
+.saved-plan-actions .action-pill:not(:disabled):hover {
+  transform: translateY(-1px);
+  box-shadow: 0 3px 8px rgba(21, 101, 192, 0.16);
+}
+
 .route-preview-actions {
   align-items: center;
   flex-wrap: wrap;
@@ -2592,6 +2625,68 @@ tbody tr.active {
   border-radius: 6px;
   padding: 0 10px;
   background: #fff;
+}
+
+.company-combobox {
+  display: grid;
+  gap: 8px;
+}
+
+.company-combobox input {
+  width: 100%;
+}
+
+.company-combobox-list {
+  display: grid;
+  gap: 6px;
+  max-height: 220px;
+  overflow: auto;
+  padding: 8px;
+  border: 1px solid #d6e3f1;
+  border-radius: 8px;
+  background: #f8fbff;
+}
+
+.company-combobox-list button {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-height: 38px;
+  padding: 7px 10px;
+  border: 1px solid transparent;
+  border-radius: 7px;
+  background: #fff;
+  text-align: left;
+}
+
+.company-combobox-list button:hover {
+  border-color: #9ec5fe;
+  background: #edf6ff;
+}
+
+.company-combobox-list button.active {
+  border-color: #1565c0;
+  background: #1565c0;
+  color: #fff;
+}
+
+.company-combobox-list span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 700;
+}
+
+.company-combobox-list small {
+  flex: 0 0 auto;
+  color: #6b7c93;
+  font-size: 12px;
+}
+
+.company-combobox-list button.active small {
+  color: rgba(255, 255, 255, 0.82);
 }
 
 .route-import-warning {

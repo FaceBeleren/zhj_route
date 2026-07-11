@@ -96,9 +96,9 @@
               <h2>路线方案库</h2>
               <span class="muted">保存后的路线优化、拆分和多路线方案</span>
             </div>
-            <div class="panel-actions">
-              <button @click="openRouteImportDialog" :disabled="loading">导入展示</button>
-              <button @click="loadSavedGroups" :disabled="loading">刷新</button>
+            <div class="panel-actions saved-plan-actions">
+              <button class="action-pill primary" @click="openRouteImportDialog" :disabled="loading">导入路线</button>
+              <button class="action-pill secondary" @click="loadSavedGroups" :disabled="loading">刷新列表</button>
             </div>
           </div>
           <div class="saved-filter-grid">
@@ -1542,10 +1542,21 @@
         <div class="route-import-form">
           <label>
             项目公司
-            <select v-model="routeImportDialog.unitId">
-              <option value="">请选择公司</option>
-              <option v-for="company in companies" :key="company.id" :value="company.id">{{ company.depName || company.id }}</option>
-            </select>
+            <div class="company-combobox">
+              <input v-model="routeImportCompanyKeyword" placeholder="搜索公司名称、编码或ID" @input="routeImportDialog.unitId = ''" />
+              <div class="company-combobox-list">
+                <button
+                  v-for="company in filteredRouteImportCompanies"
+                  :key="company.id"
+                  type="button"
+                  :class="{ active: String(routeImportDialog.unitId) === String(company.id) }"
+                  @click="selectRouteImportCompany(company)"
+                >
+                  <span>{{ company.depName || company.id }}</span>
+                  <small>{{ company.depCode || company.id }}</small>
+                </button>
+              </div>
+            </div>
           </label>
           <label>
             路线名称
@@ -1663,6 +1674,7 @@ const saveDialog = reactive({
   payload: null
 })
 const routeImportInput = ref(null)
+const routeImportCompanyKeyword = ref('')
 const routeImportDialog = reactive({
   visible: false,
   unitId: '',
@@ -1763,6 +1775,18 @@ const filteredCompanies = computed(() => {
       String(value || '').toLowerCase().includes(keyword)
     )
   })
+})
+
+const filteredRouteImportCompanies = computed(() => {
+  const keyword = routeImportCompanyKeyword.value.trim().toLowerCase()
+  const list = keyword
+    ? companies.value.filter((item) =>
+        [item.depName, item.depCode, item.id].some((value) =>
+          String(value || '').toLowerCase().includes(keyword)
+        )
+      )
+    : companies.value
+  return list.slice(0, 60)
 })
 const currentTypeName = computed(() => (dataType.value === 1 ? '岗位' : '路线'))
 const selectedCompanyPoints = computed(() =>
@@ -3176,6 +3200,13 @@ function openRouteImportDialog() {
   if (!routeImportDialog.unitId && savedFilters.unitId) {
     routeImportDialog.unitId = savedFilters.unitId
   }
+  const selected = companies.value.find((item) => String(item.id) === String(routeImportDialog.unitId))
+  routeImportCompanyKeyword.value = selected ? `${selected.depName || selected.id}` : ''
+}
+
+function selectRouteImportCompany(company) {
+  routeImportDialog.unitId = company.id
+  routeImportCompanyKeyword.value = company.depName || company.depCode || String(company.id)
 }
 
 function closeRouteImportDialog() {
