@@ -270,11 +270,11 @@ public class RoutePlanService {
                 .collect(Collectors.toList());
         route.put("points", points);
         route.put("segments", segments);
-        if (!segments.isEmpty()) {
-            route.put("roadSegments", segments);
-            if (route.get("roadDistance") == null) {
-                route.put("roadDistance", route.get("distance"));
-            }
+        List<Map<String, Object>> roadSegments = segments.stream()
+                .filter(segment -> isRoadPathSource(textOrNull(segment.get("pathSource"))))
+                .collect(Collectors.toList());
+        if (!roadSegments.isEmpty()) {
+            route.put("roadSegments", roadSegments);
             if (route.get("roadDurationMinutes") == null) {
                 route.put("roadDurationMinutes", route.get("travelDurationMinutes"));
             }
@@ -413,6 +413,10 @@ public class RoutePlanService {
                 .filter(Objects::nonNull)
                 .distinct()
                 .collect(Collectors.joining("/"));
+    }
+
+    private boolean isRoadPathSource(String source) {
+        return "OD_CACHE".equals(source) || "OD_PRELOAD".equals(source) || "BAIDU_ONLINE".equals(source);
     }
 
     private List<Map<String, Object>> listOfMaps(Object value) {

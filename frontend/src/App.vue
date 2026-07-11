@@ -39,9 +39,6 @@
     </header>
 
     <nav class="view-tabs" aria-label="功能视图">
-      <button :class="{ active: currentView === 'saved' }" @click="currentView = 'saved'">
-        路线方案库
-      </button>
       <button :class="{ active: currentView === 'score' }" @click="currentView = 'score'">
         路线评分
       </button>
@@ -56,6 +53,9 @@
       </button>
       <button :class="{ active: currentView === 'multi' }" @click="currentView = 'multi'">
         多路线生成
+      </button>
+      <button :class="{ active: currentView === 'saved' }" @click="currentView = 'saved'">
+        路线方案库
       </button>
     </nav>
 
@@ -1518,7 +1518,7 @@ const loginForm = reactive({
 })
 const loginError = ref('')
 
-const currentView = ref('saved')
+const currentView = ref('score')
 const companies = ref([])
 const routes = ref([])
 const splitRoutes = ref([])
@@ -1872,7 +1872,7 @@ function savedRouteRoadDisplay(route) {
 }
 function savedRouteDisplaySegments(route) {
   if (!route) return []
-  if (savedRouteRoadDisplay(route) && route.roadSegments?.length) return route.roadSegments
+  if (savedRouteRoadDisplay(route) && hasRoadSegments(route.roadSegments)) return route.roadSegments
   return route.segments || []
 }
 function savedRouteDisplayDistance(route) {
@@ -1892,6 +1892,14 @@ function savedRouteDisplayTotalDuration(route) {
 function savedRouteDisplaySummary(route) {
   const segments = savedRouteDisplaySegments(route)
   return pathSourceSummary(segments || []) || '点位直线'
+}
+
+function hasRoadSegments(segments) {
+  return (segments || []).some((segment) => isRoadPathSource(segment?.pathSource))
+}
+
+function isRoadPathSource(source) {
+  return source === 'OD_CACHE' || source === 'OD_PRELOAD' || source === 'BAIDU_ONLINE'
 }
 
 const companyPointVisibleList = computed(() =>
@@ -2984,7 +2992,7 @@ async function setSelectedMultiRouteDisplay(useRoad) {
     return
   }
   multiRouteDisplayModes.value = { ...multiRouteDisplayModes.value, [route.routeNo]: 'ROAD' }
-  if (route.roadSegments?.length) return
+  if (hasRoadSegments(route.roadSegments)) return
   routeSegmentLoading.value = true
   try {
     const result = await api('/api/optimize/route-segments', {
@@ -3080,7 +3088,7 @@ async function setSavedRouteDisplay(useRoad) {
     return
   }
   savedRouteDisplayModes.value = { ...savedRouteDisplayModes.value, [route.id]: 'ROAD' }
-  if (route.roadSegments?.length) return
+  if (hasRoadSegments(route.roadSegments)) return
   routeSegmentLoading.value = true
   try {
     const result = await api('/api/optimize/route-segments', {
