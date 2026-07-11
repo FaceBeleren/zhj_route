@@ -97,9 +97,27 @@
               <span class="muted">保存后的路线优化、拆分和多路线方案</span>
             </div>
             <div class="panel-actions saved-plan-actions">
+              <button class="action-pill secondary" @click="openCreateFolderDialog" :disabled="loading">新建分组</button>
               <button class="action-pill primary" @click="openRouteImportDialog" :disabled="loading">导入路线</button>
               <button class="action-pill secondary" @click="loadSavedGroups" :disabled="loading">刷新列表</button>
             </div>
+          </div>
+          <div class="saved-folder-toolbar">
+            <button :class="{ active: selectedSavedFolderId === 'all' }" @click="selectSavedFolder('all')">全部方案</button>
+            <button :class="{ active: selectedSavedFolderId === 'ungrouped' }" @click="selectSavedFolder('ungrouped')">未分组</button>
+            <button
+              v-for="folder in savedFolders"
+              :key="folder.id"
+              :class="{ active: String(selectedSavedFolderId) === String(folder.id) }"
+              @click="selectSavedFolder(folder.id)"
+            >
+              <span class="folder-icon">▰</span>{{ folder.folderName }}
+            </button>
+          </div>
+          <div v-if="selectedSavedPlanIds.length" class="saved-batch-toolbar">
+            <span>已选 {{ selectedSavedPlanIds.length }} 个方案</span>
+            <button class="action-pill primary" @click="openAssignFolderDialog">归入分组</button>
+            <button class="ghost-button" @click="selectedSavedPlanIds = []">取消选择</button>
           </div>
           <div class="saved-filter-grid">
             <input v-model="savedFilters.keyword" placeholder="搜索方案、公司、来源路线" @keyup.enter="loadSavedGroups" />
@@ -116,18 +134,21 @@
             </select>
           </div>
           <div class="saved-plan-list">
-            <button
-              v-for="group in savedGroups"
+            <div
+              v-for="group in filteredSavedGroups"
               :key="group.id"
               class="saved-plan-item"
               :class="{ active: selectedSavedGroup?.id === group.id }"
               @click="selectSavedGroup(group)"
             >
+              <label class="saved-plan-check" @click.stop>
+                <input type="checkbox" :value="group.id" v-model="selectedSavedPlanIds" />
+              </label>
               <strong>{{ group.groupName }}</strong>
               <span>{{ sourceTypeLabel(group.sourceType) }} · {{ group.routeCount || 0 }} 条 · {{ group.unitName || '未关联公司' }}</span>
               <small>{{ formatDate(group.createTime) }}</small>
-            </button>
-            <div v-if="savedGroups.length === 0" class="empty">暂无保存方案。可在路线详情、路线拆分或多路线生成页面保存结果。</div>
+            </div>
+            <div v-if="filteredSavedGroups.length === 0" class="empty">暂无符合条件的保存方案。</div>
           </div>
         </aside>
 
@@ -1575,6 +1596,35 @@
       </section>
     </div>
 
+    <div v-if="folderDialog.visible" class="modal-mask" @click.self="closeFolderDialog">
+      <section class="modal-card save-plan-modal">
+        <div class="panel-head">
+          <div>
+            <h2>{{ folderDialog.assignMode ? '归入方案分组' : '新建方案分组' }}</h2>
+            <span class="muted">{{ folderDialog.assignMode ? '选择一个文件夹，批量整理已勾选的方案' : '例如：原聚类方案、月山试跑方案' }}</span>
+          </div>
+          <button class="secondary" @click="closeFolderDialog">关闭</button>
+        </div>
+        <label v-if="!folderDialog.assignMode" class="save-name-field">
+          分组名称
+          <input v-model.trim="folderDialog.name" placeholder="请输入分组名称" autofocus />
+        </label>
+        <label v-else class="save-name-field">
+          目标分组
+          <select v-model="folderDialog.folderId">
+            <option value="">移出分组（放回未分组）</option>
+            <option v-for="folder in savedFolders" :key="folder.id" :value="String(folder.id)">{{ folder.folderName }}</option>
+          </select>
+        </label>
+        <div class="modal-actions">
+          <button class="secondary" @click="closeFolderDialog">取消</button>
+          <button @click="folderDialog.assignMode ? assignSavedPlans() : createSavedFolder()" :disabled="loading">
+            {{ folderDialog.assignMode ? '确认归组' : '创建分组' }}
+          </button>
+        </div>
+      </section>
+    </div>
+
     <div v-if="saveDialog.visible" class="modal-mask" @click.self="closeSaveDialog">
       <section class="modal-card save-plan-modal">
         <div class="panel-head">
@@ -1658,12 +1708,21 @@ const routeSegmentLoading = ref(false)
 const multiRouteDisplayModes = ref({})
 const savedRouteDisplayModes = ref({})
 const savedGroups = ref([])
+const savedFolders = ref([])
+const selectedSavedFolderId = ref('all')
+const selectedSavedPlanIds = ref([])
 const selectedSavedGroup = ref(null)
 const selectedSavedRouteId = ref(null)
 const savedFilters = reactive({
   keyword: '',
   sourceType: '',
   unitId: ''
+})
+const folderDialog = reactive({
+  visible: false,
+  assignMode: false,
+  name: '',
+  folderId: ''
 })
 const saveDialog = reactive({
   visible: false,
@@ -1967,6 +2026,12 @@ const selectedMultiRouteDisplaySummary = computed(() => {
   const distance = routeDisplayDistance(route)
   const duration = selectedMultiRouteDisplayTotalDuration.value || route.durationMinutes
   return formatDistance(distance) + ' · ' + formatDuration(duration) + ' · ' + pathSourceSummary(segments)
+})
+
+const filteredSavedGroups = computed(() => {
+  if (selectedSavedFolderId.value === 'all') return savedGroups.value
+  if (selectedSavedFolderId.value === 'ungrouped') return savedGroups.value.filter((group) => !group.folderId)
+  return savedGroups.value.filter((group) => String(group.folderId) === String(selectedSavedFolderId.value))
 })
 
 const selectedSavedRoute = computed(() => {
@@ -3329,11 +3394,81 @@ async function loadSavedGroups() {
   if (savedFilters.sourceType) params.set('sourceType', savedFilters.sourceType)
   if (savedFilters.unitId) params.set('unitId', savedFilters.unitId)
   await withLoading(async () => {
-    savedGroups.value = await api('/api/route-plans/groups' + (params.toString() ? '?' + params.toString() : ''))
+    const [groups, folders] = await Promise.all([
+      api('/api/route-plans/groups' + (params.toString() ? '?' + params.toString() : '')),
+      api('/api/route-plan-folders')
+    ])
+    savedGroups.value = groups
+    savedFolders.value = folders
+    selectedSavedPlanIds.value = selectedSavedPlanIds.value.filter((id) => savedGroups.value.some((group) => String(group.id) === String(id)))
     if (selectedSavedGroup.value && !savedGroups.value.some((group) => group.id === selectedSavedGroup.value.id)) {
       selectedSavedGroup.value = null
       selectedSavedRouteId.value = null
     }
+  })
+}
+
+function selectSavedFolder(folderId) {
+  selectedSavedFolderId.value = folderId
+}
+
+function openCreateFolderDialog() {
+  folderDialog.visible = true
+  folderDialog.assignMode = false
+  folderDialog.name = ''
+  folderDialog.folderId = ''
+}
+
+function openAssignFolderDialog() {
+  if (!selectedSavedPlanIds.value.length) return
+  folderDialog.visible = true
+  folderDialog.assignMode = true
+  folderDialog.name = ''
+  folderDialog.folderId = selectedSavedFolderId.value !== 'all' && selectedSavedFolderId.value !== 'ungrouped'
+    ? String(selectedSavedFolderId.value)
+    : ''
+}
+
+function closeFolderDialog() {
+  folderDialog.visible = false
+  folderDialog.assignMode = false
+  folderDialog.name = ''
+  folderDialog.folderId = ''
+}
+
+async function createSavedFolder() {
+  if (!folderDialog.name.trim()) {
+    error.value = '请输入分组名称'
+    return
+  }
+  await withLoading(async () => {
+    await api('/api/route-plan-folders', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        folderName: folderDialog.name.trim(),
+        unitId: savedFilters.unitId || null
+      })
+    })
+    closeFolderDialog()
+    await loadSavedGroups()
+  })
+}
+
+async function assignSavedPlans() {
+  if (!selectedSavedPlanIds.value.length) return
+  await withLoading(async () => {
+    await api('/api/route-plans/groups/folder', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        folderId: folderDialog.folderId || null,
+        groupIds: selectedSavedPlanIds.value
+      })
+    })
+    selectedSavedPlanIds.value = []
+    closeFolderDialog()
+    await loadSavedGroups()
   })
 }
 

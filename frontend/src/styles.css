@@ -2393,6 +2393,79 @@ tbody tr.active {
   min-height: 560px;
 }
 
+.saved-folder-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 10px 0 8px;
+  border-bottom: 1px solid #e4edf6;
+}
+
+.saved-folder-toolbar button {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-height: 30px;
+  border: 1px solid #cbdbea;
+  border-radius: 6px;
+  padding: 0 10px;
+  background: #fff;
+  color: #3d5872;
+  cursor: pointer;
+}
+
+.saved-folder-toolbar button:hover,
+.saved-folder-toolbar button.active {
+  border-color: #1976d2;
+  background: #eaf4ff;
+  color: #1264b1;
+}
+
+.folder-icon {
+  color: #e4a62a;
+  font-size: 13px;
+}
+
+.saved-batch-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 42px;
+  padding: 8px 10px;
+  margin: 8px 0;
+  border: 1px solid #b9d8f5;
+  border-radius: 7px;
+  background: #f1f8ff;
+  color: #315879;
+  font-size: 13px;
+}
+
+.saved-batch-toolbar .action-pill {
+  min-height: 30px;
+  padding: 0 10px;
+}
+
+.saved-plan-check {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  display: inline-flex;
+  align-items: center;
+  cursor: pointer;
+}
+
+.saved-plan-check input {
+  width: 16px;
+  height: 16px;
+  accent-color: #1976d2;
+}
+
+.saved-plan-list .saved-plan-item {
+  position: relative;
+  padding-right: 38px;
+  cursor: pointer;
+}
+
 .saved-filter-grid {
   display: grid;
   gap: 8px;

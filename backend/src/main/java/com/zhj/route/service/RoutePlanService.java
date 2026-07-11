@@ -103,6 +103,55 @@ public class RoutePlanService {
         return route(routeId);
     }
 
+    public List<Map<String, Object>> folders(String unitId) {
+        StringBuilder sql = new StringBuilder("SELECT * FROM zhj_route_plan_folder WHERE been_deleted = 0");
+        List<Object> args = new ArrayList<>();
+        if (hasText(unitId)) {
+            sql.append(" AND unit_id = ?");
+            args.add(unitId);
+        }
+        sql.append(" ORDER BY folder_name, id");
+        return jdbcTemplate.queryForList(sql.toString(), args.toArray()).stream()
+                .map(this::folderRow)
+                .collect(Collectors.toList());
+    }
+
+    @Transactional
+    public Map<String, Object> createFolder(Map<String, Object> request) {
+        String folderName = text(request.get("folderName"), null);
+        if (folderName == null) {
+            throw new IllegalArgumentException("分组名称不能为空");
+        }
+        Long folderId = insert("INSERT INTO zhj_route_plan_folder (folder_name, unit_id, unit_name, remark) VALUES (?, ?, ?, ?)",
+                folderName,
+                textOrNull(request.get("unitId")),
+                textOrNull(request.get("unitName")),
+                textOrNull(request.get("remark")));
+        return folder(folderId);
+    }
+
+    @Transactional
+    public Map<String, Object> moveGroupsToFolder(Map<String, Object> request) {
+        List<Long> groupIds = longList(request.get("groupIds"));
+        if (groupIds.isEmpty()) {
+            throw new IllegalArgumentException("至少选择一个方案");
+        }
+        Long folderId = toLong(request.get("folderId"));
+        if (folderId != null) {
+            jdbcTemplate.queryForMap("SELECT id FROM zhj_route_plan_folder WHERE id = ? AND been_deleted = 0", folderId);
+        }
+        String placeholders = groupIds.stream().map(item -> "?").collect(Collectors.joining(","));
+        List<Object> args = new ArrayList<>();
+        args.add(folderId);
+        args.addAll(groupIds);
+        jdbcTemplate.update("UPDATE zhj_route_plan_group SET folder_id = ? WHERE been_deleted = 0 AND id IN (" + placeholders + ")", args.toArray());
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("updated", true);
+        result.put("folderId", folderId);
+        result.put("groupIds", groupIds);
+        return result;
+    }
+
     public List<Map<String, Object>> groups(String unitId, String sourceType, String keyword) {
         StringBuilder sql = new StringBuilder("SELECT * FROM zhj_route_plan_group WHERE been_deleted = 0");
         List<Object> args = new ArrayList<>();
@@ -125,6 +174,11 @@ public class RoutePlanService {
         return jdbcTemplate.queryForList(sql.toString(), args.toArray()).stream()
                 .map(this::groupRow)
                 .collect(Collectors.toList());
+    }
+
+    public Map<String, Object> folder(Long id) {
+        return folderRow(jdbcTemplate.queryForMap(
+                "SELECT * FROM zhj_route_plan_folder WHERE id = ? AND been_deleted = 0", id));
     }
 
     public Map<String, Object> group(Long id) {
@@ -285,6 +339,7 @@ public class RoutePlanService {
     private Map<String, Object> groupRow(Map<String, Object> row) {
         Map<String, Object> result = new LinkedHashMap<>();
         result.put("id", row.get("id"));
+        result.put("folderId", row.get("folder_id"));
         result.put("groupName", row.get("group_name"));
         result.put("sourceType", row.get("source_type"));
         result.put("unitId", row.get("unit_id"));
@@ -296,6 +351,18 @@ public class RoutePlanService {
         result.put("routeCount", row.get("route_count"));
         result.put("summary", parseJson(row.get("summary_json")));
         result.put("request", parseJson(row.get("request_json")));
+        result.put("remark", row.get("remark"));
+        result.put("createTime", row.get("create_time"));
+        result.put("updateTime", row.get("update_time"));
+        return result;
+    }
+
+    private Map<String, Object> folderRow(Map<String, Object> row) {
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("id", row.get("id"));
+        result.put("folderName", row.get("folder_name"));
+        result.put("unitId", row.get("unit_id"));
+        result.put("unitName", row.get("unit_name"));
         result.put("remark", row.get("remark"));
         result.put("createTime", row.get("create_time"));
         result.put("updateTime", row.get("update_time"));
@@ -417,6 +484,16 @@ public class RoutePlanService {
 
     private boolean isRoadPathSource(String source) {
         return "OD_CACHE".equals(source) || "OD_PRELOAD".equals(source) || "BAIDU_ONLINE".equals(source);
+    }
+
+    private List<Long> longList(Object value) {
+        if (!(value instanceof List)) return Collections.emptyList();
+        List<Long> result = new ArrayList<>();
+        for (Object item : (List<?>) value) {
+            Long id = toLong(item);
+            if (id != null) result.add(id);
+        }
+        return result;
     }
 
     private List<Map<String, Object>> listOfMaps(Object value) {

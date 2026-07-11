@@ -16,6 +16,7 @@ import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
@@ -55,6 +56,21 @@ public class RouteDataController {
         this.routePlanService = routePlanService;
     }
 
+
+    @GetMapping("/route-plan-folders")
+    public List<Map<String, Object>> routePlanFolders(@RequestParam(required = false) String unitId) {
+        return routePlanService.folders(unitId);
+    }
+
+    @PostMapping("/route-plan-folders")
+    public Map<String, Object> createRoutePlanFolder(@RequestBody Map<String, Object> request) {
+        return routePlanService.createFolder(request);
+    }
+
+    @PutMapping("/route-plans/groups/folder")
+    public Map<String, Object> moveRoutePlanGroups(@RequestBody Map<String, Object> request) {
+        return routePlanService.moveGroupsToFolder(request);
+    }
 
     @PostMapping("/route-plans/groups")
     public Map<String, Object> saveRoutePlanGroup(@RequestBody Map<String, Object> request) {
