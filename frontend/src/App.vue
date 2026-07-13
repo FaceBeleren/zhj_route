@@ -2072,21 +2072,53 @@ function savedRouteRoadDisplay(route) {
 function savedRouteDisplaySegments(route) {
   if (!route) return []
   if (savedRouteRoadDisplay(route) && hasRoadSegments(route.roadSegments)) return route.roadSegments
-  return route.segments || []
+  return buildDirectRouteSegments(route.points || [], savedRouteSpeedKmh(route))
 }
 function savedRouteDisplayDistance(route) {
-  if (!route) return 0
-  return savedRouteRoadDisplay(route) && route.roadDistance ? route.roadDistance : route.distance
+  return sumSegmentDistance(savedRouteDisplaySegments(route))
 }
 function savedRouteDisplayTravelDuration(route) {
-  if (!route) return 0
-  return savedRouteRoadDisplay(route) && route.roadDurationMinutes ? route.roadDurationMinutes : route.travelDurationMinutes
+  return sumSegmentDuration(savedRouteDisplaySegments(route))
 }
 function savedRouteDisplayTotalDuration(route) {
   if (!route) return 0
-  const explicit = route.totalDurationMinutes
-  if (explicit && !savedRouteRoadDisplay(route)) return explicit
   return Number(savedRouteDisplayTravelDuration(route) || 0) + Number(route.operationDurationMinutes || 0)
+}
+function savedRouteSpeedKmh(route) {
+  const request = selectedSavedGroup.value?.request || {}
+  const optimizeOptions = request.optimizeOptions || {}
+  const value = route?.speedKmh || optimizeOptions.speedKmh || request.speedKmh
+  const speed = Number(value)
+  return Number.isFinite(speed) && speed > 0 ? speed : 20
+}
+function buildDirectRouteSegments(points, speedKmh = 20) {
+  const segments = []
+  for (let i = 0; i < points.length - 1; i += 1) {
+    const from = points[i]
+    const to = points[i + 1]
+    const distance = coordinateDistance(from, to)
+    segments.push({
+      order: i + 1,
+      fromFacilityId: from.facilityId,
+      fromFacilityName: from.facilityName,
+      toFacilityId: to.facilityId,
+      toFacilityName: to.facilityName,
+      distance,
+      durationMinutes: distance / (speedKmh * 1000) * 60,
+      pathSource: 'DIRECT',
+      path: [
+        { facilityId: from.facilityId, facilityName: from.facilityName, longitude: Number(from.longitude), latitude: Number(from.latitude) },
+        { facilityId: to.facilityId, facilityName: to.facilityName, longitude: Number(to.longitude), latitude: Number(to.latitude) }
+      ]
+    })
+  }
+  return segments
+}
+function sumSegmentDistance(segments = []) {
+  return (segments || []).reduce((sum, segment) => sum + Number(segment.distance || 0), 0)
+}
+function sumSegmentDuration(segments = []) {
+  return (segments || []).reduce((sum, segment) => sum + Number(segment.durationMinutes || 0), 0)
 }
 function savedRouteDisplaySummary(route) {
   const segments = savedRouteDisplaySegments(route)
@@ -3489,7 +3521,7 @@ async function setSavedRouteDisplay(useRoad) {
     return
   }
   savedRouteDisplayModes.value = { ...savedRouteDisplayModes.value, [route.id]: 'ROAD' }
-  if (hasRoadSegments(route.roadSegments)) return
+  if (hasRoadSegments(route.roadSegments) && Number(route.roadDistance || 0) > 0) return
   routeSegmentLoading.value = true
   try {
     const result = await api('/api/optimize/route-segments', {
@@ -3882,6 +3914,23 @@ function formatDate(value) {
 function pct(value) {
   const n = Number(value || 0)
   return `${(n * 100).toFixed(1)}%`
+}
+
+function coordinateDistance(a, b) {
+  const longitudeA = Number(a?.longitude)
+  const latitudeA = Number(a?.latitude)
+  const longitudeB = Number(b?.longitude)
+  const latitudeB = Number(b?.latitude)
+  if (![longitudeA, latitudeA, longitudeB, latitudeB].every(Number.isFinite)) return 0
+  const earthRadius = 6371000
+  const lat1 = (latitudeA * Math.PI) / 180
+  const lat2 = (latitudeB * Math.PI) / 180
+  const deltaLat = ((latitudeB - latitudeA) * Math.PI) / 180
+  const deltaLng = ((longitudeB - longitudeA) * Math.PI) / 180
+  const sinLat = Math.sin(deltaLat / 2)
+  const sinLng = Math.sin(deltaLng / 2)
+  const h = sinLat * sinLat + Math.cos(lat1) * Math.cos(lat2) * sinLng * sinLng
+  return earthRadius * 2 * Math.atan2(Math.sqrt(h), Math.sqrt(1 - h))
 }
 
 function formatDistance(value) {
