@@ -102,17 +102,48 @@
               <button class="action-pill secondary" @click="loadSavedGroups" :disabled="loading">刷新列表</button>
             </div>
           </div>
-          <div class="saved-folder-toolbar">
-            <button :class="{ active: selectedSavedFolderId === 'all' }" @click="selectSavedFolder('all')">全部方案</button>
-            <button :class="{ active: selectedSavedFolderId === 'ungrouped' }" @click="selectSavedFolder('ungrouped')">未分组</button>
-            <button
-              v-for="folder in savedFolders"
-              :key="folder.id"
-              :class="{ active: String(selectedSavedFolderId) === String(folder.id) }"
-              @click="selectSavedFolder(folder.id)"
-            >
-              <span class="folder-icon">▰</span>{{ folder.folderName }}
+          <div class="saved-library-tree">
+            <button class="tree-root-node" :class="{ active: selectedSavedFolderId === 'all' }" @click="selectSavedFolder('all')">
+              <span>{{ selectedSavedFolderId === 'all' ? '▾' : '▸' }}</span><strong>全部分组</strong>
             </button>
+            <div class="tree-children">
+              <div v-for="folder in savedLibraryTreeFolders" :key="'saved-folder-' + folder.id" class="tree-branch">
+                <button class="tree-node folder-node" :class="{ active: String(selectedSavedFolderId) === String(folder.id) }" @click="toggleSavedLibraryFolder(folder.id)">
+                  <span>{{ isSavedLibraryFolderExpanded(folder.id) ? '▾' : '▸' }}</span><span class="folder-icon">▰</span>{{ folder.folderName }}
+                </button>
+                <div v-if="isSavedLibraryFolderExpanded(folder.id)" class="tree-children">
+                  <div v-for="group in savedLibraryTreeGroups(folder.id)" :key="'saved-group-' + group.id" class="tree-branch">
+                    <button class="tree-node plan-node" :class="{ active: selectedSavedGroup?.id === group.id }" @click="toggleSavedLibraryGroup(group)">
+                      <span>{{ isSavedLibraryGroupExpanded(group.id) ? '▾' : '▸' }}</span><span>▤</span>{{ group.groupName }}<small>{{ group.routeCount || 0 }} 趟</small>
+                    </button>
+                    <div v-if="isSavedLibraryGroupExpanded(group.id)" class="tree-children">
+                      <button v-for="route in (savedGroupDetails[group.id]?.routes || [])" :key="'saved-route-' + route.id" class="tree-node route-node" :class="{ active: selectedSavedRouteId === route.id && selectedSavedGroup?.id === group.id }" @click="selectSavedLibraryRoute(group, route)">
+                        <span>↳</span>{{ route.routeName || ('第 ' + route.routeNo + ' 趟') }}
+                      </button>
+                    </div>
+                  </div>
+                  <div v-if="savedLibraryTreeGroups(folder.id).length === 0" class="tree-empty">暂无方案</div>
+                </div>
+              </div>
+              <div class="tree-branch">
+                <button class="tree-node folder-node" :class="{ active: selectedSavedFolderId === 'ungrouped' }" @click="toggleSavedLibraryFolder('ungrouped')">
+                  <span>{{ isSavedLibraryFolderExpanded('ungrouped') ? '▾' : '▸' }}</span><span>▰</span>未分组
+                </button>
+                <div v-if="isSavedLibraryFolderExpanded('ungrouped')" class="tree-children">
+                  <div v-for="group in savedLibraryTreeGroups('ungrouped')" :key="'saved-ungrouped-' + group.id" class="tree-branch">
+                    <button class="tree-node plan-node" :class="{ active: selectedSavedGroup?.id === group.id }" @click="toggleSavedLibraryGroup(group)">
+                      <span>{{ isSavedLibraryGroupExpanded(group.id) ? '▾' : '▸' }}</span><span>▤</span>{{ group.groupName }}<small>{{ group.routeCount || 0 }} 趟</small>
+                    </button>
+                    <div v-if="isSavedLibraryGroupExpanded(group.id)" class="tree-children">
+                      <button v-for="route in (savedGroupDetails[group.id]?.routes || [])" :key="'saved-ungrouped-route-' + route.id" class="tree-node route-node" :class="{ active: selectedSavedRouteId === route.id && selectedSavedGroup?.id === group.id }" @click="selectSavedLibraryRoute(group, route)">
+                        <span>↳</span>{{ route.routeName || ('第 ' + route.routeNo + ' 趟') }}
+                      </button>
+                    </div>
+                  </div>
+                  <div v-if="savedLibraryTreeGroups('ungrouped').length === 0" class="tree-empty">暂无方案</div>
+                </div>
+              </div>
+            </div>
           </div>
           <div v-if="selectedSavedPlanIds.length" class="saved-batch-toolbar">
             <span>已选 {{ selectedSavedPlanIds.length }} 个方案</span>
@@ -133,17 +164,9 @@
               <option v-for="company in companies" :key="company.id" :value="company.id">{{ company.depName || company.id }}</option>
             </select>
           </div>
-          <div class="saved-plan-list">
-            <div
-              v-for="group in filteredSavedGroups"
-              :key="group.id"
-              class="saved-plan-item"
-              :class="{ active: selectedSavedGroup?.id === group.id }"
-              @click="selectSavedGroup(group)"
-            >
-              <label class="saved-plan-check" @click.stop>
-                <input type="checkbox" :value="group.id" v-model="selectedSavedPlanIds" />
-              </label>
+          <div class="saved-plan-list saved-plan-search-results">
+            <div v-for="group in filteredSavedGroups" :key="group.id" class="saved-plan-item" :class="{ active: selectedSavedGroup?.id === group.id }" @click="selectSavedGroup(group)">
+              <label class="saved-plan-check" @click.stop><input type="checkbox" :value="group.id" v-model="selectedSavedPlanIds" /></label>
               <strong>{{ group.groupName }}</strong>
               <span>{{ sourceTypeLabel(group.sourceType) }} · {{ group.routeCount || 0 }} 条 · {{ group.unitName || '未关联公司' }}</span>
               <small>{{ formatDate(group.createTime) }}</small>
@@ -527,48 +550,64 @@
       <section class="multi-shell split-route-shell">
         <aside class="panel company-panel">
           <div class="panel-head">
-            <h2>{{ splitFromSavedRoute ? '方案库路线' : '项目公司' }}</h2>
-            <input v-if="!splitFromSavedRoute" v-model="companyKeyword" placeholder="搜索公司" />
+            <div><h2>路线来源</h2><span class="muted">选择待拆分路线的来源</span></div>
           </div>
-          <div v-if="splitFromSavedRoute" class="saved-split-source">
-            <strong>{{ selectedSplitRoute?.routeName || '保存路线' }}</strong>
-            <small>{{ selectedSavedGroup?.groupName || '方案库方案' }}</small>
-            <button class="secondary" @click="exitSavedRouteSplit">返回公司路线</button>
+          <div class="split-source-switch">
+            <button :class="{ active: splitSourceMode === 'COMPANY' }" @click="setSplitSourceMode('COMPANY')">项目公司</button>
+            <button :class="{ active: splitSourceMode === 'LIBRARY' }" @click="setSplitSourceMode('LIBRARY')">路线方案库</button>
           </div>
-          <div v-else class="list">
-            <button v-for="company in filteredCompanies" :key="company.id" class="list-item" :class="{ active: selectedSplitCompany?.id === company.id }" @click="selectSplitCompany(company)">
-              <span>{{ company.depName || company.id }}</span>
-              <small>{{ company.depCode || '-' }}</small>
-            </button>
+          <div v-if="splitSourceMode === 'COMPANY'" class="split-company-list">
+            <div class="panel-head compact"><h3>项目公司</h3><input v-model="companyKeyword" placeholder="搜索公司" /></div>
+            <div class="list">
+              <button v-for="company in filteredCompanies" :key="company.id" class="list-item" :class="{ active: selectedSplitCompany?.id === company.id }" @click="selectSplitCompany(company)">
+                <span>{{ company.depName || company.id }}</span><small>{{ company.depCode || '-' }}</small>
+              </button>
+            </div>
+          </div>
+          <div v-else class="split-library-hint">
+            <strong>路线方案库</strong><span>按“分组 → 方案 → 趟次”选择路线</span>
+            <button class="secondary" @click="currentView = 'saved'">打开方案库管理</button>
           </div>
         </aside>
 
         <section class="panel route-panel">
           <div class="route-panel-head">
             <div class="panel-head">
-              <h2>待拆分路线</h2>
+              <h2>{{ splitSourceMode === 'LIBRARY' ? '方案库路线' : '待拆分路线' }}</h2>
               <span class="muted">{{ selectedSplitCompany?.depName || '请选择公司' }}</span>
             </div>
-            <div class="type-segment split-type-segment">
-              <button
-                v-for="option in dataTypeOptions"
-                :key="option.value"
-                :class="{ active: dataType === option.value }"
-                :disabled="loading"
-                @click="changeSplitDataType(option.value)"
-              >
-                {{ option.label }}
-              </button>
+            <div v-if="splitSourceMode === 'COMPANY'" class="type-segment split-type-segment">
+              <button v-for="option in dataTypeOptions" :key="option.value" :class="{ active: dataType === option.value }" :disabled="loading" @click="changeSplitDataType(option.value)">{{ option.label }}</button>
             </div>
             <p class="split-source-note">
               <template v-if="splitFromSavedRoute">来源：路线方案库，当前拆分保存方案中的这一趟路线。</template>
+              <template v-else-if="splitSourceMode === 'LIBRARY'">请在下方树中展开方案并选择具体趟次。</template>
               <template v-else>来源与“路线详情”一致，当前展示 {{ currentTypeName }}。</template>
             </p>
           </div>
-          <div class="list route-list">
+          <div v-if="splitSourceMode === 'LIBRARY'" class="saved-route-tree split-saved-route-tree">
+            <div v-for="folder in splitSavedTreeFolders" :key="'split-folder-' + folder.id" class="tree-branch">
+              <button class="tree-node folder-node" :class="{ active: isSplitSavedFolderExpanded(folder.id) }" @click="toggleSplitSavedFolder(folder.id)">
+                <span>{{ isSplitSavedFolderExpanded(folder.id) ? '▾' : '▸' }}</span><span class="folder-icon">▰</span>{{ folder.folderName }}
+              </button>
+              <div v-if="isSplitSavedFolderExpanded(folder.id)" class="tree-children">
+                <div v-for="group in splitSavedTreeGroups(folder.id)" :key="'split-group-' + group.id" class="tree-branch">
+                  <button class="tree-node plan-node" :class="{ active: isSplitSavedGroupExpanded(group.id) }" @click="toggleSplitSavedGroup(group)">
+                    <span>{{ isSplitSavedGroupExpanded(group.id) ? '▾' : '▸' }}</span><span>▤</span>{{ group.groupName }}<small>{{ group.routeCount || 0 }} 趟</small>
+                  </button>
+                  <div v-if="isSplitSavedGroupExpanded(group.id)" class="tree-children">
+                    <button v-for="route in (splitSavedGroupDetails[group.id]?.routes || [])" :key="'split-route-' + route.id" class="tree-node route-node" :class="{ active: selectedSplitRoute?.id === route.id && splitFromSavedRoute }" @click="selectSplitSavedRoute(group, route)">
+                      <span>↳</span>{{ route.routeName || ('第 ' + route.routeNo + ' 趟') }}
+                    </button>
+                  </div>
+                </div>
+                <div v-if="splitSavedTreeGroups(folder.id).length === 0" class="tree-empty">暂无方案</div>
+              </div>
+            </div>
+          </div>
+          <div v-else class="list route-list">
             <button v-for="route in splitRoutes" :key="route.id" class="list-item" :class="{ active: selectedSplitRoute?.id === route.id }" @click="selectSplitRoute(route)">
-              <span>{{ route.routeName || route.id }}</span>
-              <small>{{ route.dataTypeName || currentTypeName }} ID {{ route.id }}</small>
+              <span>{{ route.routeName || route.id }}</span><small>{{ route.dataTypeName || currentTypeName }} ID {{ route.id }}</small>
             </button>
             <div v-if="selectedSplitCompany && splitRoutes.length === 0" class="empty">当前 {{ currentTypeName }} 暂无可拆分数据，可切换来源类型。</div>
           </div>
@@ -1793,6 +1832,13 @@ const selectedMultiCompany = ref(null)
 const selectedSplitCompany = ref(null)
 const selectedSplitRoute = ref(null)
 const splitFromSavedRoute = ref(false)
+const splitSourceMode = ref('COMPANY')
+const savedTreeExpandedFolderIds = ref(new Set())
+const savedTreeExpandedGroupIds = ref(new Set())
+const savedGroupDetails = ref({})
+const splitSavedExpandedFolderIds = ref(new Set())
+const splitSavedExpandedGroupIds = ref(new Set())
+const splitSavedGroupDetails = ref({})
 const selectedRoute = ref(null)
 const selectedRecord = ref(null)
 const selectedMultiRouteNo = ref(null)
@@ -2050,6 +2096,102 @@ const filteredSavedGroups = computed(() => {
   if (selectedSavedFolderId.value === 'ungrouped') return savedGroups.value.filter((group) => !group.folderId)
   return savedGroups.value.filter((group) => String(group.folderId) === String(selectedSavedFolderId.value))
 })
+
+const savedLibraryTreeFolders = computed(() => savedFolders.value || [])
+const splitSavedTreeFolders = computed(() => [
+  ...(savedFolders.value || []),
+  { id: 'ungrouped', folderName: '未分组' }
+])
+function savedLibraryTreeGroups(folderId) {
+  if (String(folderId) === 'ungrouped') return savedGroups.value.filter((group) => !group.folderId)
+  return savedGroups.value.filter((group) => String(group.folderId) === String(folderId))
+}
+function splitSavedTreeGroups(folderId) {
+  return savedLibraryTreeGroups(folderId)
+}
+function isSavedLibraryFolderExpanded(folderId) {
+  return savedTreeExpandedFolderIds.value.has(String(folderId))
+}
+function isSavedLibraryGroupExpanded(groupId) {
+  return savedTreeExpandedGroupIds.value.has(String(groupId))
+}
+function isSplitSavedFolderExpanded(folderId) {
+  return splitSavedExpandedFolderIds.value.has(String(folderId))
+}
+function isSplitSavedGroupExpanded(groupId) {
+  return splitSavedExpandedGroupIds.value.has(String(groupId))
+}
+async function ensureSavedGroupDetail(group, splitMode = false) {
+  const store = splitMode ? splitSavedGroupDetails.value : savedGroupDetails.value
+  if (store[group.id]) return store[group.id]
+  const detail = await api('/api/route-plans/groups/' + group.id)
+  if (splitMode) {
+    splitSavedGroupDetails.value = { ...splitSavedGroupDetails.value, [group.id]: detail }
+  } else {
+    savedGroupDetails.value = { ...savedGroupDetails.value, [group.id]: detail }
+  }
+  return detail
+}
+async function toggleSavedLibraryFolder(folderId) {
+  const next = new Set(savedTreeExpandedFolderIds.value)
+  const key = String(folderId)
+  if (next.has(key)) next.delete(key)
+  else next.add(key)
+  savedTreeExpandedFolderIds.value = next
+  selectSavedFolder(folderId)
+}
+async function toggleSavedLibraryGroup(group) {
+  const next = new Set(savedTreeExpandedGroupIds.value)
+  const key = String(group.id)
+  if (next.has(key)) next.delete(key)
+  else {
+    next.add(key)
+    await ensureSavedGroupDetail(group)
+  }
+  savedTreeExpandedGroupIds.value = next
+  selectedSavedGroup.value = selectedSavedGroup.value?.id === group.id ? selectedSavedGroup.value : null
+}
+async function selectSavedLibraryRoute(group, route) {
+  const detail = await ensureSavedGroupDetail(group)
+  selectedSavedGroup.value = detail
+  selectedSavedRouteId.value = route.id
+}
+async function setSplitSourceMode(mode) {
+  splitSourceMode.value = mode
+  if (mode === 'COMPANY') {
+    exitSavedRouteSplit()
+    return
+  }
+  splitFromSavedRoute.value = false
+  selectedSplitCompany.value = null
+  selectedSplitRoute.value = null
+  splitRoutes.value = []
+  splitPlanPoints.value = []
+  clearMultiOptimization()
+}
+async function toggleSplitSavedFolder(folderId) {
+  const next = new Set(splitSavedExpandedFolderIds.value)
+  const key = String(folderId)
+  if (next.has(key)) next.delete(key)
+  else next.add(key)
+  splitSavedExpandedFolderIds.value = next
+}
+async function toggleSplitSavedGroup(group) {
+  const next = new Set(splitSavedExpandedGroupIds.value)
+  const key = String(group.id)
+  if (next.has(key)) next.delete(key)
+  else {
+    next.add(key)
+    await ensureSavedGroupDetail(group, true)
+  }
+  splitSavedExpandedGroupIds.value = next
+}
+async function selectSplitSavedRoute(group, route) {
+  const detail = await ensureSavedGroupDetail(group, true)
+  selectedSavedGroup.value = detail
+  selectedSavedRouteId.value = route.id
+  openSavedRouteSplit(route)
+}
 
 const selectedSavedRoute = computed(() => {
   const routes = selectedSavedGroup.value?.routes || []
@@ -2345,6 +2487,7 @@ async function changeSplitDataType(value) {
 }
 
 async function selectSplitCompany(company) {
+  splitSourceMode.value = 'COMPANY'
   splitFromSavedRoute.value = false
   selectedSplitCompany.value = company
   selectedSplitRoute.value = null
@@ -3045,6 +3188,15 @@ async function generateSplitRoutes() {
 
 function openSavedRouteSplit(route) {
   const group = selectedSavedGroup.value
+  splitSourceMode.value = 'LIBRARY'
+  if (group?.folderId) {
+    splitSavedExpandedFolderIds.value = new Set([...splitSavedExpandedFolderIds.value, String(group.folderId)])
+    savedTreeExpandedFolderIds.value = new Set([...savedTreeExpandedFolderIds.value, String(group.folderId)])
+  }
+  if (group?.id) {
+    splitSavedExpandedGroupIds.value = new Set([...splitSavedExpandedGroupIds.value, String(group.id)])
+    savedTreeExpandedGroupIds.value = new Set([...savedTreeExpandedGroupIds.value, String(group.id)])
+  }
   const points = (route?.points || []).map((point, index) => ({
     ...point,
     orderNum: point.orderNum ?? point.order ?? index + 1
@@ -3067,6 +3219,7 @@ function openSavedRouteSplit(route) {
 }
 
 function exitSavedRouteSplit() {
+  splitSourceMode.value = 'COMPANY'
   splitFromSavedRoute.value = false
   selectedSplitCompany.value = null
   selectedSplitRoute.value = null

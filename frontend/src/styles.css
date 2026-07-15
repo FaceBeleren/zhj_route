@@ -2780,3 +2780,138 @@ tbody tr.active {
 .imported-route-table .route-time-row.unmatched span {
   border-color: #f2c7c7;
 }
+
+.split-source-switch {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+  padding: 10px;
+  border-bottom: 1px solid #e0e7f0;
+}
+.split-source-switch button {
+  min-height: 36px;
+  border: 1px solid #c9d8eb;
+  border-radius: 6px;
+  background: #f6f9fd;
+  color: #36516e;
+  cursor: pointer;
+}
+.split-source-switch button.active {
+  border-color: #1769c2;
+  background: #1769c2;
+  color: #fff;
+}
+.split-company-list .panel-head.compact {
+  padding: 12px 12px 8px;
+}
+.split-company-list .panel-head.compact h3 {
+  margin: 0;
+  font-size: 14px;
+}
+.split-company-list .panel-head.compact input {
+  width: 100%;
+  margin-top: 8px;
+}
+.split-library-hint {
+  display: grid;
+  gap: 10px;
+  margin: 12px;
+  padding: 14px;
+  border: 1px solid #d8e4f1;
+  border-radius: 8px;
+  background: #f7faff;
+  color: #56708d;
+}
+.split-library-hint strong {
+  color: #1b3858;
+}
+.split-library-hint button {
+  justify-self: start;
+}
+.saved-library-tree,
+.split-saved-route-tree {
+  padding: 8px;
+  overflow: auto;
+  max-height: 390px;
+}
+.tree-root-node,
+.tree-node {
+  width: 100%;
+  min-height: 34px;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 6px 8px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: #28425f;
+  text-align: left;
+  cursor: pointer;
+}
+.tree-root-node:hover,
+.tree-node:hover,
+.tree-node.active,
+.tree-root-node.active {
+  background: #eaf3ff;
+  color: #0d5fb8;
+}
+.tree-root-node {
+  margin-bottom: 3px;
+  border-bottom: 1px solid #e4ebf3;
+  border-radius: 0;
+}
+.tree-node small {
+  margin-left: auto;
+  color: #7890a9;
+  font-size: 12px;
+}
+.tree-children {
+  margin-left: 14px;
+  padding-left: 9px;
+  border-left: 1px solid #d5e2ef;
+}
+.tree-branch {
+  margin: 2px 0;
+}
+.folder-node {
+  font-weight: 600;
+}
+.plan-node {
+  font-weight: 500;
+}
+.route-node {
+  color: #56708d;
+  font-size: 13px;
+}
+.tree-empty {
+  padding: 8px 12px;
+  color: #91a1b2;
+  font-size: 12px;
+}
+.saved-plan-search-results {
+  max-height: 180px;
+  border-top: 1px solid #e0e7f0;
+}
+.saved-route-tree {
+  border-top: 1px solid #e0e7f0;
+}
+.split-route-shell .route-panel {
+  min-width: 0;
+}
+.saved-plan-list-panel .panel-actions.saved-plan-actions {
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.saved-plan-list-panel .saved-plan-actions button {
+  min-height: 34px;
+  padding: 0 12px;
+  border-radius: 7px;
+  white-space: nowrap;
+}
+.saved-route-list .panel-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
