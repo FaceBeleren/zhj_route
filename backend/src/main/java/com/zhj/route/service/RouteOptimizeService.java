@@ -166,16 +166,25 @@ public class RouteOptimizeService {
         long startedAt = System.currentTimeMillis();
         Object routeIdValue = request.get("routeId");
         Object unitIdValue = request.get("unitId");
-        if (routeIdValue == null && unitIdValue == null) {
-            throw new IllegalArgumentException("routeId or unitId is required");
+        Object pointsValue = request.get("points");
+        boolean inlinePointMode = pointsValue instanceof List;
+        if (routeIdValue == null && unitIdValue == null && !inlinePointMode) {
+            throw new IllegalArgumentException("routeId, unitId or points is required");
         }
 
         Long routeId = routeIdValue == null ? null : Long.valueOf(String.valueOf(routeIdValue));
         String unitId = unitIdValue == null ? null : String.valueOf(unitIdValue);
-        boolean companyMode = routeId == null;
-        List<RoutePoint> sourcePoints = toRoutePoints(companyMode
-                ? routeQueryService.companyFacilityPoints(unitId)
-                : routeQueryService.routePlanPoints(routeId));
+        boolean companyMode = routeId == null && !inlinePointMode;
+        List<RoutePoint> sourcePoints;
+        if (inlinePointMode) {
+            @SuppressWarnings("unchecked")
+            List<Map<String, Object>> rows = (List<Map<String, Object>>) pointsValue;
+            sourcePoints = toRoutePoints(rows);
+        } else {
+            sourcePoints = toRoutePoints(companyMode
+                    ? routeQueryService.companyFacilityPoints(unitId)
+                    : routeQueryService.routePlanPoints(routeId));
+        }
         sourcePoints = filterByRequestedFacilities(sourcePoints, request);
         List<Map<String, Object>> routes = new ArrayList<Map<String, Object>>();
         List<RoutePoint> unassigned = new ArrayList<RoutePoint>();

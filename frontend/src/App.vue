@@ -234,7 +234,10 @@
                     合计 {{ formatDuration(savedRouteDisplayTotalDuration(route)) }} · {{ savedRouteDisplaySummary(route) }}
                   </small>
                 </div>
-                <button class="ghost-button" @click.stop="deleteSavedRoute(route)">删除</button>
+                <div class="panel-actions">
+                  <button class="secondary" @click.stop="openSavedRouteSplit(route)">拆分路线</button>
+                  <button class="ghost-button" @click.stop="deleteSavedRoute(route)">删除</button>
+                </div>
               </article>
             </div>
             <div v-if="selectedSavedRoute" class="route-display-toolbar saved-display-toolbar">
@@ -524,10 +527,15 @@
       <section class="multi-shell split-route-shell">
         <aside class="panel company-panel">
           <div class="panel-head">
-            <h2>项目公司</h2>
-            <input v-model="companyKeyword" placeholder="搜索公司" />
+            <h2>{{ splitFromSavedRoute ? '方案库路线' : '项目公司' }}</h2>
+            <input v-if="!splitFromSavedRoute" v-model="companyKeyword" placeholder="搜索公司" />
           </div>
-          <div class="list">
+          <div v-if="splitFromSavedRoute" class="saved-split-source">
+            <strong>{{ selectedSplitRoute?.routeName || '保存路线' }}</strong>
+            <small>{{ selectedSavedGroup?.groupName || '方案库方案' }}</small>
+            <button class="secondary" @click="exitSavedRouteSplit">返回公司路线</button>
+          </div>
+          <div v-else class="list">
             <button v-for="company in filteredCompanies" :key="company.id" class="list-item" :class="{ active: selectedSplitCompany?.id === company.id }" @click="selectSplitCompany(company)">
               <span>{{ company.depName || company.id }}</span>
               <small>{{ company.depCode || '-' }}</small>
@@ -552,7 +560,10 @@
                 {{ option.label }}
               </button>
             </div>
-            <p class="split-source-note">来源与“路线详情”一致，当前展示 {{ currentTypeName }}。</p>
+            <p class="split-source-note">
+              <template v-if="splitFromSavedRoute">来源：路线方案库，当前拆分保存方案中的这一趟路线。</template>
+              <template v-else>来源与“路线详情”一致，当前展示 {{ currentTypeName }}。</template>
+            </p>
           </div>
           <div class="list route-list">
             <button v-for="route in splitRoutes" :key="route.id" class="list-item" :class="{ active: selectedSplitRoute?.id === route.id }" @click="selectSplitRoute(route)">
@@ -1102,10 +1113,15 @@
       <section class="multi-shell cluster-shell">
         <aside class="panel company-panel">
           <div class="panel-head">
-            <h2>项目公司</h2>
-            <input v-model="companyKeyword" placeholder="搜索公司" />
+            <h2>{{ splitFromSavedRoute ? '方案库路线' : '项目公司' }}</h2>
+            <input v-if="!splitFromSavedRoute" v-model="companyKeyword" placeholder="搜索公司" />
           </div>
-          <div class="list">
+          <div v-if="splitFromSavedRoute" class="saved-split-source">
+            <strong>{{ selectedSplitRoute?.routeName || '保存路线' }}</strong>
+            <small>{{ selectedSavedGroup?.groupName || '方案库方案' }}</small>
+            <button class="secondary" @click="exitSavedRouteSplit">返回公司路线</button>
+          </div>
+          <div v-else class="list">
             <button
               v-for="company in filteredCompanies"
               :key="company.id"
@@ -1776,6 +1792,7 @@ const selectedCompany = ref(null)
 const selectedMultiCompany = ref(null)
 const selectedSplitCompany = ref(null)
 const selectedSplitRoute = ref(null)
+const splitFromSavedRoute = ref(false)
 const selectedRoute = ref(null)
 const selectedRecord = ref(null)
 const selectedMultiRouteNo = ref(null)
@@ -2328,6 +2345,7 @@ async function changeSplitDataType(value) {
 }
 
 async function selectSplitCompany(company) {
+  splitFromSavedRoute.value = false
   selectedSplitCompany.value = company
   selectedSplitRoute.value = null
   splitRoutes.value = []
@@ -2987,21 +3005,28 @@ async function generateSplitRoutes() {
   routeAbortController.value = new AbortController()
   await withLoading(async () => {
     try {
+      const request = {
+        unitId: selectedSplitCompany.value.id,
+        dispatchMode: dispatchEnabled.value ? dispatchMode.value : 'USER_ORDER',
+        vehicles: normalizedDispatchVehicles(),
+        endSelectionMode: endAnchorMode.value,
+        endCandidates: normalizedEndCandidates(),
+        ...optimizeOptions,
+        displayRoadPath: false,
+        useRoadPath: optimizeOptions.multiRouteStrategy === 'ROAD_GLOBAL'
+      }
+      if (splitFromSavedRoute.value) {
+        request.points = splitPlanPoints.value
+        request.sourceType = 'SAVED_PLAN_ROUTE'
+        request.sourceRouteName = selectedSplitRoute.value.routeName
+      } else {
+        request.routeId = selectedSplitRoute.value.id
+      }
       const task = await api('/api/optimize/multi-preview/tasks', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         signal: routeAbortController.value.signal,
-        body: JSON.stringify({
-          routeId: selectedSplitRoute.value.id,
-          unitId: selectedSplitCompany.value.id,
-          dispatchMode: dispatchEnabled.value ? dispatchMode.value : 'USER_ORDER',
-          vehicles: normalizedDispatchVehicles(),
-          endSelectionMode: endAnchorMode.value,
-          endCandidates: normalizedEndCandidates(),
-          ...optimizeOptions,
-          displayRoadPath: false,
-          useRoadPath: optimizeOptions.multiRouteStrategy === 'ROAD_GLOBAL'
-        })
+        body: JSON.stringify(request)
       })
       applyRouteTask(task)
       startRouteTaskPolling(task.taskId)
@@ -3016,6 +3041,39 @@ async function generateSplitRoutes() {
       routeAbortController.value = null
     }
   })
+}
+
+function openSavedRouteSplit(route) {
+  const group = selectedSavedGroup.value
+  const points = (route?.points || []).map((point, index) => ({
+    ...point,
+    orderNum: point.orderNum ?? point.order ?? index + 1
+  }))
+  splitFromSavedRoute.value = true
+  selectedSplitCompany.value = {
+    id: group?.unitId || route?.unitId || '',
+    depName: group?.unitName || '方案库来源',
+    depCode: '方案库'
+  }
+  selectedSplitRoute.value = {
+    ...route,
+    routeName: route.routeName || ('第 ' + (route.routeNo || 1) + ' 趟')
+  }
+  splitRoutes.value = [selectedSplitRoute.value]
+  splitPlanPoints.value = points
+  resetAnchors()
+  clearMultiOptimization()
+  currentView.value = 'split'
+}
+
+function exitSavedRouteSplit() {
+  splitFromSavedRoute.value = false
+  selectedSplitCompany.value = null
+  selectedSplitRoute.value = null
+  splitRoutes.value = []
+  splitPlanPoints.value = []
+  resetAnchors()
+  clearMultiOptimization()
 }
 
 async function generateCompanyRoutes() {
