@@ -92,7 +92,7 @@ public class RouteMapPathService {
         }
 
         String placeholders = placeholders(facilityIds.size());
-        String sql = "SELECT start_code, end_code, distance, time_duration, msg_full " +
+        String sql = "SELECT start_code, end_code, distance, time_duration, msg_full, latitude_end, latitude_start, longitude_end, longitude_start " +
                 "FROM ljszy_odpair_pool " +
                 "WHERE been_deleted = 0 AND msg_full IS NOT NULL " +
                 "AND start_code IN (" + placeholders + ") " +
@@ -113,6 +113,7 @@ public class RouteMapPathService {
                     continue;
                 }
                 List<Map<String, Object>> path = parseBaiduPath(String.valueOf(row.get("msg_full")));
+            path = withEndpoints(path, toDouble(row.get("longitude_start")), toDouble(row.get("latitude_start")), toDouble(row.get("longitude_end")), toDouble(row.get("latitude_end")));
                 if (path.size() < 2) {
                     invalidRows++;
                     continue;
@@ -199,6 +200,7 @@ public class RouteMapPathService {
             }
             Map<String, Object> row = rows.get(0);
             List<Map<String, Object>> path = parseBaiduPath(String.valueOf(row.get("msg_full")));
+            path = withEndpoints(path, from, to);
             if (path.size() < 2) {
                 log.warn("OD cache invalid path: {} -> {}, distance={}", pointLabel(from), pointLabel(to), row.get("distance"));
                 return null;
@@ -232,7 +234,7 @@ public class RouteMapPathService {
                 return null;
             }
             cacheOnlinePath(from, to, response);
-            return new ResolvedPath(response.path, response.distanceMeters, response.durationSeconds, "BAIDU_ONLINE");
+            return new ResolvedPath(withEndpoints(response.path, from, to), response.distanceMeters, response.durationSeconds, "BAIDU_ONLINE");
         } catch (RuntimeException e) {
             log.warn("Baidu route failed: {} -> {}, {}", pointLabel(from), pointLabel(to), e.getMessage());
             return null;
@@ -379,6 +381,38 @@ public class RouteMapPathService {
             }
             path.add(point);
         }
+    }
+
+    private List<Map<String, Object>> withEndpoints(List<Map<String, Object>> path, RoutePoint from, RoutePoint to) {
+        return withEndpoints(path,
+                from == null ? null : from.getLongitude(),
+                from == null ? null : from.getLatitude(),
+                to == null ? null : to.getLongitude(),
+                to == null ? null : to.getLatitude());
+    }
+
+    private List<Map<String, Object>> withEndpoints(List<Map<String, Object>> path,
+                                                     Double startLongitude,
+                                                     Double startLatitude,
+                                                     Double endLongitude,
+                                                     Double endLatitude) {
+        List<Map<String, Object>> result = new ArrayList<Map<String, Object>>();
+        if (path != null) {
+            result.addAll(path);
+        }
+        if (startLongitude != null && startLatitude != null) {
+            Map<String, Object> start = coordinate(startLongitude, startLatitude);
+            if (result.isEmpty() || !sameCoordinate(start, result.get(0))) {
+                result.add(0, start);
+            }
+        }
+        if (endLongitude != null && endLatitude != null) {
+            Map<String, Object> end = coordinate(endLongitude, endLatitude);
+            if (result.isEmpty() || !sameCoordinate(end, result.get(result.size() - 1))) {
+                result.add(end);
+            }
+        }
+        return result;
     }
 
     private ResolvedPath directPath(RoutePoint from, RoutePoint to) {
