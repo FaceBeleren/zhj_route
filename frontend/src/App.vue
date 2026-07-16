@@ -1758,6 +1758,8 @@ const optimization = ref(null)
 const multiOptimization = ref(null)
 const routeMapStatus = ref(null)
 const routeProgressTimer = ref(null)
+const routeProgressPollFailures = ref(0)
+const routeProgressPolling = ref(false)
 const routeAbortController = ref(null)
 const routeSegmentLoading = ref(false)
 const multiRouteDisplayModes = ref({})
@@ -3346,16 +3348,28 @@ function startRouteProgress() {
 
 function startRouteTaskPolling(taskId) {
   stopRouteProgressTimer()
+  routeProgressPollFailures.value = 0
+  routeProgressPolling.value = false
   routeProgressTimer.value = window.setInterval(async () => {
+    if (routeProgressPolling.value) return
+    routeProgressPolling.value = true
     try {
       const task = await api('/api/optimize/multi-preview/tasks/' + taskId)
+      routeProgressPollFailures.value = 0
       applyRouteTask(task)
       if (['DONE', 'FAILED', 'CANCELLED', 'NOT_FOUND'].includes(task.status)) {
         stopRouteProgressTimer()
       }
     } catch (err) {
-      stopRouteProgressTimer()
-      failRouteProgress(err)
+      routeProgressPollFailures.value += 1
+      if (routeProgressPollFailures.value >= 5) {
+        stopRouteProgressTimer()
+        failRouteProgress(err)
+      } else {
+        routeProgress.message = '进度查询暂时失败，正在自动重试（' + routeProgressPollFailures.value + '/5）'
+      }
+    } finally {
+      routeProgressPolling.value = false
     }
   }, 1000)
 }
