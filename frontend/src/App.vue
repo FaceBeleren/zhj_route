@@ -2060,7 +2060,8 @@ function routeDisplaySegments(route) {
   if (routeRoadDisplay(route) && route.roadSegments?.length) {
     return route.roadSegments
   }
-  return route.segments || []
+  // 直线展示严格按当前路线点位顺序重建，避免后端某段几何缺失导致标记点未被连线.
+  return buildDirectRouteSegments(route.points || [], Number(route.speedKmh) > 0 ? Number(route.speedKmh) : 20)
 }
 function routeDisplayDistance(route) {
   if (!route) return 0
@@ -2218,7 +2219,8 @@ const importedRouteDisplaySegments = computed(() => {
   const route = importedRoutePreview.value
   if (!route) return []
   if (importedRouteDisplayMode.value === 'ROAD' && hasRoadSegments(route.roadSegments)) return route.roadSegments
-  return route.segments || []
+  // 直线展示严格按当前路线点位顺序重建，避免后端某段几何缺失导致标记点未被连线.
+  return buildDirectRouteSegments(route.points || [], Number(route.speedKmh) > 0 ? Number(route.speedKmh) : 20)
 })
 const importedRouteDisplaySummary = computed(() => {
   const route = importedRoutePreview.value
