@@ -3186,7 +3186,7 @@ async function generateSplitRoutes() {
   })
 }
 
-function openSavedRouteSplit(route) {
+async function openSavedRouteSplit(route) {
   const group = selectedSavedGroup.value
   splitSourceMode.value = 'LIBRARY'
   if (group?.folderId) {
@@ -3216,6 +3216,16 @@ function openSavedRouteSplit(route) {
   resetAnchors()
   clearMultiOptimization()
   currentView.value = 'split'
+  const unitId = selectedSplitCompany.value.id
+  if (unitId) {
+    try {
+      const anchors = await api('/api/companies/' + unitId + '/route-anchors')
+      companyAnchors.value = normalizeAnchors(anchors)
+      applyDefaultAnchors()
+    } catch (err) {
+      error.value = err.message || String(err)
+    }
+  }
 }
 
 function exitSavedRouteSplit() {
