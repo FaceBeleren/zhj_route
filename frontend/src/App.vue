@@ -2061,7 +2061,7 @@ function routeDisplaySegments(route) {
     return route.roadSegments
   }
   // 直线展示严格按当前路线点位顺序重建，避免后端某段几何缺失导致标记点未被连线.
-  return buildDirectRouteSegments(route.points || [], Number(route.speedKmh) > 0 ? Number(route.speedKmh) : 20)
+  return route.segments?.length ? route.segments : buildDirectRouteSegments(route.points || [], Number(route.speedKmh) > 0 ? Number(route.speedKmh) : 20)
 }
 function routeDisplayDistance(route) {
   if (!route) return 0
@@ -2220,7 +2220,7 @@ const importedRouteDisplaySegments = computed(() => {
   if (!route) return []
   if (importedRouteDisplayMode.value === 'ROAD' && hasRoadSegments(route.roadSegments)) return route.roadSegments
   // 直线展示严格按当前路线点位顺序重建，避免后端某段几何缺失导致标记点未被连线.
-  return buildDirectRouteSegments(route.points || [], Number(route.speedKmh) > 0 ? Number(route.speedKmh) : 20)
+  return route.segments?.length ? route.segments : buildDirectRouteSegments(route.points || [], Number(route.speedKmh) > 0 ? Number(route.speedKmh) : 20)
 })
 const importedRouteDisplaySummary = computed(() => {
   const route = importedRoutePreview.value
@@ -2235,7 +2235,7 @@ function savedRouteRoadDisplay(route) {
 function savedRouteDisplaySegments(route) {
   if (!route) return []
   if (savedRouteRoadDisplay(route) && hasRoadSegments(route.roadSegments)) return route.roadSegments
-  return buildDirectRouteSegments(route.points || [], savedRouteSpeedKmh(route))
+  return route.segments?.length ? route.segments : buildDirectRouteSegments(route.points || [], savedRouteSpeedKmh(route))
 }
 function savedRouteDisplayDistance(route) {
   return sumSegmentDistance(savedRouteDisplaySegments(route))

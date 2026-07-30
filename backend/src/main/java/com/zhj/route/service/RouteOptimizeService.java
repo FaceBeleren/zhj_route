@@ -62,8 +62,8 @@ public class RouteOptimizeService {
         log.info("Single route optimize started: routeId={}, points={}, mode={}, displayMode={}, ratedKg={}, targetRate={}",
                 routeId, points.size(), useRoadPath ? "ROAD" : "DIRECT", displayRoadPath ? "ROAD" : "DIRECT", ratedCapacityKg(request), targetLoadRate(request));
         RouteOptimizationResult optimization = singleRouteOptimizer.optimize(points, distanceContext);
-        List<Map<String, Object>> originalSegments = segmentViews(optimization.getOriginalPoints(), speedKmh(request), displayContext);
-        List<Map<String, Object>> segments = segmentViews(optimization.getOptimizedPoints(), speedKmh(request), displayContext);
+        List<Map<String, Object>> originalSegments = segmentViews(optimization.getOriginalPoints(), speedProfile(request), displayContext);
+        List<Map<String, Object>> segments = segmentViews(optimization.getOptimizedPoints(), speedProfile(request), displayContext);
         Double roadOriginalDistance = displayRoadPath ? round(sumSegmentDistance(originalSegments)) : null;
         Double roadOptimizedDistance = displayRoadPath ? round(sumSegmentDistance(segments)) : null;
 
@@ -366,7 +366,7 @@ public class RouteOptimizeService {
         List<RoutePoint> points = toRoutePoints(rows);
         DistanceContext context = new DistanceContext(displayRoadPath);
         context.preload(points);
-        List<Map<String, Object>> segments = segmentViews(points, speedKmh(request), context);
+        List<Map<String, Object>> segments = segmentViews(points, speedProfile(request), context);
         Map<String, Object> result = new HashMap<String, Object>();
         result.put("displayMode", displayRoadPath ? "ROAD" : "DIRECT");
         result.put("segments", segments);
@@ -749,7 +749,7 @@ public class RouteOptimizeService {
         Map<String, Object> view = new HashMap<String, Object>();
         List<RoutePoint> collected = collectedPoints(route);
         double weight = sumEstimatedWeight(collected);
-        List<Map<String, Object>> segments = segmentViews(route, speedKmh(request), distanceContext);
+        List<Map<String, Object>> segments = segmentViews(route, speedProfile(request), distanceContext);
         view.put("routeNo", routeNo);
         view.put("vehicleIndex", trip.vehicleIndex);
         view.put("vehicleId", trip.vehicleId);
@@ -777,13 +777,14 @@ public class RouteOptimizeService {
         return view;
     }
 
-    private List<Map<String, Object>> segmentViews(List<RoutePoint> points, double speedKmh, DistanceContext distanceContext) {
+    private List<Map<String, Object>> segmentViews(List<RoutePoint> points, SpeedProfile speedProfile, DistanceContext distanceContext) {
         List<Map<String, Object>> segments = new ArrayList<Map<String, Object>>();
         for (int i = 0; i < points.size() - 1; i++) {
             RoutePoint from = points.get(i);
             RoutePoint to = points.get(i + 1);
             RouteMapPathService.ResolvedPath resolvedPath = distanceContext.resolve(from, to);
             double distance = distanceContext.distance(from, to);
+            SpeedDecision speed = speedProfile.forSegment(points, i, distance);
             Map<String, Object> segment = new HashMap<String, Object>();
             segment.put("order", i + 1);
             segment.put("fromFacilityId", from.getFacilityId());
@@ -791,11 +792,14 @@ public class RouteOptimizeService {
             segment.put("toFacilityId", to.getFacilityId());
             segment.put("toFacilityName", to.getFacilityName());
             segment.put("distance", round(distance));
-            segment.put("durationMinutes", round(minutes(distance, speedKmh)));
+            segment.put("durationMinutes", round(minutes(distance, speed.kmh)));
+            segment.put("speedKmh", round(speed.kmh));
+            segment.put("speedClass", speed.speedClass);
+            segment.put("speedReason", speed.reason);
             segment.put("odDurationMinutes", resolvedPath.getDurationSeconds() == null
                     ? null
                     : round(resolvedPath.getDurationSeconds() / 60D));
-            segment.put("durationSource", "ESTIMATED_SPEED");
+            segment.put("durationSource", "SEGMENT_SPEED_ESTIMATE");
             segment.put("pathSource", resolvedPath.getSource());
             segment.put("path", resolvedPath.getPath());
             segments.add(segment);
@@ -1261,16 +1265,97 @@ public class RouteOptimizeService {
         return distanceMeters / (speedKmh * 1000D) * 60D;
     }
 
-    private double speedKmh(Map<String, Object> request) {
-        Object value = request.get("speedKmh");
-        if (value == null) {
-            return 20D;
+    private SpeedProfile speedProfile(Map<String, Object> request) {
+        Double legacySpeed = toDouble(request.get("speedKmh"));
+        if (legacySpeed != null && legacySpeed > 0D) {
+            return new SpeedProfile(legacySpeed, legacySpeed, legacySpeed,
+                    positiveOrDefault(request, "denseRadiusMeters", 1000D),
+                    positiveOrDefault(request, "densePointThreshold", 5D),
+                    positiveOrDefault(request, "transferDistanceMeters", 3000D));
         }
-        Double speed = toDouble(value);
-        if (speed == null || speed <= 0D) {
-            return 20D;
+        return new SpeedProfile(
+                positiveOrDefault(request, "denseSpeedKmh", 15D),
+                positiveOrDefault(request, "normalSpeedKmh", 25D),
+                positiveOrDefault(request, "transferSpeedKmh", 40D),
+                positiveOrDefault(request, "denseRadiusMeters", 1000D),
+                positiveOrDefault(request, "densePointThreshold", 5D),
+                positiveOrDefault(request, "transferDistanceMeters", 3000D));
+    }
+
+    private double positiveOrDefault(Map<String, Object> request, String key, double fallback) {
+        Double value = toDouble(request.get(key));
+        return value == null || value <= 0D ? fallback : value;
+    }
+
+    private static class SpeedProfile {
+        private final double denseSpeedKmh;
+        private final double normalSpeedKmh;
+        private final double transferSpeedKmh;
+        private final double denseRadiusMeters;
+        private final double densePointThreshold;
+        private final double transferDistanceMeters;
+
+        private SpeedProfile(double denseSpeedKmh, double normalSpeedKmh, double transferSpeedKmh,
+                             double denseRadiusMeters, double densePointThreshold, double transferDistanceMeters) {
+            this.denseSpeedKmh = denseSpeedKmh;
+            this.normalSpeedKmh = normalSpeedKmh;
+            this.transferSpeedKmh = transferSpeedKmh;
+            this.denseRadiusMeters = denseRadiusMeters;
+            this.densePointThreshold = densePointThreshold;
+            this.transferDistanceMeters = transferDistanceMeters;
         }
-        return speed;
+
+        private SpeedDecision forSegment(List<RoutePoint> points, int index, double distanceMeters) {
+            if (index == 0 || index == points.size() - 2) {
+                return new SpeedDecision(transferSpeedKmh, "TRANSFER", "起点/终点场站转场");
+            }
+            if (distanceMeters >= transferDistanceMeters) {
+                return new SpeedDecision(transferSpeedKmh, "TRANSFER", "长距离转场");
+            }
+            RoutePoint from = points.get(index);
+            RoutePoint to = points.get(index + 1);
+            if (!from.hasCoordinate() || !to.hasCoordinate()) {
+                return new SpeedDecision(normalSpeedKmh, "NORMAL", "普通收运路段");
+            }
+            double midLongitude = (from.getLongitude() + to.getLongitude()) / 2D;
+            double midLatitude = (from.getLatitude() + to.getLatitude()) / 2D;
+            int nearby = 0;
+            for (int i = 1; i < points.size() - 1; i++) {
+                RoutePoint point = points.get(i);
+                if (point.hasCoordinate() && haversineMeters(midLongitude, midLatitude,
+                        point.getLongitude(), point.getLatitude()) <= denseRadiusMeters) {
+                    nearby++;
+                }
+            }
+            if (nearby >= densePointThreshold) {
+                return new SpeedDecision(denseSpeedKmh, "DENSE", "一公里范围内点位较密集(" + nearby + "个)");
+            }
+            return new SpeedDecision(normalSpeedKmh, "NORMAL", "普通收运路段");
+        }
+    }
+
+    private static class SpeedDecision {
+        private final double kmh;
+        private final String speedClass;
+        private final String reason;
+
+        private SpeedDecision(double kmh, String speedClass, String reason) {
+            this.kmh = kmh;
+            this.speedClass = speedClass;
+            this.reason = reason;
+        }
+    }
+
+    private static double haversineMeters(double longitude1, double latitude1,
+                                          double longitude2, double latitude2) {
+        double earthRadius = 6371000D;
+        double dLat = Math.toRadians(latitude2 - latitude1);
+        double dLon = Math.toRadians(longitude2 - longitude1);
+        double lat1 = Math.toRadians(latitude1);
+        double lat2 = Math.toRadians(latitude2);
+        double a = Math.sin(dLat / 2D) * Math.sin(dLat / 2D)
+                + Math.cos(lat1) * Math.cos(lat2) * Math.sin(dLon / 2D) * Math.sin(dLon / 2D);
+        return 2D * earthRadius * Math.atan2(Math.sqrt(a), Math.sqrt(1D - a));
     }
 
     private String buildMultiMessage(boolean companyMode, String planningStrategy) {
