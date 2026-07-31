@@ -1117,7 +1117,7 @@
                     <span>作业 {{ formatDuration(selectedMultiRoute.operationDurationMinutes) }}</span>
                     <strong>合计 {{ formatDuration(selectedMultiRouteDisplayTotalDuration) }}</strong>
                   </div>
-                  <div class="route-time-table">
+                  <div class="route-time-table multi-route-time-table">
                     <div class="route-time-row head">
                       <span>顺序</span>
                       <span>点位</span>

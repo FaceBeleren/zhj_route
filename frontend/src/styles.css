@@ -1209,6 +1209,10 @@ tbody tr.active {
   border-bottom: 1px solid #eef3f8;
 }
 
+.multi-route-time-table .route-time-row {
+  grid-template-columns: 52px minmax(150px, 1.5fr) minmax(120px, 1fr) 90px minmax(100px, 1fr) 70px 90px;
+}
+
 .route-time-row.head {
   position: sticky;
   top: 0;
