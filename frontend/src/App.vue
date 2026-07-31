@@ -1122,6 +1122,7 @@
                       <span>顺序</span>
                       <span>点位</span>
                       <span>上一段行驶</span>
+                      <span>速度</span>
                       <span>桶信息</span>
                       <span>总桶数</span>
                       <span>点位作业</span>
@@ -1132,6 +1133,10 @@
                       <span v-if="segmentBeforePoint(selectedMultiRouteDisplaySegments, point.order)">
                         {{ formatDistance(segmentBeforePoint(selectedMultiRouteDisplaySegments, point.order).distance) }} ·
                         {{ formatDuration(segmentBeforePoint(selectedMultiRouteDisplaySegments, point.order).durationMinutes) }}
+                      </span>
+                      <span v-else>-</span>
+                      <span v-if="segmentBeforePoint(selectedMultiRouteDisplaySegments, point.order)">
+                        {{ formatNumber(segmentBeforePoint(selectedMultiRouteDisplaySegments, point.order).speedKmh) }} km/h
                       </span>
                       <span v-else>-</span>
                       <span :title="point.containerInfo || '-'">{{ point.containerInfo || '-' }}</span>
