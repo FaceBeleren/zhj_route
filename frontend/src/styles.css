@@ -572,6 +572,13 @@ button:disabled {
   font-size: 12px;
 }
 
+.dispatch-mode-row select.new-feature-select {
+  background: #e8f4ff;
+  border-color: #2b7dcc;
+  color: #145a9c;
+  font-weight: 600;
+}
+
 .dispatch-mode-row select {
   height: 32px;
   border: 1px solid #c8d3df;
@@ -1271,6 +1278,12 @@ tbody tr.active {
 
 .time-ok {
   color: #2f855a;
+  font-style: normal;
+  margin-left: 6px;
+}
+
+.time-progress {
+  color: #35658d;
   font-style: normal;
   margin-left: 6px;
 }

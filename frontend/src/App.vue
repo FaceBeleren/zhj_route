@@ -884,11 +884,11 @@
               </div>
               <div>
                 <span>车辆排班</span>
-                <strong>{{ dispatchEnabled ? dispatchTripCount + ' 趟' : '未启用' }}</strong>
+                <strong>{{ dispatchEnabled ? (dispatchMode === 'WORK_HOURS' ? '自动计算' : dispatchTripCount + ' 趟') : '未启用' }}</strong>
               </div>
               <div>
                 <span>排班额定总量</span>
-                <strong>{{ dispatchEnabled ? formatWeight(plannedCapacityKg) : '-' }}</strong>
+                <strong>{{ dispatchEnabled ? (dispatchMode === 'WORK_HOURS' ? '按实际工时' : formatWeight(plannedCapacityKg)) : '-' }}</strong>
               </div>
               <div>
                 <span>场站候选</span>
@@ -916,10 +916,11 @@
               <div v-else class="dispatch-mode-row">
                 <label>
                   排班方式
-                  <select v-model="dispatchMode" @change="clearMultiOptimization">
+                  <select v-model="dispatchMode" :class="{ 'new-feature-select': dispatchMode === 'WORK_HOURS' }" @change="clearMultiOptimization">
                     <option value="USER_ORDER">按车辆顺序跑完</option>
                     <option value="ROUND_ROBIN">车辆轮询排班</option>
                     <option value="USER_ORDER_THEN_ROUND_ROBIN">顺序跑完后轮询兜底</option>
+                    <option value="WORK_HOURS" class="new-feature-option">按车辆顺序跑满8小时（新功能）</option>
                   </select>
                 </label>
                 <small>{{ dispatchModeHint }}</small>
@@ -940,7 +941,7 @@
                   <input v-model="vehicle.vehicleType" @input="clearMultiOptimization" placeholder="车型" />
                   <input v-model.number="vehicle.ratedCapacityKg" @input="clearMultiOptimization" type="number" min="1" step="100" />
                   <input v-model.number="vehicle.maxCapacityKg" @input="clearMultiOptimization" type="number" min="1" step="100" />
-                  <input v-model.number="vehicle.tripCount" @input="clearMultiOptimization" :disabled="dispatchMode === 'ROUND_ROBIN'" :title="dispatchMode === 'ROUND_ROBIN' ? '轮询模式按最大趟数生成，不读取单车趟数' : ''" type="number" min="1" step="1" />
+                  <input v-model.number="vehicle.tripCount" @input="clearMultiOptimization" :disabled="dispatchMode === 'ROUND_ROBIN' || dispatchMode === 'WORK_HOURS'" :title="dispatchMode === 'ROUND_ROBIN' ? '轮询模式按最大趟数生成，不读取单车趟数' : (dispatchMode === 'WORK_HOURS' ? '新功能按累计工时自动计算趟数，不读取单车趟数' : '')" type="number" min="1" step="1" />
                   <div class="dispatch-row-actions">
                     <button @click="moveDispatchVehicle(index, -1)" :disabled="index === 0">上移</button>
                     <button @click="moveDispatchVehicle(index, 1)" :disabled="index === dispatchVehicles.length - 1">下移</button>
@@ -1077,6 +1078,7 @@
                         {{ pathSourceSummary(routeDisplaySegments(route)) }}
                         <em v-if="route.timeExceeded" class="time-warning">超出 {{ formatDuration(route.overdueMinutes) }}</em>
                         <em v-else class="time-ok">{{ formatNumber(route.workLimitHours || optimizeOptions.workHours || 8) }} 小时内</em>
+                        <em v-if="route.vehicleWorkedMinutes != null" class="time-progress">车辆累计 {{ formatDuration(route.vehicleWorkedMinutes) }}</em>
                       </small>
                     </div>
                     <div class="sequence route-point-sequence">
@@ -2364,6 +2366,9 @@ const dispatchModeHint = computed(() => {
   }
   if (dispatchMode.value === 'USER_ORDER_THEN_ROUND_ROBIN') {
     return '先按列表顺序跑完每辆车填写的趟数；若仍未达到最大趟数或仍有剩余点位，再按大车优先轮询兜底。'
+  }
+  if (dispatchMode.value === 'WORK_HOURS') {
+    return '按车辆列表顺序连续生成路线；每趟受剩余工时约束，达到标准工时后自动切换下一辆车，单车趟数无需预先填写。'
   }
   return '按列表顺序先跑完一辆车填写的全部趟次，再排下一辆车；适合用户已明确派车表。'
 })

@@ -266,7 +266,10 @@ public class RouteOptimizeService {
         log.info("Multi route optimize started: routeId={}, unitId={}, companyMode={}, candidatePoints={}, dispatchTrips={}, strategy={}, mode={}, displayMode={}, targetLoadKg={}, maxKg={}",
                 routeId, unitId, companyMode, sourcePoints.size(), dispatchPlan.size(), planningStrategy, useRoadPath ? "ROAD" : "DIRECT", displayRoadPath ? "ROAD" : "DIRECT", targetLoadWeightKg, maxCapacityKg);
         int routeNo = 1;
+        boolean workHoursDispatch = "WORK_HOURS".equals(dispatchMode(request));
+        double workLimitMinutes = positiveOrDefault(request, "workHours", 8D) * 60D;
         Map<String, RoutePoint> lastEndByVehicle = new HashMap<String, RoutePoint>();
+        Map<String, Double> workedMinutesByVehicle = new HashMap<String, Double>();
         for (DispatchTrip trip : dispatchPlan) {
             assertNotCancelled(task);
             if (remaining.isEmpty()) {
@@ -280,10 +283,17 @@ public class RouteOptimizeService {
             if (effectiveStart == null) {
                 effectiveStart = trip.start;
             }
+            double workedMinutes = valueOrZero(workedMinutesByVehicle.get(trip.vehicleId));
+            double timeBudgetMinutes = workHoursDispatch ? workLimitMinutes - workedMinutes : -1D;
+            if (workHoursDispatch && timeBudgetMinutes <= 0D) {
+                continue;
+            }
             long routeStartedAt = System.currentTimeMillis();
             routeDistanceContext.resetRouteStats();
-            RouteChoice routeChoice = chooseBestEndRoute(trip, effectiveStart, endCandidates, remaining, routeDistanceContext);
-            List<RoutePoint> route = routeChoice.route;
+            RouteChoice routeChoice = chooseBestEndRoute(trip, effectiveStart, endCandidates, remaining,
+                    request, timeBudgetMinutes, routeDistanceContext);
+            List<RoutePoint> capacityRoute = routeChoice.route;
+            List<RoutePoint> route = capacityRoute;
             DispatchTrip effectiveTrip = trip.withStartAndEnd(effectiveStart, routeChoice.end);
             if (refineWithRoad) {
                 if (task != null) {
@@ -291,9 +301,15 @@ public class RouteOptimizeService {
                             "正在道路精排第 " + routeNo + " 趟路线", collectedPoints(route).size(), remaining.size());
                 }
                 route = refineRouteWithRoad(route, refineContext);
+                if (workHoursDispatch && estimatedRouteDuration(route, request, refineContext) > timeBudgetMinutes) {
+                    route = capacityRoute;
+                }
             }
             List<RoutePoint> collected = collectedPoints(route);
             if (collected.isEmpty()) {
+                if (workHoursDispatch) {
+                    continue;
+                }
                 break;
             }
             remaining.removeAll(collected);
@@ -303,6 +319,13 @@ public class RouteOptimizeService {
             }
             Map<String, Object> routeView = multiRouteView(routeNo, route, request, effectiveTrip, displayContext);
             lastEndByVehicle.put(effectiveTrip.vehicleId, effectiveTrip.end);
+            if (workHoursDispatch) {
+                Double routeMinutes = toDouble(routeView.get("totalDurationMinutes"));
+                double currentWorkedMinutes = workedMinutes + (routeMinutes == null ? 0D : routeMinutes);
+                workedMinutesByVehicle.put(effectiveTrip.vehicleId, currentWorkedMinutes);
+                routeView.put("vehicleWorkedMinutes", round(currentWorkedMinutes));
+                routeView.put("vehicleRemainingMinutes", round(Math.max(0D, workLimitMinutes - currentWorkedMinutes)));
+            }
             routes.add(routeView);
             if (task != null) {
                 task.routeDone(routeNo, routes.size(), pointsInRoutes(routes), remaining.size());
@@ -339,8 +362,9 @@ public class RouteOptimizeService {
         result.put("optimizerCostSource", useRoadPath ? "OD_OR_BAIDU" : (refineWithRoad ? "DIRECT_THEN_OD_REFINE" : "DIRECT"));
         result.put("displayPathSource", displayRoadPath ? "OD_OR_BAIDU" : "DIRECT");
         result.put("dispatchMode", dispatchMode(request));
-        result.put("dispatchTripCount", dispatchPlan.size());
-        result.put("totalPlannedCapacityKg", round(totalPlannedCapacity(dispatchPlan)));
+        result.put("dispatchTripCount", workHoursDispatch ? routes.size() : dispatchPlan.size());
+        result.put("totalPlannedCapacityKg", round(workHoursDispatch
+                ? totalRouteCapacity(routes) : totalPlannedCapacity(dispatchPlan)));
         result.put("routes", routes);
         result.put("unassignedPoints", pointViews(unassigned));
         log.info("Multi route optimize finished: routeId={}, unitId={}, status={}, elapsed={}ms, routes={}, assigned={}, unassigned={}, strategy={}, odStats={}, refineStats={}, displayStats={}",
@@ -464,6 +488,7 @@ public class RouteOptimizeService {
 
     private List<RoutePoint> buildCapacityRoute(RoutePoint start, RoutePoint end, List<RoutePoint> remaining,
                                                 double targetLoadWeightKg, double maxCapacityKg,
+                                                Map<String, Object> request, double timeBudgetMinutes,
                                                 MatrixDistanceContext distanceCalculator) {
         List<RoutePoint> route = new ArrayList<RoutePoint>();
         route.add(start);
@@ -484,6 +509,14 @@ public class RouteOptimizeService {
                     double increase = distanceCalculator.distance(previous, candidate)
                             + distanceCalculator.distance(candidate, next)
                             - distanceCalculator.distance(previous, next);
+                    if (timeBudgetMinutes > 0D) {
+                        route.add(segment + 1, candidate);
+                        double projectedMinutes = estimatedRouteDuration(route, request, distanceCalculator);
+                        route.remove(segment + 1);
+                        if (projectedMinutes > timeBudgetMinutes) {
+                            continue;
+                        }
+                    }
                     if (best == null || increase < best.increase) {
                         best = new InsertChoice(candidate, segment + 1, increase);
                     }
@@ -503,6 +536,22 @@ public class RouteOptimizeService {
         return route;
     }
 
+    private double estimatedRouteDuration(List<RoutePoint> route, Map<String, Object> request,
+                                           SingleRouteOptimizer.DistanceCalculator distanceCalculator) {
+        if (route.size() < 2) {
+            return 0D;
+        }
+        SpeedProfile profile = speedProfile(request);
+        double total = 0D;
+        for (int i = 0; i < route.size() - 1; i++) {
+            double distance = distanceCalculator.distance(route.get(i), route.get(i + 1));
+            SpeedDecision speed = profile.forSegment(route, i, distance);
+            total += minutes(distance, speed.kmh);
+        }
+        total += sumOperationDuration(collectedPoints(route), request);
+        return total;
+    }
+
     private List<RoutePoint> refineRouteWithRoad(List<RoutePoint> route, DistanceContext refineContext) {
         if (route.size() < 4) {
             return route;
@@ -513,7 +562,8 @@ public class RouteOptimizeService {
     }
 
     private RouteChoice chooseBestEndRoute(DispatchTrip trip, RoutePoint start, List<RoutePoint> endCandidates,
-                                           List<RoutePoint> remaining, MatrixDistanceContext distanceContext) {
+                                           List<RoutePoint> remaining, Map<String, Object> request,
+                                           double timeBudgetMinutes, MatrixDistanceContext distanceContext) {
         RouteChoice best = null;
         List<RoutePoint> candidates = endCandidates.isEmpty() ? new ArrayList<RoutePoint>() : endCandidates;
         if (candidates.isEmpty()) {
@@ -521,7 +571,7 @@ public class RouteOptimizeService {
         }
         for (RoutePoint candidateEnd : candidates) {
             List<RoutePoint> route = buildCapacityRoute(start, candidateEnd, remaining,
-                    trip.targetLoadWeightKg, trip.maxCapacityKg, distanceContext);
+                    trip.targetLoadWeightKg, trip.maxCapacityKg, request, timeBudgetMinutes, distanceContext);
             double distance = routeDistance(route, distanceContext);
             if (best == null || distance < best.distance) {
                 best = new RouteChoice(candidateEnd, route, distance);
@@ -558,6 +608,10 @@ public class RouteOptimizeService {
                 return buildUserOrderThenRoundRobinDispatchPlan(vehicles, defaultStart, defaultEnd,
                         defaultRatedCapacityKg, defaultMaxCapacityKg, targetLoadRate, maxRoutes(request));
             }
+            if ("WORK_HOURS".equals(dispatchMode)) {
+                return buildWorkHoursDispatchPlan(vehicles, defaultStart, defaultEnd,
+                        defaultRatedCapacityKg, defaultMaxCapacityKg, targetLoadRate, maxRoutes(request));
+            }
             return buildUserOrderDispatchPlan(vehicles, defaultStart, defaultEnd,
                     defaultRatedCapacityKg, defaultMaxCapacityKg, targetLoadRate);
         }
@@ -582,6 +636,23 @@ public class RouteOptimizeService {
             VehiclePlan vehiclePlan = vehiclePlan(vehicle, vehicleIndex, defaultStart, defaultEnd,
                     defaultRatedCapacityKg, defaultMaxCapacityKg, targetLoadRate);
             for (int tripNo = 1; tripNo <= vehiclePlan.tripCount; tripNo++) {
+                plan.add(dispatchTrip(vehiclePlan, tripNo));
+            }
+            vehicleIndex++;
+        }
+        return plan;
+    }
+
+    private List<DispatchTrip> buildWorkHoursDispatchPlan(List<Map<String, Object>> vehicles, RoutePoint defaultStart,
+                                                            RoutePoint defaultEnd, double defaultRatedCapacityKg,
+                                                            double defaultMaxCapacityKg, double targetLoadRate,
+                                                            int maxRoutes) {
+        List<DispatchTrip> plan = new ArrayList<DispatchTrip>();
+        int vehicleIndex = 1;
+        for (Map<String, Object> vehicle : vehicles) {
+            VehiclePlan vehiclePlan = vehiclePlan(vehicle, vehicleIndex, defaultStart, defaultEnd,
+                    defaultRatedCapacityKg, defaultMaxCapacityKg, targetLoadRate);
+            for (int tripNo = 1; tripNo <= maxRoutes; tripNo++) {
                 plan.add(dispatchTrip(vehiclePlan, tripNo));
             }
             vehicleIndex++;
@@ -693,7 +764,8 @@ public class RouteOptimizeService {
 
     private String dispatchMode(Map<String, Object> request) {
         String value = textOrDefault(request.get("dispatchMode"), "USER_ORDER").trim().toUpperCase();
-        if ("ROUND_ROBIN".equals(value) || "USER_ORDER_THEN_ROUND_ROBIN".equals(value)) {
+        if ("ROUND_ROBIN".equals(value) || "USER_ORDER_THEN_ROUND_ROBIN".equals(value)
+                || "WORK_HOURS".equals(value)) {
             return value;
         }
         return "USER_ORDER";
@@ -734,6 +806,14 @@ public class RouteOptimizeService {
         Long facilityId = toLong(vehicle.get(prefix + "FacilityId"));
         return new RoutePoint(facilityId == null ? fallback.getFacilityId() : facilityId,
                 name, longitude, latitude, null, 0D, 0D, null, 0D, null, "ANCHOR");
+    }
+
+    private double totalRouteCapacity(List<Map<String, Object>> routes) {
+        double total = 0D;
+        for (Map<String, Object> route : routes) {
+            total += valueOrZero(toDouble(route.get("ratedCapacityKg")));
+        }
+        return total;
     }
 
     private double totalPlannedCapacity(List<DispatchTrip> plan) {
