@@ -629,6 +629,7 @@
               <label>额定载重 kg<input v-model.number="optimizeOptions.ratedCapacityKg" type="number" min="1" step="100" /></label>
               <label>目标装载率<input v-model.number="optimizeOptions.targetLoadRate" type="number" min="0.1" max="1" step="0.05" /></label>
               <label>最大趟数<input v-model.number="optimizeOptions.maxRoutes" type="number" min="1" step="1" /></label>
+              <label>标准工时 h<input v-model.number="optimizeOptions.workHours" type="number" min="1" max="24" step="0.5" /></label>
               <label>每桶秒<input v-model.number="optimizeOptions.secondsPerContainer" type="number" min="1" step="1" /></label>
               <label>每点分钟<input v-model.number="optimizeOptions.minutesPerPoint" type="number" min="0" step="0.5" /></label>
               <div class="route-mode-card optimizer-mode-card strategy-mode-card">
@@ -769,6 +770,10 @@
               <label>
                 最大趟数
                 <input v-model.number="optimizeOptions.maxRoutes" type="number" min="1" step="1" />
+              </label>
+              <label>
+                标准工时 h
+                <input v-model.number="optimizeOptions.workHours" type="number" min="1" max="24" step="0.5" />
               </label>
               <label>
                 每桶秒
@@ -1070,6 +1075,8 @@
                         作业 {{ formatDuration(route.operationDurationMinutes) }} · 合计 {{ formatDuration(routeDisplayTotalDuration(route)) }} ·
                         装载率 {{ formatLoadRate(route.loadRate) }} ·
                         {{ pathSourceSummary(routeDisplaySegments(route)) }}
+                        <em v-if="route.timeExceeded" class="time-warning">超出 {{ formatDuration(route.overdueMinutes) }}</em>
+                        <em v-else class="time-ok">{{ formatNumber(route.workLimitHours || optimizeOptions.workHours || 8) }} 小时内</em>
                       </small>
                     </div>
                     <div class="sequence route-point-sequence">
@@ -1878,6 +1885,7 @@ const optimizeOptions = reactive({
   ratedCapacityKg: 5000,
   targetLoadRate: 0.9,
   maxRoutes: 10,
+  workHours: 8,
   secondsPerContainer: 35,
   minutesPerPoint: 3,
   useRoadPath: false,

@@ -769,8 +769,14 @@ public class RouteOptimizeService {
         view.put("distance", round(sumSegmentDistance(segments)));
         view.put("travelDurationMinutes", round(travelDurationMinutes));
         view.put("operationDurationMinutes", round(operationDurationMinutes));
-        view.put("totalDurationMinutes", round(travelDurationMinutes + operationDurationMinutes));
-        view.put("durationMinutes", round(travelDurationMinutes + operationDurationMinutes));
+        double totalDurationMinutes = travelDurationMinutes + operationDurationMinutes;
+        double workLimitMinutes = positiveOrDefault(request, "workHours", 8D) * 60D;
+        view.put("totalDurationMinutes", round(totalDurationMinutes));
+        view.put("durationMinutes", round(totalDurationMinutes));
+        view.put("workLimitMinutes", round(workLimitMinutes));
+        view.put("workLimitHours", round(workLimitMinutes / 60D));
+        view.put("timeExceeded", totalDurationMinutes > workLimitMinutes);
+        view.put("overdueMinutes", round(Math.max(0D, totalDurationMinutes - workLimitMinutes)));
         view.put("points", pointViews(route, request));
         view.put("segments", segments);
         view.put("polyline", polyline(route));
