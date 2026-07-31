@@ -317,7 +317,9 @@ public class RouteOptimizeService {
                 task.route(routeNo, dispatchPlan.size(), trip.vehicleName, trip.tripNo, "SEGMENT_BUILD",
                         "正在整理第 " + routeNo + " 趟地图数据", collected.size(), remaining.size());
             }
-            Map<String, Object> routeView = multiRouteView(routeNo, route, request, effectiveTrip, displayContext);
+            DistanceContext planningContext = refineWithRoad ? refineContext : distanceContext;
+            Map<String, Object> routeView = multiRouteView(routeNo, route, request, effectiveTrip,
+                    planningContext, displayContext, useRoadPath || refineWithRoad);
             lastEndByVehicle.put(effectiveTrip.vehicleId, effectiveTrip.end);
             if (workHoursDispatch) {
                 Double routeMinutes = toDouble(routeView.get("totalDurationMinutes"));
@@ -825,11 +827,16 @@ public class RouteOptimizeService {
     }
 
     private Map<String, Object> multiRouteView(int routeNo, List<RoutePoint> route, Map<String, Object> request,
-                                               DispatchTrip trip, DistanceContext distanceContext) {
+                                               DispatchTrip trip, DistanceContext planningContext,
+                                               DistanceContext displayContext, boolean retainRoadSegments) {
         Map<String, Object> view = new HashMap<String, Object>();
         List<RoutePoint> collected = collectedPoints(route);
         double weight = sumEstimatedWeight(collected);
-        List<Map<String, Object>> segments = segmentViews(route, speedProfile(request), distanceContext);
+        SpeedProfile profile = speedProfile(request);
+        List<Map<String, Object>> planningSegments = segmentViews(route, profile, planningContext);
+        List<Map<String, Object>> displaySegments = displayContext == planningContext
+                ? planningSegments
+                : segmentViews(route, profile, displayContext);
         view.put("routeNo", routeNo);
         view.put("vehicleIndex", trip.vehicleIndex);
         view.put("vehicleId", trip.vehicleId);
@@ -844,21 +851,38 @@ public class RouteOptimizeService {
         view.put("estimatedWeightKg", round(weight));
         view.put("estimatedVolumeLiter", round(sumEstimatedVolume(collected)));
         view.put("loadRate", trip.ratedCapacityKg <= 0D ? 0D : round(weight / trip.ratedCapacityKg));
-        double travelDurationMinutes = sumSegmentDuration(segments);
+        double planningDistance = sumSegmentDistance(planningSegments);
+        double planningTravelDurationMinutes = sumSegmentDuration(planningSegments);
+        double displayDistance = sumSegmentDistance(displaySegments);
+        double displayTravelDurationMinutes = sumSegmentDuration(displaySegments);
         double operationDurationMinutes = sumOperationDuration(collected, request);
-        view.put("distance", round(sumSegmentDistance(segments)));
-        view.put("travelDurationMinutes", round(travelDurationMinutes));
-        view.put("operationDurationMinutes", round(operationDurationMinutes));
-        double totalDurationMinutes = travelDurationMinutes + operationDurationMinutes;
+        double totalDurationMinutes = planningTravelDurationMinutes + operationDurationMinutes;
+        double displayTotalDurationMinutes = displayTravelDurationMinutes + operationDurationMinutes;
         double workLimitMinutes = positiveOrDefault(request, "workHours", 8D) * 60D;
+        // Planning metrics are independent from map rendering mode.
+        view.put("distance", round(planningDistance));
+        view.put("travelDurationMinutes", round(planningTravelDurationMinutes));
+        view.put("operationDurationMinutes", round(operationDurationMinutes));
         view.put("totalDurationMinutes", round(totalDurationMinutes));
         view.put("durationMinutes", round(totalDurationMinutes));
+        view.put("planningDistance", round(planningDistance));
+        view.put("planningTravelDurationMinutes", round(planningTravelDurationMinutes));
+        view.put("planningTotalDurationMinutes", round(totalDurationMinutes));
+        view.put("displayDistance", round(displayDistance));
+        view.put("displayTravelDurationMinutes", round(displayTravelDurationMinutes));
+        view.put("displayTotalDurationMinutes", round(displayTotalDurationMinutes));
         view.put("workLimitMinutes", round(workLimitMinutes));
         view.put("workLimitHours", round(workLimitMinutes / 60D));
         view.put("timeExceeded", totalDurationMinutes > workLimitMinutes);
         view.put("overdueMinutes", round(Math.max(0D, totalDurationMinutes - workLimitMinutes)));
         view.put("points", pointViews(route, request));
-        view.put("segments", segments);
+        view.put("segments", displaySegments);
+        if (retainRoadSegments) {
+            // Reuse road segments already resolved during planning.
+            view.put("roadSegments", planningSegments);
+            view.put("roadDistance", round(planningDistance));
+            view.put("roadDurationMinutes", round(planningTravelDurationMinutes));
+        }
         view.put("polyline", polyline(route));
         return view;
     }

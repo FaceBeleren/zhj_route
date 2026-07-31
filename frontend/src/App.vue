@@ -2080,11 +2080,12 @@ function routeDisplaySegments(route) {
 }
 function routeDisplayDistance(route) {
   if (!route) return 0
-  return routeRoadDisplay(route) && route.roadDistance ? route.roadDistance : route.distance
+  // Map toggles must not change planning metrics.?
+  return Number(route.planningDistance ?? route.distance ?? 0)
 }
 function routeDisplayTravelDuration(route) {
   if (!route) return 0
-  return routeRoadDisplay(route) && route.roadDurationMinutes ? route.roadDurationMinutes : route.travelDurationMinutes
+  return Number(route.planningTravelDurationMinutes ?? route.travelDurationMinutes ?? 0)
 }
 function routeDisplayTotalDuration(route) {
   if (!route) return 0
@@ -3490,8 +3491,6 @@ async function setSelectedMultiRouteDisplay(useRoad) {
       })
     })
     route.roadSegments = result.segments || []
-    route.roadDistance = result.distance
-    route.roadDurationMinutes = result.durationMinutes
   } catch (err) {
     error.value = err.message || String(err)
     multiRouteDisplayModes.value = { ...multiRouteDisplayModes.value, [route.routeNo]: 'DIRECT' }
@@ -4207,8 +4206,10 @@ function formatDuration(value) {
     return `${Math.max(1, Math.round(n * 60))} s`
   }
   if (n >= 60) {
-    const hours = Math.floor(n / 60)
-    const minutes = Math.round(n % 60)
+    // Normalize total minutes before splitting hours and minutes.
+    const totalMinutes = Math.max(0, Math.round(n))
+    const hours = Math.floor(totalMinutes / 60)
+    const minutes = totalMinutes % 60
     return `${hours} h ${minutes} min`
   }
   if (n < 10) {
