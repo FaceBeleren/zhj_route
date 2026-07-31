@@ -834,7 +834,8 @@ public class RouteOptimizeService {
         double weight = sumEstimatedWeight(collected);
         SpeedProfile profile = speedProfile(request);
         List<Map<String, Object>> planningSegments = segmentViews(route, profile, planningContext);
-        List<Map<String, Object>> displaySegments = displayContext == planningContext
+        List<Map<String, Object>> displaySegments = (!planningContext.useRoadPath && !displayContext.useRoadPath)
+                || displayContext == planningContext
                 ? planningSegments
                 : segmentViews(route, profile, displayContext);
         view.put("routeNo", routeNo);
