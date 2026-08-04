@@ -3326,17 +3326,17 @@ function buildRouteProgressSteps() {
   ]
   if (optimizeOptions.multiRouteStrategy === 'ROAD_GLOBAL') {
     steps.push(
-      { key: 'cache-check', title: '调取 OD 缓存', detail: '批量读取本批点位已有道路点对' },
-      { key: 'pair-resolve', title: '处理缺失点对', detail: '缓存未命中时按配置百度补算或直线回退' }
+      { key: 'cache-check', title: '检查道路 OD 缓存', detail: '读取本批已有的道路点对' },
+      { key: 'pair-resolve', title: '补齐道路 OD 点对', detail: '缺失点对统一调用百度补算，失败则停止，不使用直线回退' }
     )
   } else {
     steps.push({ key: 'direct-distance', title: '计算直线距离', detail: '使用点位经纬度距离进行快速规划' })
   }
   steps.push(
-    { key: 'route-build', title: '生成多趟路线', detail: '按装载目标逐趟插入点位' },
+    { key: 'route-build', title: '生成多趟路线', detail: optimizeOptions.multiRouteStrategy === 'ROAD_GLOBAL' ? 'OD 全部准备完成后，按道路距离逐趟插入点位' : '按装载目标逐趟插入点位' },
   )
   if (optimizeOptions.multiRouteStrategy === 'DIRECT_GROUP_ROAD_REFINE') {
-    steps.push({ key: 'route-refine', title: '单趟道路精排', detail: '每趟路线内部按道路距离重新排序' })
+    steps.push({ key: 'route-refine', title: '单趟道路精排', detail: '每趟先补齐全部有向 OD，再按道路距离重新排序' })
   }
   steps.push(
     { key: 'segment-build', title: '整理路段与地图数据', detail: '生成路线明细、路段距离和展示路径' },
