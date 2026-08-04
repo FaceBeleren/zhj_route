@@ -188,6 +188,10 @@ public class RouteOptimizeService {
                     : routeQueryService.routePlanPoints(routeId));
         }
         sourcePoints = filterByRequestedFacilities(sourcePoints, request);
+        boolean explicitAnchors = hasAnchorCoordinate(request, "start") || hasAnchorCoordinate(request, "end");
+        if (explicitAnchors) {
+            sourcePoints = withoutInputAnchors(sourcePoints);
+        }
         List<Map<String, Object>> routes = new ArrayList<Map<String, Object>>();
         List<RoutePoint> unassigned = new ArrayList<RoutePoint>();
         double ratedCapacityKg = defaultedRatedCapacityKg(request);
@@ -427,6 +431,20 @@ public class RouteOptimizeService {
                     row.get("weightSource") == null ? null : String.valueOf(row.get("weightSource"))));
         }
         return points;
+    }
+
+    private List<RoutePoint> withoutInputAnchors(List<RoutePoint> points) {
+        List<RoutePoint> result = new ArrayList<RoutePoint>();
+        for (RoutePoint point : points) {
+            if (point.getFacilityId() != null && (point.getFacilityId() == -1L || point.getFacilityId() == -2L)) {
+                continue;
+            }
+            if ("ANCHOR".equalsIgnoreCase(point.getWeightSource())) {
+                continue;
+            }
+            result.add(point);
+        }
+        return result;
     }
 
     private List<RoutePoint> filterByRequestedFacilities(List<RoutePoint> points, Map<String, Object> request) {
