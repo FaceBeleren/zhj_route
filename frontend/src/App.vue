@@ -670,6 +670,7 @@
               <div class="route-mode-card optimizer-mode-card strategy-mode-card">
                 <label class="strategy-select"><span>规划策略</span><select v-model="optimizeOptions.multiRouteStrategy"><option value="DIRECT_GROUP">直线快速分组</option><option value="DIRECT_GROUP_ROAD_REFINE">直线分组 + 道路精排</option><option value="ROAD_GLOBAL">全程实际距离</option></select></label>
               </div>
+              <label class="trace-toggle"><span>调试日志</span><input v-model="optimizeOptions.traceEnabled" type="checkbox" /> <small>{{ optimizeOptions.traceEnabled ? '开启后记录插入过程' : '默认关闭' }}</small></label>
               <label>起点类型<select v-model="startAnchorMode" @change="onAnchorModeChange('start')"><option value="facility">设施点</option><option value="parking">停车场</option><option value="manual">手填</option></select></label>
               <label>起点筛选<select v-model="selectedStartAnchorKey" :disabled="startAnchorMode === 'manual'" @change="applySelectedStartAnchor"><option value="">请选择</option><option v-for="anchor in startAnchorOptions" :key="anchor.key" :value="anchor.key">{{ anchor.label }}</option></select></label>
               <label>终点类型<select v-model="endAnchorMode" @change="onAnchorModeChange('end')"><option value="facility">设施点</option><option value="parking">停车场</option><option value="manual">手填</option><option value="disposalAny">处置场任选</option><option value="terminalAny">处置场及中转站任选</option></select></label>
@@ -830,6 +831,7 @@
               </div>
               <label>
                 起点类型
+              <label class="trace-toggle"><span>调试日志</span><input v-model="optimizeOptions.traceEnabled" type="checkbox" /> <small>{{ optimizeOptions.traceEnabled ? '开启后记录插入过程' : '默认关闭' }}</small></label>
                 <select v-model="startAnchorMode" @change="onAnchorModeChange('start')">
                   <option value="facility">设施点</option>
                   <option value="parking">停车场</option>
@@ -1971,6 +1973,7 @@ const optimizeOptions = reactive({
   useRoadPath: false,
   multiRouteStrategy: 'DIRECT_GROUP',
   displayRoadPath: false,
+  traceEnabled: false,
   startLongitude: null,
   startLatitude: null,
   startFacilityName: null,

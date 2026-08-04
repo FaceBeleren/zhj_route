@@ -32,13 +32,15 @@ public class RouteOptimizeService {
 
     private final RouteQueryService routeQueryService;
     private final RouteMapPathService routeMapPathService;
+    private final RouteOptimizeTraceService traceService;
     private final SingleRouteOptimizer singleRouteOptimizer = new SingleRouteOptimizer();
     private final ExecutorService multiRouteExecutor = Executors.newFixedThreadPool(2);
     private final Map<String, MultiRouteTask> multiRouteTasks = new ConcurrentHashMap<String, MultiRouteTask>();
 
-    public RouteOptimizeService(RouteQueryService routeQueryService, RouteMapPathService routeMapPathService) {
+    public RouteOptimizeService(RouteQueryService routeQueryService, RouteMapPathService routeMapPathService, RouteOptimizeTraceService traceService) {
         this.routeQueryService = routeQueryService;
         this.routeMapPathService = routeMapPathService;
+        this.traceService = traceService;
     }
 
     public Map<String, Object> optimizePreview(Map<String, Object> request) {
@@ -238,6 +240,7 @@ public class RouteOptimizeService {
         String planningStrategy = multiRouteStrategy(request);
         boolean useRoadPath = multiRouteUsesRoadPath(planningStrategy, request);
         boolean refineWithRoad = multiRouteRefinesWithRoad(planningStrategy);
+        RouteOptimizeTraceService.TraceHandle trace = traceService.start(request, pointViews(sourcePoints), unitId, routeId, planningStrategy, dispatchMode(request));
         boolean displayRoadPath = displayRoadPath(request, false);
         DistanceContext distanceContext = new DistanceContext(useRoadPath, useRoadPath);
         DistanceContext refineContext = refineWithRoad ? new DistanceContext(true, true) : distanceContext;
@@ -294,7 +297,7 @@ public class RouteOptimizeService {
             long routeStartedAt = System.currentTimeMillis();
             routeDistanceContext.resetRouteStats();
             RouteChoice routeChoice = chooseBestEndRoute(trip, effectiveStart, endCandidates, remaining,
-                    request, timeBudgetMinutes, routeDistanceContext);
+                    request, timeBudgetMinutes, routeDistanceContext, trace, routeNo);
             List<RoutePoint> capacityRoute = routeChoice.route;
             List<RoutePoint> route = capacityRoute;
             DispatchTrip effectiveTrip = trip.withStartAndEnd(effectiveStart, routeChoice.end);
@@ -372,6 +375,7 @@ public class RouteOptimizeService {
                 ? totalRouteCapacity(routes) : totalPlannedCapacity(dispatchPlan)));
         result.put("routes", routes);
         result.put("unassignedPoints", pointViews(unassigned));
+        traceService.finish(trace, String.valueOf(result.get("status")), System.currentTimeMillis() - startedAt);
         log.info("Multi route optimize finished: routeId={}, unitId={}, status={}, elapsed={}ms, routes={}, assigned={}, unassigned={}, strategy={}, odStats={}, refineStats={}, displayStats={}",
                 routeId, unitId, result.get("status"), System.currentTimeMillis() - startedAt,
                 routes.size(), result.get("assignedPointCount"), unassigned.size(), planningStrategy, distanceContext.summary(), refineContext.summary(), displayContext.summary());
@@ -494,15 +498,18 @@ public class RouteOptimizeService {
     private List<RoutePoint> buildCapacityRoute(RoutePoint start, RoutePoint end, List<RoutePoint> remaining,
                                                 double targetLoadWeightKg, double maxCapacityKg,
                                                 Map<String, Object> request, double timeBudgetMinutes,
-                                                MatrixDistanceContext distanceCalculator) {
+                                                MatrixDistanceContext distanceCalculator,
+                                                RouteOptimizeTraceService.TraceHandle trace, int routeNo, DispatchTrip trip) {
         List<RoutePoint> route = new ArrayList<RoutePoint>();
         route.add(start);
         route.add(end);
         List<RoutePoint> available = new ArrayList<RoutePoint>(remaining);
         double load = 0D;
 
+        int iteration = 0;
         while (!available.isEmpty()) {
             InsertChoice best = null;
+            List<Map<String, Object>> candidateEvaluations = new ArrayList<Map<String, Object>>();
             for (RoutePoint candidate : available) {
                 double nextLoad = load + valueOrZero(candidate.getEstimatedWeightKg());
                 if (nextLoad > maxCapacityKg && load > 0D) {
@@ -522,6 +529,7 @@ public class RouteOptimizeService {
                             continue;
                         }
                     }
+                    candidateEvaluations.add(RouteOptimizeTraceService.candidate(candidate.getFacilityId(), candidate.getFacilityName(), segment + 1, increase));
                     if (best == null || increase < best.increase) {
                         best = new InsertChoice(candidate, segment + 1, increase);
                     }
@@ -530,9 +538,22 @@ public class RouteOptimizeService {
             if (best == null) {
                 break;
             }
+            RoutePoint previous = route.get(best.insertIndex - 1);
+            RoutePoint next = route.get(best.insertIndex);
             route.add(best.insertIndex, best.point);
             available.remove(best.point);
             load += valueOrZero(best.point.getEstimatedWeightKg());
+            iteration++;
+            Collections.sort(candidateEvaluations, new Comparator<Map<String, Object>>() {
+                @Override public int compare(Map<String, Object> left, Map<String, Object> right) { return Double.compare(((Number) left.get("increaseMeters")).doubleValue(), ((Number) right.get("increaseMeters")).doubleValue()); }
+            });
+            List<Map<String, Object>> topCandidates = candidateEvaluations.subList(0, Math.min(5, candidateEvaluations.size()));
+            Map<String, Object> selected = new HashMap<String, Object>();
+            selected.put("facilityId", best.point.getFacilityId()); selected.put("facilityName", best.point.getFacilityName()); selected.put("insertIndex", best.insertIndex);
+            selected.put("previousFacilityId", previous.getFacilityId()); selected.put("previousFacilityName", previous.getFacilityName());
+            selected.put("nextFacilityId", next.getFacilityId()); selected.put("nextFacilityName", next.getFacilityName()); selected.put("increaseDistanceMeters", best.increase);
+            double traceTotalMinutes = estimatedRouteDuration(route, request, distanceCalculator);
+            traceService.step(trace, routeNo, trip.vehicleId, trip.tripNo, iteration, pointViews(route, request), selected, topCandidates, available.size(), available.size() + 1, candidateEvaluations.size(), routeDistance(route, distanceCalculator), traceTotalMinutes, sumOperationDuration(collectedPoints(route), request), traceTotalMinutes, load, distanceCalculator.delegate.useRoadPath ? "OD_PRELOAD" : "DIRECT");
             if (targetLoadWeightKg > 0D && load >= targetLoadWeightKg) {
                 break;
             }
@@ -569,7 +590,8 @@ public class RouteOptimizeService {
 
     private RouteChoice chooseBestEndRoute(DispatchTrip trip, RoutePoint start, List<RoutePoint> endCandidates,
                                            List<RoutePoint> remaining, Map<String, Object> request,
-                                           double timeBudgetMinutes, MatrixDistanceContext distanceContext) {
+                                           double timeBudgetMinutes, MatrixDistanceContext distanceContext,
+                                           RouteOptimizeTraceService.TraceHandle trace, int routeNo) {
         RouteChoice best = null;
         List<RoutePoint> candidates = endCandidates.isEmpty() ? new ArrayList<RoutePoint>() : endCandidates;
         if (candidates.isEmpty()) {
@@ -577,7 +599,7 @@ public class RouteOptimizeService {
         }
         for (RoutePoint candidateEnd : candidates) {
             List<RoutePoint> route = buildCapacityRoute(start, candidateEnd, remaining,
-                    trip.targetLoadWeightKg, trip.maxCapacityKg, request, timeBudgetMinutes, distanceContext);
+                    trip.targetLoadWeightKg, trip.maxCapacityKg, request, timeBudgetMinutes, distanceContext, trace, routeNo, trip);
             double distance = routeDistance(route, distanceContext);
             if (best == null || distance < best.distance) {
                 best = new RouteChoice(candidateEnd, route, distance);
