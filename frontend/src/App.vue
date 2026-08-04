@@ -57,6 +57,9 @@
       <button :class="{ active: currentView === 'saved' }" @click="currentView = 'saved'">
         路线方案库
       </button>
+      <button :class="{ active: currentView === 'od-cache' }" @click="currentView = 'od-cache'">
+        OD缓存计算
+      </button>
     </nav>
 
     <section class="map-status-strip">
@@ -299,6 +302,38 @@
     </template>
 
 
+    <template v-else-if="currentView === 'od-cache'">
+      <section class="od-cache-shell">
+        <div class="panel-head">
+          <div><h2>OD缓存计算</h2><span class="muted">提前补齐选中点位、停车场和设施点之间的道路距离</span></div>
+          <div class="panel-actions"><button class="secondary" @click="resetOdCacheSelection">清空选择</button><button @click="startOdCacheTask" :disabled="odCacheRunning || odCachePayload.length < 2">开始计算缓存</button><button class="danger" v-if="odCacheRunning" @click="stopOdCacheTask">停止计算</button></div>
+        </div>
+        <section class="od-cache-layout">
+          <aside class="panel company-panel">
+            <div class="panel-head"><h2>项目公司</h2><input v-model="odCacheCompanyKeyword" placeholder="搜索公司" /></div>
+            <div class="list"><button v-for="company in filteredOdCacheCompanies" :key="'od-company-' + company.id" class="list-item" :class="{ active: odCacheCompany?.id === company.id }" @click="selectOdCacheCompany(company)"><strong>{{ company.depName || company.id }}</strong><small>{{ company.id }}</small></button></div>
+          </aside>
+          <section class="panel od-cache-selection-panel">
+            <div class="od-cache-section-head"><div><h3>公司点位池</h3><span>{{ odCacheSelectedPointCount }} / {{ odCachePoints.length }} 个点位</span></div><label><input type="checkbox" v-model="odCacheShowSelectedOnly" /> 只看已选</label></div>
+            <div class="toolbar-row"><input v-model="odCachePointKeyword" placeholder="搜索点位、桶信息" /><button class="secondary" @click="selectAllOdCachePoints">全选</button><button class="secondary" @click="clearOdCachePoints">清空</button><input ref="odCacheImportInput" type="file" accept=".xlsx,.xls" hidden @change="importOdCacheNames" /><button class="secondary" @click="triggerOdCacheImport">导入选中</button></div>
+            <p class="muted">{{ odCacheImportSummary || '点位用于生成 OD 计算节点，导入文件只按名称匹配。' }}</p>
+            <div class="od-cache-point-list"><label v-for="point in odCacheVisiblePoints" :key="'od-point-' + point.facilityId" class="list-item compact"><input type="checkbox" :checked="odCachePointIds.has(String(point.facilityId))" @change="toggleOdCachePoint(point.facilityId)" /><span><strong>{{ point.facilityName || point.facilityId }}</strong><small>{{ point.containerInfo || '-' }} · {{ point.facilityTypeName || '收运点' }}</small></span></label><div v-if="!odCacheVisiblePoints.length" class="empty">请选择公司</div></div>
+          </section>
+          <section class="panel od-cache-anchor-panel">
+            <div class="od-cache-section-head"><h3>场站与设施点</h3><span class="muted">支持多选</span></div>
+            <h4>停车场</h4><div class="anchor-check-list"><label v-for="anchor in odCacheParkingOptions" :key="'od-parking-' + anchor.facilityId" class="list-item compact"><input type="checkbox" :checked="odCacheParkingKeys.has(anchor.key)" @change="toggleOdCacheAnchor(anchor.key, anchor)" /><span>{{ anchor.facilityName || anchor.facilityId }}<small>{{ anchor.facilityTypeName || '停车场' }}</small></span></label><span v-if="!odCacheParkingOptions.length" class="muted">暂无停车场</span></div>
+            <h4>处置场 / 中转站</h4><div class="anchor-check-list"><label v-for="anchor in odCacheFacilityOptions" :key="'od-facility-' + anchor.key" class="list-item compact"><input type="checkbox" :checked="odCacheFacilityKeys.has(anchor.key)" @change="toggleOdCacheAnchor(anchor.key, anchor)" /><span>{{ anchor.facilityName || anchor.facilityId }}<small>{{ anchor.facilityTypeName || '设施点' }}</small></span></label><span v-if="!odCacheFacilityOptions.length" class="muted">暂无设施点</span></div>
+          </section>
+        </section>
+        <section class="panel od-cache-progress-panel">
+          <div class="planning-progress-head"><div><h2>点位计算进度</h2><p>{{ odCacheTask.message }}</p></div><strong>{{ odCacheTask.percent }}%</strong></div>
+          <div class="planning-progress-bar"><span :style="{ width: odCacheTask.percent + '%' }"></span></div>
+          <div class="od-cache-stats"><span>节点 {{ odCachePayload.length }}</span><span>总点对 {{ odCacheTask.totalPairs || odCachePairCount }}</span><span>已缓存 {{ odCacheTask.cachedPairs || 0 }}</span><span>已完成 {{ odCacheTask.completedPairs || 0 }}</span><span>成功写入 {{ odCacheTask.successPairs || 0 }}</span><span>失败 {{ odCacheTask.failedPairs || 0 }}</span></div>
+          <div class="planning-progress-steps"><div :class="odCacheStepClass(1)"><b>1</b><span><strong>整理选中节点</strong><small>点位、停车场、处置场和中转站去重</small></span></div><div :class="odCacheStepClass(2)"><b>2</b><span><strong>查询已缓存数据</strong><small>先读取现有 ljszy_odpair_pool</small></span></div><div :class="odCacheStepClass(3)"><b>3</b><span><strong>计算缺失道路 OD</strong><small>{{ odCacheTask.currentPair || '未开始' }}</small></span></div><div :class="odCacheStepClass(4)"><b>4</b><span><strong>完成并持久化</strong><small>成功结果由后端写入数据库</small></span></div></div>
+          <p v-if="odCacheTask.failures?.length" class="route-import-warning">部分点对未成功：{{ odCacheTask.failures.slice(0, 3).join('；') }}</p>
+        </section>
+      </section>
+    </template>
     <template v-else-if="currentView === 'workbench'">
       <section class="summary-strip">
         <div>
@@ -1736,6 +1771,20 @@ const loginForm = reactive({
 const loginError = ref('')
 
 const currentView = ref('score')
+const odCacheCompany = ref(null)
+const odCacheCompanyKeyword = ref('')
+const odCachePoints = ref([])
+const odCachePointKeyword = ref('')
+const odCachePointIds = ref(new Set())
+const odCacheParkingOptions = ref([])
+const odCacheFacilityOptions = ref([])
+const odCacheParkingKeys = ref(new Set())
+const odCacheFacilityKeys = ref(new Set())
+const odCacheShowSelectedOnly = ref(false)
+const odCacheImportInput = ref(null)
+const odCacheImportSummary = ref('')
+const odCachePollTimer = ref(null)
+const odCacheTask = reactive({ visible: false, taskId: '', status: 'IDLE', phase: 'PREPARE', message: '请选择公司和节点', percent: 0, totalPairs: 0, cachedPairs: 0, completedPairs: 0, successPairs: 0, failedPairs: 0, currentPair: '', failures: [] })
 const companies = ref([])
 const routes = ref([])
 const splitRoutes = ref([])
@@ -1834,6 +1883,30 @@ const routeProgress = reactive({
   currentTripNo: 0
 })
 
+const filteredOdCacheCompanies = computed(() => {
+  const keyword = odCacheCompanyKeyword.value.trim().toLowerCase()
+  if (!keyword) return companies.value
+  return companies.value.filter((company) => `${company.depName || ''} ${company.id || ''}`.toLowerCase().includes(keyword))
+})
+const odCacheVisiblePoints = computed(() => {
+  const keyword = odCachePointKeyword.value.trim().toLowerCase()
+  return odCachePoints.value.filter((point) => {
+    const matchesKeyword = !keyword || `${point.facilityName || ''} ${point.containerInfo || ''}`.toLowerCase().includes(keyword)
+    const selected = odCachePointIds.value.has(String(point.facilityId))
+    return matchesKeyword && (!odCacheShowSelectedOnly.value || selected)
+  })
+})
+const odCacheSelectedPointCount = computed(() => odCachePointIds.value.size)
+const odCachePayload = computed(() => {
+  const result = []
+  odCachePoints.value.forEach((point) => { if (odCachePointIds.value.has(String(point.facilityId))) result.push(point) })
+  ;[...odCacheParkingOptions.value, ...odCacheFacilityOptions.value].forEach((point) => {
+    if ((odCacheParkingKeys.value.has(point.key) || odCacheFacilityKeys.value.has(point.key)) && !result.some((item) => String(item.facilityId) === String(point.facilityId))) result.push(point)
+  })
+  return result
+})
+const odCachePairCount = computed(() => odCachePayload.value.length * Math.max(0, odCachePayload.value.length - 1))
+const odCacheRunning = computed(() => ['QUEUED', 'RUNNING'].includes(odCacheTask.status))
 const companyScores = ref([])
 const routeScores = ref([])
 const tripScores = ref([])
@@ -4092,6 +4165,20 @@ function scorePointClass(point) {
   }
 }
 
+function resetOdCacheTask() { if (odCachePollTimer.value) { clearInterval(odCachePollTimer.value); odCachePollTimer.value = null }; Object.assign(odCacheTask, { visible: false, taskId: '', status: 'IDLE', phase: 'PREPARE', message: '请选择公司和节点', percent: 0, totalPairs: 0, cachedPairs: 0, completedPairs: 0, successPairs: 0, failedPairs: 0, currentPair: '', failures: [] }) }
+function resetOdCacheSelection() { odCachePointIds.value = new Set(); odCacheParkingKeys.value = new Set(); odCacheFacilityKeys.value = new Set(); odCacheImportSummary.value = ''; resetOdCacheTask() }
+async function selectOdCacheCompany(company) { odCacheCompany.value = company; resetOdCacheSelection(); await withLoading(async () => { const [points, anchors] = await Promise.all([api(`/api/companies/${company.id}/facilities`), api(`/api/companies/${company.id}/route-anchors`)]); odCachePoints.value = points || []; odCachePointIds.value = new Set(odCachePoints.value.map((point) => String(point.facilityId))); odCacheParkingOptions.value = (anchors?.parkingLots || []).map((point) => ({ ...point, key: `parking:${point.facilityId}` })); odCacheFacilityOptions.value = [...(anchors?.disposalSites || []), ...(anchors?.transferStations || [])].map((point) => ({ ...point, key: `facility:${point.facilityId}` })); }) }
+function toggleOdCachePoint(id) { const next = new Set(odCachePointIds.value); const key = String(id); next.has(key) ? next.delete(key) : next.add(key); odCachePointIds.value = next; resetOdCacheTask() }
+function selectAllOdCachePoints() { odCachePointIds.value = new Set(odCachePoints.value.map((point) => String(point.facilityId))); resetOdCacheTask() }
+function clearOdCachePoints() { odCachePointIds.value = new Set(); resetOdCacheTask() }
+function toggleOdCacheAnchor(key, anchor) { const isParking = key.startsWith('parking:'); const current = isParking ? new Set(odCacheParkingKeys.value) : new Set(odCacheFacilityKeys.value); current.has(key) ? current.delete(key) : current.add(key); if (isParking) odCacheParkingKeys.value = current; else odCacheFacilityKeys.value = current; resetOdCacheTask() }
+function triggerOdCacheImport() { odCacheImportInput.value?.click() }
+async function importOdCacheNames(event) { const file = event.target.files?.[0]; event.target.value = ''; if (!file || !odCachePoints.value.length) return; const form = new FormData(); form.append('file', file); await withLoading(async () => { const response = await fetch('/api/import/facility-names', { method: 'POST', body: form }); if (!response.ok) throw new Error(await response.text()); const result = await response.json(); const names = new Set((result.names || []).map(normalizeFacilityName).filter(Boolean)); const selected = new Set(); odCachePoints.value.forEach((point) => { if (names.has(normalizeFacilityName(point.facilityName))) selected.add(String(point.facilityId)) }); odCachePointIds.value = selected; odCacheShowSelectedOnly.value = true; odCacheImportSummary.value = `导入 ${names.size} 个名称，匹配并选中 ${selected.size} 个点位`; resetOdCacheTask() }) }
+function applyOdCacheTask(task) { Object.assign(odCacheTask, { visible: true, ...task, percent: Number(task.percent || 0), failures: task.failures || [] }) }
+async function startOdCacheTask() { if (odCachePayload.value.length < 2) { error.value = '至少选择两个有坐标的节点'; return } resetOdCacheTask(); odCacheTask.visible = true; odCacheTask.status = 'QUEUED'; odCacheTask.message = '正在提交缓存计算任务'; const response = await api('/api/od-cache/tasks', { method: 'POST', body: JSON.stringify({ points: odCachePayload.value }) }); applyOdCacheTask(response); if (odCachePollTimer.value) clearInterval(odCachePollTimer.value); odCachePollTimer.value = setInterval(() => pollOdCacheTask(response.taskId), 1000); await pollOdCacheTask(response.taskId) }
+async function pollOdCacheTask(taskId) { try { const task = await api(`/api/od-cache/tasks/${taskId}`); applyOdCacheTask(task); if (['DONE', 'PARTIAL', 'FAILED', 'CANCELLED', 'NOT_FOUND'].includes(task.status)) { clearInterval(odCachePollTimer.value); odCachePollTimer.value = null } } catch (e) { odCacheTask.message = e.message } }
+async function stopOdCacheTask() { if (!odCacheTask.taskId) return; const task = await api(`/api/od-cache/tasks/${odCacheTask.taskId}/cancel`, { method: 'POST' }); applyOdCacheTask(task); if (odCachePollTimer.value) { clearInterval(odCachePollTimer.value); odCachePollTimer.value = null } }
+function odCacheStepClass(index) { const phase = odCacheTask.phase; const done = (index === 1 && ['CHECK_CACHE','CALCULATE','DONE'].includes(phase)) || (index === 2 && ['CALCULATE','DONE'].includes(phase)) || (index === 3 && phase === 'DONE') || (index === 4 && ['DONE','CANCELLED','FAILED'].includes(phase)); const active = (index === 1 && phase === 'PREPARE') || (index === 2 && phase === 'CHECK_CACHE') || (index === 3 && phase === 'CALCULATE') || (index === 4 && phase === 'DONE'); return { 'progress-step': true, done, active } }
 async function reloadCurrent() {
   await loadRouteMapStatus()
   if (currentView.value === 'saved') {
@@ -4115,6 +4202,10 @@ async function reloadCurrent() {
     } else {
       await loadCompanies()
     }
+    return
+  }
+  if (currentView.value === 'od-cache') {
+    await loadCompanies()
     return
   }
   if (currentView.value === 'multi' || currentView.value === 'cluster') {

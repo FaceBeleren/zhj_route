@@ -8,6 +8,7 @@ import com.zhj.route.service.RouteOptimizeService;
 import com.zhj.route.service.RouteExportService;
 import com.zhj.route.service.RouteClusterService;
 import com.zhj.route.service.RoutePlanService;
+import com.zhj.route.service.OdCacheService;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
@@ -36,6 +37,7 @@ public class RouteDataController {
     private final FacilityImportService facilityImportService;
     private final RouteClusterService routeClusterService;
     private final RoutePlanService routePlanService;
+    private final OdCacheService odCacheService;
 
     public RouteDataController(
             RouteQueryService routeQueryService,
@@ -45,7 +47,8 @@ public class RouteDataController {
             RouteExportService routeExportService,
             FacilityImportService facilityImportService,
             RouteClusterService routeClusterService,
-            RoutePlanService routePlanService) {
+            RoutePlanService routePlanService,
+            OdCacheService odCacheService) {
         this.routeQueryService = routeQueryService;
         this.routeConformanceService = routeConformanceService;
         this.routeOptimizeService = routeOptimizeService;
@@ -54,6 +57,7 @@ public class RouteDataController {
         this.facilityImportService = facilityImportService;
         this.routeClusterService = routeClusterService;
         this.routePlanService = routePlanService;
+        this.odCacheService = odCacheService;
     }
 
 
@@ -108,6 +112,21 @@ public class RouteDataController {
     @DeleteMapping("/route-plans/routes/{id}")
     public Map<String, Object> deleteRoutePlanRoute(@PathVariable Long id) {
         return routePlanService.deleteRoute(id);
+    }
+
+    @PostMapping("/od-cache/tasks")
+    public Map<String, Object> startOdCacheTask(@RequestBody Map<String, Object> request) {
+        return odCacheService.start(request);
+    }
+
+    @GetMapping("/od-cache/tasks/{taskId}")
+    public Map<String, Object> odCacheTask(@PathVariable String taskId) {
+        return odCacheService.get(taskId);
+    }
+
+    @PostMapping("/od-cache/tasks/{taskId}/cancel")
+    public Map<String, Object> cancelOdCacheTask(@PathVariable String taskId) {
+        return odCacheService.cancel(taskId);
     }
 
     @GetMapping("/companies")
