@@ -486,7 +486,11 @@ public class RouteClusterService {
     }
 
     private double operationMinutes(List<Point> points, TimeConfig timeConfig) {
-        return containerCount(points) * timeConfig.secondsPerContainer / 60D + points.size() * timeConfig.minutesPerPoint;
+        double handlingUnits = 0D;
+        for (Point point : points) {
+            handlingUnits += point.bucketHandlingUnits();
+        }
+        return handlingUnits * timeConfig.secondsPerContainer / 60D + points.size() * timeConfig.minutesPerPoint;
     }
 
     private double containerCount(List<Point> points) {
@@ -632,6 +636,33 @@ public class RouteClusterService {
 
         private boolean hasCoordinate() {
             return longitude != null && latitude != null;
+        }
+
+        private double bucketHandlingUnits() {
+            if (containerInfo == null || containerInfo.isEmpty()) {
+                return containerCount;
+            }
+            double total = 0D;
+            boolean parsed = false;
+            String[] parts = containerInfo.split(",");
+            for (String part : parts) {
+                String[] pair = part.split("/");
+                if (pair.length != 2) {
+                    continue;
+                }
+                try {
+                    double size = Double.valueOf(pair[0].trim());
+                    double count = Double.valueOf(pair[1].trim());
+                    if (count < 0D) {
+                        continue;
+                    }
+                    parsed = true;
+                    total += Math.abs(size - 240D) < 0.001D ? Math.ceil(count / 2D) : count;
+                } catch (NumberFormatException ignored) {
+                    // Ignore malformed bucket specification.
+                }
+            }
+            return parsed ? total : containerCount;
         }
 
         private double containerCountBySize(String size) {

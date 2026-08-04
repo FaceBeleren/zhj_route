@@ -1689,7 +1689,42 @@ public class RouteOptimizeService {
         }
         double secondsPerContainer = requestNumber(request, "secondsPerContainer", 35D);
         double minutesPerPoint = requestNumber(request, "minutesPerPoint", 3D);
-        return valueOrZero(point.getContainerCount()) * secondsPerContainer / 60D + minutesPerPoint;
+        return bucketHandlingUnits(point) * secondsPerContainer / 60D + minutesPerPoint;
+    }
+
+    /**
+     * Returns handling units: one per 660L bucket and one per two 240L buckets.
+     */
+    private double bucketHandlingUnits(RoutePoint point) {
+        String containerInfo = point.getContainerInfo();
+        if (containerInfo == null || containerInfo.trim().isEmpty()) {
+            return valueOrZero(point.getContainerCount());
+        }
+        double units = 0D;
+        boolean parsed = false;
+        String[] parts = containerInfo.split(",");
+        for (String part : parts) {
+            String[] pair = part.split("/");
+            if (pair.length != 2) {
+                continue;
+            }
+            try {
+                double size = Double.parseDouble(pair[0].trim());
+                double count = Double.parseDouble(pair[1].trim());
+                if (count < 0D) {
+                    continue;
+                }
+                parsed = true;
+                if (Math.abs(size - 240D) < 0.001D) {
+                    units += Math.ceil(count / 2D);
+                } else {
+                    units += count;
+                }
+            } catch (NumberFormatException ignored) {
+                // Ignore malformed bucket specification.
+            }
+        }
+        return parsed ? units : valueOrZero(point.getContainerCount());
     }
 
     private double requestNumber(Map<String, Object> request, String key, double fallback) {
