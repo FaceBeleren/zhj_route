@@ -1887,6 +1887,14 @@ tbody tr.active {
   stroke-width: 0.8;
 }
 
+.route-plot .plot-point-original {
+  fill: #dc2626;
+}
+
+.route-plot .plot-point-optimized {
+  fill: #16a34a;
+}
+
 .route-plot .plot-vehicle {
   fill: #111827;
   stroke: #ffffff;

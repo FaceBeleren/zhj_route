@@ -63,7 +63,11 @@ public class RouteOptimizeService {
         }
         log.info("Single route optimize started: routeId={}, points={}, mode={}, displayMode={}, ratedKg={}, targetRate={}",
                 routeId, points.size(), useRoadPath ? "ROAD" : "DIRECT", displayRoadPath ? "ROAD" : "DIRECT", ratedCapacityKg(request), targetLoadRate(request));
-        RouteOptimizationResult optimization = singleRouteOptimizer.optimize(points, distanceContext);
+        Set<Long> feedbackFacilityIds = toLongSet(request.get("feedbackFacilityIds"));
+        boolean feedbackMode = !feedbackFacilityIds.isEmpty();
+        RouteOptimizationResult optimization = feedbackMode
+                ? singleRouteOptimizer.optimizeWithFeedback(points, feedbackFacilityIds, distanceContext)
+                : singleRouteOptimizer.optimize(points, distanceContext);
         List<Map<String, Object>> originalSegments = segmentViews(optimization.getOriginalPoints(), speedProfile(request), displayContext);
         List<Map<String, Object>> segments = segmentViews(optimization.getOptimizedPoints(), speedProfile(request), displayContext);
         Double roadOriginalDistance = displayRoadPath ? round(sumSegmentDistance(originalSegments)) : null;
@@ -72,7 +76,11 @@ public class RouteOptimizeService {
         Map<String, Object> result = new HashMap<String, Object>();
         result.put("routeId", routeId);
         result.put("status", points.size() < 3 ? "UNCHANGED" : "DONE");
-        result.put("message", buildMessage(points, useRoadPath));
+        result.put("message", feedbackMode
+                ? "已按不当路线反馈点进行局部调整，未标记点位保持原有相对顺序。"
+                : buildMessage(points, useRoadPath));
+        result.put("feedbackMode", feedbackMode);
+        result.put("feedbackFacilityIds", feedbackFacilityIds);
         result.put("pointCount", points.size());
         result.put("originalSequence", sequence(optimization.getOriginalPoints()));
         result.put("optimizedSequence", sequence(optimization.getOptimizedPoints()));

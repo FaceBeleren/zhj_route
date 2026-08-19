@@ -423,7 +423,8 @@
                     </select>
                   </label>
                 </div>
-                <button @click="previewOptimize" :disabled="!selectedRoute || loading">优化预览</button>
+                <button @click="previewOptimize(false)" :disabled="!selectedRoute || loading">优化预览</button>
+                <button class="feedback-button" @click="adjustByFeedback" :disabled="!selectedRoute || !feedbackFacilityIds.size || loading">优化调整<span v-if="feedbackFacilityIds.size">（{{ feedbackFacilityIds.size }} 个反馈点）</span></button>
               </div>
             </div>
             <div v-if="selectedRoute" class="route-overview">
@@ -452,9 +453,10 @@
               <div class="panel-head compact">
                 <h2>规划点位</h2>
               </div>
+              <div class="feedback-tip">勾选不当点位后点击“优化调整”，仅调整所选点的顺序。</div>
               <ol class="point-list">
-                <li v-for="point in planPoints" :key="point.facilityId">
-                  <span>{{ point.facilityName || point.facilityId }}</span>
+                <li v-for="(point, index) in planPoints" :key="point.facilityId">
+                  <label class="feedback-point-check"><input type="checkbox" :checked="feedbackFacilityIds.has(String(point.facilityId))" :disabled="index === 0 || index === planPoints.length - 1" @change="toggleFeedbackPoint(point)" /><span>{{ point.facilityName || point.facilityId }}</span></label>
                   <small>
                     {{ point.facilityTypeName || '-' }} · {{ formatWeight(point.estimatedWeightKg) }}
                     <template v-if="point.containerInfo"> · 桶 {{ point.containerInfo }}</template>
@@ -516,7 +518,28 @@
             <div>
               <div class="panel-head compact">
                 <h2>优化预览</h2>
+                <button class="secondary" @click="toggleOriginalRoutePreview" :disabled="!selectedRoute || loading">{{ showOriginalRoutePreview ? '收起原路线' : '原路线预览' }}</button>
                 <button @click="openSaveSingleOptimization" :disabled="!optimization || loading">保存路线</button>
+              </div>
+              <div v-if="showOriginalRoutePreview" class="original-route-preview">
+                <div class="original-route-preview-head">
+                  <strong>优化前路线</strong>
+                  <span>当前已生成路线，共 {{ planPoints.length }} 个点位</span>
+                  <div class="route-display-toolbar">
+                    <button :class="{ active: originalRouteDisplayMode === 'DIRECT' }" @click.stop="setOriginalRouteDisplay(false)">点位直线</button>
+                    <button :class="{ active: originalRouteDisplayMode === 'ROAD' }" :disabled="routeSegmentLoading || !planPoints.length" @click.stop="setOriginalRouteDisplay(true)">
+                      {{ routeSegmentLoading && originalRouteDisplayMode === 'ROAD' ? '加载道路...' : '百度道路轨迹' }}
+                    </button>
+                  </div>
+                </div>
+                <RouteMapPanel
+                  :original-points="planPoints"
+                  :optimized-points="[]"
+                  :original-segments="originalRouteDisplayMode === 'ROAD' ? originalRouteRoadSegments : []"
+                  :show-original="true"
+                  original-label="原路线"
+                  optimized-label="优化后"
+                />
               </div>
               <div v-if="optimization" class="optimization-box">
                 <strong>{{ optimization.status }}</strong>
@@ -553,6 +576,7 @@
                   :optimized-points="optimization.points || []"
                   :original-segments="optimization.originalSegments || []"
                   :optimized-segments="optimization.segments || []"
+                  :optimized-facility-ids="optimization.feedbackMode ? optimization.feedbackFacilityIds : null"
                 />
                 <ol v-if="optimization.points?.length" class="optimized-points">
                   <li v-for="point in optimization.points" :key="point.facilityId">
@@ -1820,6 +1844,10 @@ const companyAnchors = ref({
   defaultEnd: null
 })
 const optimization = ref(null)
+const showOriginalRoutePreview = ref(false)
+const originalRouteDisplayMode = ref('DIRECT')
+const originalRouteRoadSegments = ref([])
+const feedbackFacilityIds = ref(new Set())
 const multiOptimization = ref(null)
 const routeMapStatus = ref(null)
 const routeProgressTimer = ref(null)
@@ -2556,6 +2584,10 @@ async function selectRoute(route) {
   selectedRoute.value = route
   selectedRecord.value = null
   recordPoints.value = []
+  feedbackFacilityIds.value = new Set()
+  showOriginalRoutePreview.value = false
+  originalRouteDisplayMode.value = 'DIRECT'
+  originalRouteRoadSegments.value = []
   optimization.value = null
   clearMultiOptimization()
   await withLoading(async () => {
@@ -3213,7 +3245,43 @@ function applyAnchorToOptions(anchor, prefix) {
   optimizeOptions[nameKey] = anchor.facilityName || anchor.facilityId
 }
 
-async function previewOptimize() {
+function toggleOriginalRoutePreview() {
+  showOriginalRoutePreview.value = !showOriginalRoutePreview.value
+}
+
+async function setOriginalRouteDisplay(useRoad) {
+  if (!useRoad) {
+    originalRouteDisplayMode.value = 'DIRECT'
+    return
+  }
+  if (originalRouteDisplayMode.value === 'ROAD' && originalRouteRoadSegments.value.length) return
+  originalRouteDisplayMode.value = 'ROAD'
+  routeSegmentLoading.value = true
+  try {
+    const result = await api('/api/optimize/route-segments', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ points: planPoints.value || [], displayRoadPath: true })
+    })
+    originalRouteRoadSegments.value = result.segments || []
+  } catch (err) {
+    error.value = err.message || String(err)
+    originalRouteDisplayMode.value = 'DIRECT'
+  } finally {
+    routeSegmentLoading.value = false
+  }
+}
+
+function toggleFeedbackPoint(point) {
+  const id = String(point?.facilityId || '')
+  if (!id) return
+  const next = new Set(feedbackFacilityIds.value)
+  if (next.has(id)) next.delete(id)
+  else next.add(id)
+  feedbackFacilityIds.value = next
+}
+
+async function previewOptimize(feedback = false) {
   if (!selectedRoute.value) return
   await withLoading(async () => {
     optimization.value = await api('/api/optimize/preview', {
@@ -3222,10 +3290,17 @@ async function previewOptimize() {
       body: JSON.stringify({
         routeId: selectedRoute.value.id,
         unitId: selectedCompany.value.id,
+        // 普通“优化预览”明确清空反馈点，只执行整条路线优化。
+        feedbackFacilityIds: feedback ? [...feedbackFacilityIds.value] : [],
         ...optimizeOptions
       })
     })
   })
+}
+
+async function adjustByFeedback() {
+  if (!feedbackFacilityIds.value.size) return
+  await previewOptimize(true)
 }
 
 function changeSingleRouteStrategy(value) {
