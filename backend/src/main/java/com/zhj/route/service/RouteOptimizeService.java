@@ -46,16 +46,25 @@ public class RouteOptimizeService {
     public Map<String, Object> optimizePreview(Map<String, Object> request) {
         long startedAt = System.currentTimeMillis();
         Object routeIdValue = request.get("routeId");
-        if (routeIdValue == null) {
-            throw new IllegalArgumentException("routeId is required");
+        Object pointsValue = request.get("points");
+        boolean inlinePointMode = pointsValue instanceof List;
+        if (routeIdValue == null && !inlinePointMode) {
+            throw new IllegalArgumentException("routeId or points is required");
         }
 
-        Long routeId = Long.valueOf(String.valueOf(routeIdValue));
+        Long routeId = routeIdValue == null ? null : Long.valueOf(String.valueOf(routeIdValue));
         boolean useRoadPath = useRoadPath(request);
         boolean displayRoadPath = displayRoadPath(request, useRoadPath);
         DistanceContext distanceContext = new DistanceContext(useRoadPath, useRoadPath);
         DistanceContext displayContext = displayRoadPath == useRoadPath ? distanceContext : new DistanceContext(displayRoadPath, false);
-        List<Map<String, Object>> planRows = routeQueryService.routePlanPoints(routeId);
+        List<Map<String, Object>> planRows;
+        if (inlinePointMode) {
+            @SuppressWarnings("unchecked")
+            List<Map<String, Object>> rows = (List<Map<String, Object>>) pointsValue;
+            planRows = rows;
+        } else {
+            planRows = routeQueryService.routePlanPoints(routeId);
+        }
         List<RoutePoint> points = toRoutePoints(planRows);
         distanceContext.preload(points);
         if (displayContext != distanceContext) {

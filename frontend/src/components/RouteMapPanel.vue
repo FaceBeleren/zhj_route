@@ -307,7 +307,7 @@ function drawBaiduMap(BMap) {
   }
   const optimizedMode = showOptimizedLine.value && optimizedAllPoints.value.length && (playbackRoute.value === 'optimized' || !showOriginalLine.value)
   markerPoints.value.forEach((point, index) => {
-    const isOptimizedPoint = optimizedMode && (!props.optimizedFacilityIds || optimizedFacilityIdSet.value.size === 0 || optimizedFacilityIdSet.value.has(String(point.facilityId)))
+    const isOptimizedPoint = optimizedMode && (props.optimizedFacilityIds === null || optimizedFacilityIdSet.value.has(String(point.facilityId)))
     const marker = new BMap.Marker(new BMap.Point(point.longitude, point.latitude), { icon: markerIcon(BMap, isOptimizedPoint ? '#16a34a' : '#dc2626') })
     marker.setTitle(point.facilityName || String(point.facilityId || index + 1))
     mapInstance.addOverlay(marker)

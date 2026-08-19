@@ -459,6 +459,18 @@ button:disabled {
   width: 130px;
 }
 
+ .version-badge {
+  display: inline-block;
+  margin-left: 6px;
+  padding: 2px 7px;
+  border-radius: 10px;
+  color: #1d5fa7;
+  background: #e8f2ff;
+  font-size: 12px;
+  font-weight: 600;
+  vertical-align: middle;
+}
+
 .muted {
   color: #718096;
   font-size: 13px;
@@ -2981,3 +2993,12 @@ tbody tr.active {
 .od-cache-shell .danger { background:#dc4d4d; color:#fff; border-color:#dc4d4d; }
 @media (max-width: 1100px) { .od-cache-layout { grid-template-columns: 220px 1fr; } .od-cache-anchor-panel { grid-column: 1 / -1; } }
 @media (max-width: 700px) { .od-cache-layout { grid-template-columns: 1fr; } .od-cache-anchor-panel { grid-column:auto; } }
+.route-source-banner {
+  grid-column: 1 / -1;
+  padding: 8px 10px;
+  border-radius: 6px;
+  color: #7a4b00;
+  background: #fff7e6;
+  border: 1px solid #f4d28c;
+  font-size: 13px;
+}

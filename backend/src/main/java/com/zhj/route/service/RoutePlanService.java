@@ -43,11 +43,16 @@ public class RoutePlanService {
         String defaultDisplayMode = text(request.get("defaultDisplayMode"), "DIRECT");
         Object summary = request.containsKey("summary") ? request.get("summary") : request.get("summaryJson");
         Object requestPayload = request.containsKey("request") ? request.get("request") : request;
+        String operationType = text(request.get("operationType"), operationTypeFor(sourceType));
+        Long parentGroupId = toLong(request.get("parentGroupId"));
+        Long rootGroupId = toLong(request.get("rootGroupId"));
+        int versionNo = Math.max(1, toInt(request.get("versionNo"), 1));
 
         String sql = "INSERT INTO zhj_route_plan_group "
                 + "(group_name, source_type, unit_id, unit_name, origin_route_id, origin_route_name, planning_strategy, "
-                + "default_display_mode, route_count, summary_json, request_json, remark) "
-                + "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
+                + "default_display_mode, route_count, summary_json, request_json, remark, root_group_id, version_no, "
+                + "parent_group_id, operation_type, version_status) "
+                + "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
         Long groupId = insert(sql,
                 groupName,
                 sourceType,
@@ -60,10 +65,16 @@ public class RoutePlanService {
                 routes.size(),
                 json(summary),
                 json(requestPayload),
-                textOrNull(request.get("remark")));
+                textOrNull(request.get("remark")),
+                rootGroupId, versionNo, parentGroupId, operationType, "PUBLISHED");
+        if (rootGroupId == null) {
+            jdbcTemplate.update("UPDATE zhj_route_plan_group SET root_group_id = ? WHERE id = ?", groupId, groupId);
+        }
 
         int routeNo = 1;
         for (Map<String, Object> route : routes) {
+            route.putIfAbsent("operationType", operationType);
+            route.putIfAbsent("routeVersionNo", versionNo);
             saveRouteInternal(groupId, route, routeNo++);
         }
         refreshGroupRouteCount(groupId);
@@ -81,11 +92,16 @@ public class RoutePlanService {
         String routeName = text(request.get("routeName"), groupName);
         route.putIfAbsent("routeName", routeName);
         Long originRouteId = toLong(request.get("originRouteId"));
+        String operationType = text(request.get("operationType"), operationTypeFor(sourceType));
+        Long parentGroupId = toLong(request.get("parentGroupId"));
+        Long rootGroupId = toLong(request.get("rootGroupId"));
+        int versionNo = Math.max(1, toInt(request.get("versionNo"), 1));
 
         Long groupId = insert("INSERT INTO zhj_route_plan_group "
                         + "(group_name, source_type, unit_id, unit_name, origin_route_id, origin_route_name, planning_strategy, "
-                        + "default_display_mode, route_count, summary_json, request_json, remark) "
-                        + "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                        + "default_display_mode, route_count, summary_json, request_json, remark, root_group_id, version_no, "
+                        + "parent_group_id, operation_type, version_status) "
+                        + "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 groupName,
                 sourceType,
                 textOrNull(request.get("unitId")),
@@ -97,7 +113,13 @@ public class RoutePlanService {
                 1,
                 json(request.get("summary")),
                 json(request),
-                textOrNull(request.get("remark")));
+                textOrNull(request.get("remark")),
+                rootGroupId, versionNo, parentGroupId, operationType, "PUBLISHED");
+        if (rootGroupId == null) {
+            jdbcTemplate.update("UPDATE zhj_route_plan_group SET root_group_id = ? WHERE id = ?", groupId, groupId);
+        }
+        route.putIfAbsent("operationType", operationType);
+        route.putIfAbsent("routeVersionNo", versionNo);
         Long routeId = saveRouteInternal(groupId, route, toInt(route.get("routeNo"), 1));
         refreshGroupRouteCount(groupId);
         return route(routeId);
@@ -226,6 +248,9 @@ public class RoutePlanService {
         List<Map<String, Object>> segments = routeSegments(route);
         int routeNo = toInt(route.get("routeNo"), fallbackRouteNo);
         String routeName = text(route.get("routeName"), "第" + routeNo + "趟");
+        Long parentRouteId = toLong(route.get("parentRouteId"));
+        int routeVersionNo = Math.max(1, toInt(route.get("routeVersionNo"), 1));
+        String operationType = text(route.get("operationType"), "LEGACY");
         Double distance = firstDouble(route, "distance", "optimizedDistance", "displayDistance");
         Double roadDistance = firstDouble(route, "roadDistance", "roadDistanceM");
         Double travelDuration = firstDouble(route, "travelDurationMinutes", "pathDurationMinutes", "roadDurationMinutes", "durationMinutes");
@@ -237,8 +262,9 @@ public class RoutePlanService {
         Long routeId = insert("INSERT INTO zhj_route_plan_route "
                         + "(group_id, route_name, route_no, vehicle_id, vehicle_name, vehicle_type, trip_no, point_count, "
                         + "distance_m, road_distance_m, travel_duration_min, operation_duration_min, total_duration_min, "
-                        + "estimated_weight_kg, estimated_volume_liter, load_rate, path_source_summary, route_json) "
-                        + "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                        + "estimated_weight_kg, estimated_volume_liter, load_rate, path_source_summary, route_json, "
+                        + "parent_route_id, route_version_no, operation_type) "
+                        + "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 groupId,
                 routeName,
                 routeNo,
@@ -256,7 +282,7 @@ public class RoutePlanService {
                 decimal(firstDouble(route, "estimatedVolumeLiter", "estimatedVolumeL", "volumeLiter")),
                 decimal(firstDouble(route, "loadRate")),
                 text(route.get("pathSourceSummary"), pathSourceSummary(segments)),
-                json(route));
+                json(route), parentRouteId, routeVersionNo, operationType);
         savePoints(routeId, points);
         saveSegments(routeId, segments);
         return routeId;
@@ -267,10 +293,14 @@ public class RoutePlanService {
             Map<String, Object> point = points.get(i);
             int order = toInt(point.get("order"), toInt(point.get("pointOrder"), i + 1));
             String role = text(point.get("role"), i == 0 ? "START" : (i == points.size() - 1 ? "END" : "MIDDLE"));
+            int originalOrder = toInt(point.get("originalOrder"), order);
+            String pointSource = text(point.get("pointSource"), "UNKNOWN");
+            int feedbackFlag = toInt(point.get("feedbackFlag"), Boolean.TRUE.equals(point.get("feedback")) ? 1 : 0);
             jdbcTemplate.update("INSERT INTO zhj_route_plan_point "
                             + "(route_id, point_order, role, facility_id, facility_name, longitude, latitude, estimated_weight_kg, "
-                            + "estimated_volume_liter, container_info, container_count, operation_duration_min, point_json) "
-                            + "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                            + "estimated_volume_liter, container_info, container_count, operation_duration_min, point_json, "
+                            + "original_order, point_source, feedback_flag) "
+                            + "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                     routeId,
                     order,
                     role,
@@ -283,7 +313,7 @@ public class RoutePlanService {
                     textOrNull(point.get("containerInfo")),
                     decimal(firstDouble(point, "containerCount")),
                     decimal(firstDouble(point, "operationDurationMinutes", "operationDurationMin")),
-                    json(point));
+                    json(point), originalOrder, pointSource, feedbackFlag);
         }
     }
 
@@ -342,6 +372,11 @@ public class RoutePlanService {
         result.put("folderId", row.get("folder_id"));
         result.put("groupName", row.get("group_name"));
         result.put("sourceType", row.get("source_type"));
+        result.put("rootGroupId", row.get("root_group_id"));
+        result.put("versionNo", row.get("version_no"));
+        result.put("parentGroupId", row.get("parent_group_id"));
+        result.put("operationType", row.get("operation_type"));
+        result.put("versionStatus", row.get("version_status"));
         result.put("unitId", row.get("unit_id"));
         result.put("unitName", row.get("unit_name"));
         result.put("originRouteId", row.get("origin_route_id"));
@@ -373,6 +408,9 @@ public class RoutePlanService {
         Map<String, Object> result = new LinkedHashMap<>();
         result.put("id", row.get("id"));
         result.put("groupId", row.get("group_id"));
+        result.put("parentRouteId", row.get("parent_route_id"));
+        result.put("routeVersionNo", row.get("route_version_no"));
+        result.put("operationType", row.get("operation_type"));
         result.put("routeName", row.get("route_name"));
         result.put("routeNo", row.get("route_no"));
         result.put("vehicleId", row.get("vehicle_id"));
@@ -401,6 +439,9 @@ public class RoutePlanService {
         result.put("routeId", row.get("route_id"));
         result.put("order", row.get("point_order"));
         result.put("pointOrder", row.get("point_order"));
+        result.put("originalOrder", row.get("original_order"));
+        result.put("pointSource", row.get("point_source"));
+        result.put("feedbackFlag", row.get("feedback_flag"));
         result.put("role", row.get("role"));
         result.put("facilityId", row.get("facility_id"));
         result.put("facilityName", row.get("facility_name"));
@@ -463,6 +504,14 @@ public class RoutePlanService {
         List<Map<String, Object>> segments = listOfMaps(route.get("roadSegments"));
         if (segments.isEmpty()) segments = listOfMaps(route.get("segments"));
         return segments;
+    }
+
+    private String operationTypeFor(String sourceType) {
+        if ("IMPORT".equals(sourceType)) return "IMPORT";
+        if ("SINGLE_OPTIMIZE".equals(sourceType)) return "OPTIMIZE";
+        if ("SPLIT".equals(sourceType)) return "SPLIT";
+        if ("MULTI".equals(sourceType)) return "MULTI";
+        return "LEGACY";
     }
 
     private String defaultGroupName(String sourceType) {

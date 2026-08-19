@@ -231,7 +231,7 @@
           <template v-else-if="selectedSavedGroup">
             <div class="panel-head">
               <div>
-                <h2>{{ selectedSavedGroup.groupName }}</h2>
+                <h2>{{ selectedSavedGroup.groupName }} <span class="version-badge">V{{ selectedSavedGroup.versionNo || 1 }}</span></h2>
                 <span class="muted">{{ sourceTypeLabel(selectedSavedGroup.sourceType) }} · {{ selectedSavedGroup.unitName || '未关联公司' }} · {{ formatDate(selectedSavedGroup.createTime) }}</span>
               </div>
               <div class="panel-actions">
@@ -239,6 +239,7 @@
               </div>
             </div>
             <div class="optimization-metrics saved-plan-metrics">
+              <span>方案版本 V{{ selectedSavedGroup.versionNo || 1 }}</span>
               <span>路线 {{ selectedSavedGroup.routes?.length || 0 }}</span>
               <span>来源 {{ sourceTypeLabel(selectedSavedGroup.sourceType) }}</span>
               <span>策略 {{ planningStrategyLabel(selectedSavedGroup.planningStrategy) }}</span>
@@ -255,13 +256,15 @@
                 <div>
                   <strong>{{ route.routeName || ('第 ' + route.routeNo + ' 趟') }}</strong>
                   <small>
-                    {{ route.vehicleName || '未填车辆' }} · {{ route.pointCount || route.points?.length || 0 }} 点 ·
+                    V{{ route.routeVersionNo || selectedSavedGroup.versionNo || 1 }} · {{ route.vehicleName || '未填车辆' }} · {{ route.pointCount || route.points?.length || 0 }} 点 ·
                     {{ formatWeight(route.estimatedWeightKg) }} · {{ formatDistance(savedRouteDisplayDistance(route)) }} ·
                     合计 {{ formatDuration(savedRouteDisplayTotalDuration(route)) }} · {{ savedRouteDisplaySummary(route) }}
                   </small>
                 </div>
                 <div class="panel-actions">
-                  <button class="secondary" @click.stop="openSavedRouteSplit(route)">拆分路线</button>
+                  <button class="secondary" @click.stop="openSavedRouteOptimize(route)">优化该趟</button>
+                  <button class="secondary" @click.stop="openSavedRouteEdit(route)">编辑点位</button>
+                  <button class="secondary" @click.stop="openSavedRouteSplit(route)">拆分该趟</button>
                   <button class="ghost-button" @click.stop="deleteSavedRoute(route)">删除</button>
                 </div>
               </article>
@@ -279,20 +282,30 @@
               :original-points="[]"
               :optimized-points="selectedSavedRoute.points || []"
               :optimized-segments="selectedSavedRouteDisplaySegments"
+              :optimized-facility-ids="(selectedSavedRoute.points || []).filter((point) => point.pointSource === 'OPTIMIZED').map((point) => point.facilityId)"
               :show-original="false"
               optimized-label="保存路线"
             />
             <div v-if="selectedSavedRoute" class="route-time-table saved-point-table">
               <div class="route-time-row head">
-                <span>顺序</span><span>点位</span><span>角色</span><span>桶信息</span><span>重量</span><span>作业</span>
+                <span>顺序</span><span>点位</span><span>角色</span><span>桶信息</span><span>重量</span><span>作业</span><span v-if="savedRouteEditMode">调整</span>
               </div>
-              <div v-for="point in selectedSavedRoute.points || []" :key="`saved-${selectedSavedRoute.id}-${point.order}-${point.facilityId}`" class="route-time-row">
-                <span>{{ point.order }}</span>
+              <div v-for="(point, index) in (savedRouteEditMode ? savedRouteEditPoints : (selectedSavedRoute.points || []))" :key="`saved-${selectedSavedRoute.id}-${point.order}-${point.facilityId}`" class="route-time-row">
+                <span>{{ index + 1 }}</span>
                 <span>{{ point.facilityName || point.facilityId }}</span>
                 <span>{{ routePointRoleLabel(point) }}</span>
                 <span>{{ point.containerInfo || '-' }}</span>
                 <span>{{ formatWeight(point.estimatedWeightKg) }}</span>
                 <span>{{ formatDuration(point.operationDurationMinutes) }}</span>
+                <span v-if="savedRouteEditMode" class="panel-actions">
+                  <button class="ghost-button" @click="moveSavedEditPoint(index, -1)" :disabled="index === 0">上移</button>
+                  <button class="ghost-button" @click="moveSavedEditPoint(index, 1)" :disabled="index === savedRouteEditPoints.length - 1">下移</button>
+                  <button class="ghost-button" @click="removeSavedEditPoint(index)">移除</button>
+                </span>
+              </div>
+              <div v-if="savedRouteEditMode" class="panel-actions saved-edit-actions">
+                <button @click="saveSavedRouteEdit" :disabled="savedRouteEditPoints.length < 2 || loading">保存为新版本</button>
+                <button class="secondary" @click="cancelSavedRouteEdit">取消编辑</button>
               </div>
             </div>
           </template>
@@ -434,7 +447,7 @@
               </div>
               <div>
                 <span>{{ currentTypeName }}ID</span>
-                <strong>{{ selectedRoute.id }}</strong>
+                <strong>{{ isSavedRouteWorkbench ? '方案库路线' : selectedRoute.id }}</strong>
               </div>
               <div>
                 <span>流水数</span>
@@ -519,7 +532,7 @@
               <div class="panel-head compact">
                 <h2>优化预览</h2>
                 <button class="secondary" @click="toggleOriginalRoutePreview" :disabled="!selectedRoute || loading">{{ showOriginalRoutePreview ? '收起原路线' : '原路线预览' }}</button>
-                <button @click="openSaveSingleOptimization" :disabled="!optimization || loading">保存路线</button>
+                <button @click="openSaveSingleOptimization" :disabled="!optimization || loading">{{ isSavedRouteWorkbench ? '保存为新版本' : '保存优化路线' }}</button>
               </div>
               <div v-if="showOriginalRoutePreview" class="original-route-preview">
                 <div class="original-route-preview-head">
@@ -730,7 +743,7 @@
               </ol>
             </div>
             <div>
-              <div class="panel-head compact"><h2>拆分结果</h2><div class="panel-actions"><button @click="openSaveSplitCurrentRoute" :disabled="!selectedMultiRoute || loading">保存当前路线</button><button @click="openSaveSplitGroup" :disabled="!multiOptimization || loading">保存整组</button><button @click="exportCompanyRoutes" :disabled="!multiOptimization || loading">导出Excel</button></div></div>
+              <div class="panel-head compact"><h2>拆分结果</h2><div class="panel-actions"><button @click="openSaveSplitCurrentRoute" :disabled="!selectedMultiRoute || loading">另存当前路线</button><button @click="openSaveSplitGroup" :disabled="!multiOptimization || loading">{{ splitFromSavedRoute ? '保存为新版本' : '另存整组方案' }}</button><button @click="exportCompanyRoutes" :disabled="!multiOptimization || loading">导出Excel</button></div></div>
               <div v-if="routeProgress.visible" class="planning-progress">
                 <div class="planning-progress-head">
                   <div>
@@ -1863,6 +1876,8 @@ const selectedSavedFolderId = ref('all')
 const selectedSavedPlanIds = ref([])
 const selectedSavedGroup = ref(null)
 const selectedSavedRouteId = ref(null)
+const savedRouteEditMode = ref(false)
+const savedRouteEditPoints = ref([])
 const savedFilters = reactive({
   keyword: '',
   sourceType: '',
@@ -2315,6 +2330,8 @@ async function selectSplitSavedRoute(group, route) {
   selectedSavedRouteId.value = route.id
   openSavedRouteSplit(route)
 }
+
+const isSavedRouteWorkbench = computed(() => Boolean(selectedRoute.value?.inlinePoints && selectedRoute.value?.sourceSavedRouteId))
 
 const selectedSavedRoute = computed(() => {
   const routes = selectedSavedGroup.value?.routes || []
@@ -3284,16 +3301,18 @@ function toggleFeedbackPoint(point) {
 async function previewOptimize(feedback = false) {
   if (!selectedRoute.value) return
   await withLoading(async () => {
+    const request = {
+      unitId: selectedCompany.value.id,
+      // 普通“优化预览”明确清空反馈点，只执行整条路线优化。
+      feedbackFacilityIds: feedback ? [...feedbackFacilityIds.value] : [],
+      ...optimizeOptions
+    }
+    if (selectedRoute.value.inlinePoints) request.points = planPoints.value || []
+    else request.routeId = selectedRoute.value.id
     optimization.value = await api('/api/optimize/preview', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        routeId: selectedRoute.value.id,
-        unitId: selectedCompany.value.id,
-        // 普通“优化预览”明确清空反馈点，只执行整条路线优化。
-        feedbackFacilityIds: feedback ? [...feedbackFacilityIds.value] : [],
-        ...optimizeOptions
-      })
+      body: JSON.stringify(request)
     })
   })
 }
@@ -3358,6 +3377,113 @@ async function generateSplitRoutes() {
       routeAbortController.value = null
     }
   })
+}
+
+function openSavedRouteEdit(route) {
+  if (!route?.points?.length) return
+  selectedSavedRouteId.value = route.id
+  savedRouteEditPoints.value = deepClone(route.points).map((point, index) => ({
+    ...point,
+    order: index + 1,
+    pointOrder: index + 1
+  }))
+  savedRouteEditMode.value = true
+}
+
+function moveSavedEditPoint(index, delta) {
+  const target = index + delta
+  if (target < 0 || target >= savedRouteEditPoints.value.length) return
+  const points = [...savedRouteEditPoints.value]
+  const current = points[index]
+  points[index] = points[target]
+  points[target] = current
+  savedRouteEditPoints.value = points.map((point, pointIndex) => ({
+    ...point,
+    order: pointIndex + 1,
+    pointOrder: pointIndex + 1
+  }))
+}
+
+function removeSavedEditPoint(index) {
+  if (savedRouteEditPoints.value.length <= 2) return
+  savedRouteEditPoints.value = savedRouteEditPoints.value
+    .filter((_, pointIndex) => pointIndex !== index)
+    .map((point, pointIndex) => ({ ...point, order: pointIndex + 1, pointOrder: pointIndex + 1 }))
+}
+
+function cancelSavedRouteEdit() {
+  savedRouteEditMode.value = false
+  savedRouteEditPoints.value = []
+}
+
+async function saveSavedRouteEdit() {
+  const group = selectedSavedGroup.value
+  const route = selectedSavedRoute.value
+  if (!group || !route || savedRouteEditPoints.value.length < 2) return
+  const editedRoute = routeSnapshotForSave({
+    ...route,
+    points: savedRouteEditPoints.value,
+    operationType: 'EDIT',
+    parentRouteId: route.id
+  })
+  const payload = {
+    mode: 'group',
+    groupName: group.groupName,
+    sourceType: 'EDIT',
+    operationType: 'EDIT',
+    parentGroupId: group.id,
+    rootGroupId: group.rootGroupId || group.id,
+    versionNo: Math.max(1, Number(group.versionNo || 1) + 1),
+    unitId: group.unitId,
+    unitName: group.unitName,
+    originRouteId: group.originRouteId,
+    originRouteName: group.originRouteName,
+    planningStrategy: group.planningStrategy,
+    defaultDisplayMode: group.defaultDisplayMode || 'DIRECT',
+    routes: (group.routes || []).map((item) => item.id === route.id ? editedRoute : routeSnapshotForSave({ ...item, operationType: 'EDIT' })),
+    summary: { operation: 'EDIT', editedRouteId: route.id },
+    request: { operation: 'EDIT', sourceGroupId: group.id, sourceRouteId: route.id }
+  }
+  await withLoading(async () => {
+    const saved = await api('/api/route-plans/groups', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    })
+    cancelSavedRouteEdit()
+    await loadSavedGroups()
+    currentView.value = 'saved'
+    await selectSavedGroup({ id: saved.id })
+  })
+}
+
+async function openSavedRouteOptimize(route) {
+  const group = selectedSavedGroup.value
+  if (!route?.points?.length) return
+  selectedCompany.value = {
+    id: group?.unitId || '',
+    depName: group?.unitName || '方案库来源',
+    depCode: '方案库'
+  }
+  selectedRoute.value = {
+    ...route,
+    id: null,
+    sourceSavedRouteId: route.id,
+    sourceType: 'SAVED_PLAN_ROUTE',
+    inlinePoints: true,
+    routeName: route.routeName || ('第 ' + (route.routeNo || 1) + ' 趟')
+  }
+  planPoints.value = (route.points || []).map((point, index) => ({
+    ...point,
+    orderNum: point.orderNum ?? point.order ?? index + 1
+  }))
+  records.value = []
+  feedbackFacilityIds.value = new Set()
+  optimization.value = null
+  showOriginalRoutePreview.value = false
+  originalRouteDisplayMode.value = 'DIRECT'
+  originalRouteRoadSegments.value = []
+  currentView.value = 'workbench'
 }
 
 async function openSavedRouteSplit(route) {
@@ -3801,7 +3927,7 @@ async function saveImportedRoute() {
     defaultDisplayMode: importedRouteDisplayMode.value,
     routeName: route.routeName,
     groupName: route.routeName,
-    route: routeSnapshotForSave(route),
+    route: routeSnapshotForSave({ ...route, sourceType: 'IMPORT' }),
     summary: {
       totalCount: route.totalCount,
       matchedCount: route.matchedCount,
@@ -3970,17 +4096,18 @@ async function deleteSavedRoute(route) {
 
 function openSaveSingleOptimization() {
   if (!optimization.value || !selectedRoute.value) return
-  openSaveDialog('保存优化路线', buildSingleOptimizationSavePayload())
+  openSaveDialog(isSavedRouteWorkbench.value ? '保存优化结果为新版本' : '保存优化路线', buildSingleOptimizationSavePayload())
 }
 
 function openSaveSplitGroup() {
   if (!multiOptimization.value || !selectedSplitRoute.value) return
-  openSaveDialog('保存拆分方案', buildMultiGroupSavePayload('SPLIT'))
+  const title = splitFromSavedRoute.value ? '保存拆分结果为新版本' : '另存整组拆分方案'
+  openSaveDialog(title, buildMultiGroupSavePayload('SPLIT'))
 }
 
 function openSaveSplitCurrentRoute() {
   if (!selectedMultiRoute.value || !selectedSplitRoute.value) return
-  openSaveDialog('保存当前拆分路线', buildSingleMultiRouteSavePayload('SPLIT'))
+  openSaveDialog('另存当前拆分路线', buildSingleMultiRouteSavePayload('SPLIT'))
 }
 
 function openSaveMultiGroup() {
@@ -4028,11 +4155,29 @@ async function confirmSavePlan() {
   })
 }
 
+function buildSingleOptimizationSavePoints() {
+  const feedbackIds = new Set((optimization.value.feedbackFacilityIds || []).map((id) => String(id)))
+  const originalOrders = new Map((planPoints.value || []).map((point, index) => [
+    String(point.facilityId),
+    Number(point.order || point.pointOrder || index + 1)
+  ]))
+  const feedbackMode = Boolean(optimization.value.feedbackMode)
+  return (optimization.value.points || []).map((point, index) => {
+    const selected = feedbackIds.has(String(point.facilityId))
+    return {
+      ...point,
+      originalOrder: originalOrders.get(String(point.facilityId)) || point.originalOrder || index + 1,
+      pointSource: feedbackMode && !selected ? 'ORIGINAL' : 'OPTIMIZED',
+      feedbackFlag: feedbackMode && selected ? 1 : 0
+    }
+  })
+}
+
 function buildSingleOptimizationSavePayload() {
   const route = {
     routeNo: 1,
     routeName: (selectedRoute.value.routeName || selectedRoute.value.id) + ' 优化路线',
-    points: optimization.value.points || [],
+    points: buildSingleOptimizationSavePoints(),
     segments: optimization.value.segments || [],
     distance: optimization.value.optimizedDistance,
     roadDistance: optimization.value.displayMode === 'ROAD' ? optimization.value.optimizedDistance : null,
@@ -4041,6 +4186,30 @@ function buildSingleOptimizationSavePayload() {
     estimatedVolumeLiter: optimization.value.estimatedVolumeLiter,
     loadRate: optimization.value.loadRate,
     pathSourceSummary: pathSourceSummary(optimization.value.segments || [])
+  }
+  const sourceGroup = selectedRoute.value?.inlinePoints ? selectedSavedGroup.value : null
+  const sourceRouteId = selectedRoute.value?.sourceSavedRouteId
+  if (sourceGroup && sourceRouteId != null) {
+    return {
+      mode: 'group',
+      groupName: sourceGroup.groupName,
+      sourceType: 'SINGLE_OPTIMIZE',
+      operationType: 'OPTIMIZE',
+      parentGroupId: sourceGroup.id,
+      rootGroupId: sourceGroup.rootGroupId || sourceGroup.id,
+      versionNo: Math.max(1, Number(sourceGroup.versionNo || 1) + 1),
+      unitId: sourceGroup.unitId,
+      unitName: sourceGroup.unitName,
+      originRouteId: sourceGroup.originRouteId,
+      originRouteName: sourceGroup.originRouteName,
+      planningStrategy: sourceGroup.planningStrategy,
+      defaultDisplayMode: optimization.value.displayMode || 'DIRECT',
+      routes: (sourceGroup.routes || []).map((item) => item.id === sourceRouteId
+        ? routeSnapshotForSave({ ...route, parentRouteId: sourceRouteId, operationType: 'OPTIMIZE' })
+        : routeSnapshotForSave({ ...item, parentRouteId: item.id, operationType: 'OPTIMIZE' })),
+      summary: optimization.value,
+      request: { sourceGroupId: sourceGroup.id, sourceRouteId, ...optimizeOptions }
+    }
   }
   return {
     mode: 'route',
@@ -4061,16 +4230,33 @@ function buildMultiGroupSavePayload(sourceType) {
   const isSplit = sourceType === 'SPLIT'
   const company = isSplit ? selectedSplitCompany.value : selectedMultiCompany.value
   const originRoute = isSplit ? selectedSplitRoute.value : null
+  const sourceGroup = isSplit && splitFromSavedRoute.value ? selectedSavedGroup.value : null
+  const generatedRoutes = (multiOptimization.value?.routes || []).map((route) => routeSnapshotForSave({
+    ...route,
+    parentRouteId: sourceGroup ? originRoute?.id : route.parentRouteId,
+    operationType: sourceType
+  }))
+  const inheritedRoutes = sourceGroup
+    ? (sourceGroup.routes || [])
+        .filter((route) => String(route.id) !== String(originRoute?.id))
+        .map((route) => routeSnapshotForSave({ ...route, parentRouteId: route.id, operationType: sourceType }))
+    : []
+  const nextVersion = sourceGroup ? Math.max(1, Number(sourceGroup.versionNo || 1) + 1) : 1
   return {
     mode: 'group',
+    groupName: sourceGroup?.groupName,
     sourceType,
+    operationType: sourceGroup ? sourceType : undefined,
+    parentGroupId: sourceGroup?.id,
+    rootGroupId: sourceGroup?.rootGroupId || sourceGroup?.id,
+    versionNo: nextVersion,
     unitId: company?.id,
     unitName: company?.depName,
     originRouteId: originRoute?.id,
     originRouteName: originRoute?.routeName,
     planningStrategy: multiOptimization.value?.planningStrategy || optimizeOptions.multiRouteStrategy,
     defaultDisplayMode: 'DIRECT',
-    routes: (multiOptimization.value?.routes || []).map((route) => routeSnapshotForSave(route)),
+    routes: [...inheritedRoutes, ...generatedRoutes],
     summary: multiOptimization.value,
     request: buildCurrentRouteRequestSnapshot()
   }
@@ -4094,6 +4280,13 @@ function routeSnapshotForSave(route) {
   snapshot.travelDurationMinutes = routeDisplayTravelDuration(route)
   snapshot.totalDurationMinutes = routeDisplayTotalDuration(route)
   snapshot.pathSourceSummary = pathSourceSummary(snapshot.segments || [])
+  const defaultPointSource = route?.sourceType === 'IMPORT' ? 'ORIGINAL' : 'OPTIMIZED'
+  snapshot.points = (snapshot.points || []).map((point, index) => ({
+    ...point,
+    originalOrder: point.originalOrder || point.order || point.pointOrder || index + 1,
+    pointSource: point.pointSource || defaultPointSource,
+    feedbackFlag: point.feedbackFlag || 0
+  }))
   return snapshot
 }
 
@@ -4117,6 +4310,7 @@ function sourceTypeLabel(value) {
   if (value === 'SPLIT') return '路线拆分'
   if (value === 'MULTI') return '多路线生成'
   if (value === 'IMPORT') return '导入路线'
+  if (value === 'EDIT') return '路线编辑'
   return value || '-'
 }
 
