@@ -361,14 +361,15 @@ public class RoutePlanService {
             String pointSource = text(point.get("pointSource"), "UNKNOWN");
             int feedbackFlag = toInt(point.get("feedbackFlag"), Boolean.TRUE.equals(point.get("feedback")) ? 1 : 0);
             jdbcTemplate.update("INSERT INTO zhj_route_plan_point "
-                            + "(route_id, point_order, role, facility_id, facility_name, longitude, latitude, estimated_weight_kg, "
+                            + "(route_id, point_order, role, facility_id, source_facility_id, facility_name, longitude, latitude, estimated_weight_kg, "
                             + "estimated_volume_liter, container_info, container_count, operation_duration_min, point_json, "
                             + "original_order, point_source, feedback_flag) "
-                            + "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                            + "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                     routeId,
                     order,
                     role,
                     toLong(point.get("facilityId")),
+                    textOrNull(point.get("sourceFacilityId")),
                     textOrNull(point.get("facilityName")),
                     decimal(firstDouble(point, "longitude", "lng")),
                     decimal(firstDouble(point, "latitude", "lat")),
@@ -508,6 +509,7 @@ public class RoutePlanService {
         result.put("feedbackFlag", row.get("feedback_flag"));
         result.put("role", row.get("role"));
         result.put("facilityId", row.get("facility_id"));
+        result.put("sourceFacilityId", row.get("source_facility_id"));
         result.put("facilityName", row.get("facility_name"));
         result.put("longitude", row.get("longitude"));
         result.put("latitude", row.get("latitude"));

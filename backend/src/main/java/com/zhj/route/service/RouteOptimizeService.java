@@ -440,9 +440,11 @@ public class RouteOptimizeService {
             Long facilityId = toLong(row.get("facilityId"));
             String prefix = facilityId != null && facilityId == -2L ? "end" : (facilityId != null && facilityId == -1L ? "start" : null);
             if (prefix != null) {
-                Long configuredId = toLong(request.get(prefix + "FacilityId"));
-                if (configuredId != null && configuredId > 0) {
-                    row.put("facilityId", configuredId);
+                String configuredSourceId = sourceFacilityId(request.get(prefix + "SourceFacilityId"), request.get(prefix + "FacilityId"));
+                Long configuredId = numericFacilityId(configuredSourceId);
+                if (configuredSourceId != null) {
+                    row.put("facilityId", configuredId == null ? -1L : configuredId);
+                    row.put("sourceFacilityId", configuredSourceId);
                     String configuredName = textOrDefault(request.get(prefix + "FacilityName"), null);
                     if (configuredName != null) row.put("facilityName", configuredName);
                     Double longitude = toDouble(request.get(prefix + "Longitude"));
@@ -460,7 +462,8 @@ public class RouteOptimizeService {
         List<RoutePoint> points = new ArrayList<RoutePoint>();
         for (Map<String, Object> row : rows) {
             points.add(new RoutePoint(
-                    toLong(row.get("facilityId")),
+                    numericFacilityId(sourceFacilityId(row.get("sourceFacilityId"), row.get("facilityId"))),
+                    sourceFacilityId(row.get("sourceFacilityId"), row.get("facilityId")),
                     row.get("facilityName") == null ? null : String.valueOf(row.get("facilityName")),
                     toDouble(row.get("longitude")),
                     toDouble(row.get("latitude")),
@@ -538,6 +541,7 @@ public class RouteOptimizeService {
             Map<String, Object> view = new HashMap<String, Object>();
             view.put("order", i + 1);
             view.put("facilityId", point.getFacilityId());
+            view.put("sourceFacilityId", point.getSourceFacilityId());
             view.put("facilityName", point.getFacilityName());
             view.put("longitude", point.getLongitude());
             view.put("latitude", point.getLatitude());
@@ -879,10 +883,12 @@ public class RouteOptimizeService {
         if (longitude == null || latitude == null) {
             return null;
         }
-        Long facilityId = toLong(row.get("facilityId"));
+        String sourceFacilityId = sourceFacilityId(row.get("sourceFacilityId"), row.get("facilityId"));
+        Long facilityId = numericFacilityId(sourceFacilityId);
         String name = textOrDefault(row.get("facilityName"), fallback.getFacilityName());
         return new RoutePoint(facilityId == null ? fallback.getFacilityId() : facilityId,
-                name, longitude, latitude, null, 0D, 0D, null, 0D, null, "ANCHOR");
+                facilityId == null ? sourceFacilityId : String.valueOf(facilityId), name, longitude, latitude,
+                null, 0D, 0D, null, 0D, null, "ANCHOR");
     }
     private RoutePoint anchorPointFromVehicle(Map<String, Object> vehicle, String prefix, RoutePoint fallback) {
         Double longitude = toDouble(vehicle.get(prefix + "Longitude"));
@@ -891,9 +897,11 @@ public class RouteOptimizeService {
             return fallback;
         }
         String name = textOrDefault(vehicle.get(prefix + "FacilityName"), fallback.getFacilityName());
-        Long facilityId = toLong(vehicle.get(prefix + "FacilityId"));
+        String sourceFacilityId = sourceFacilityId(vehicle.get(prefix + "SourceFacilityId"), vehicle.get(prefix + "FacilityId"));
+        Long facilityId = numericFacilityId(sourceFacilityId);
         return new RoutePoint(facilityId == null ? fallback.getFacilityId() : facilityId,
-                name, longitude, latitude, null, 0D, 0D, null, 0D, null, "ANCHOR");
+                facilityId == null ? sourceFacilityId : String.valueOf(facilityId), name, longitude, latitude,
+                null, 0D, 0D, null, 0D, null, "ANCHOR");
     }
 
     private double totalRouteCapacity(List<Map<String, Object>> routes) {
@@ -1054,12 +1062,29 @@ public class RouteOptimizeService {
     }
 
     private boolean isCacheablePoint(RoutePoint point) {
-        return point != null && point.getFacilityId() != null && point.getFacilityId() > 0;
+        return point != null && pointCode(point) != null;
+    }
+
+    private String pointCode(RoutePoint point) {
+        if (point == null) return null;
+        String source = point.getSourceFacilityId();
+        if (source != null && !source.trim().isEmpty()) {
+            try {
+                return Long.parseLong(source.trim()) > 0 ? source.trim() : null;
+            } catch (NumberFormatException ignored) {
+                return source.trim();
+            }
+        }
+        return point.getFacilityId() != null && point.getFacilityId() > 0
+                ? String.valueOf(point.getFacilityId()) : null;
     }
 
     private String stablePointKey(RoutePoint point) {
         if (point == null) {
             return "null";
+        }
+        if (point.getSourceFacilityId() != null) {
+            return "ID:" + point.getSourceFacilityId();
         }
         if (point.getFacilityId() != null) {
             return "ID:" + point.getFacilityId();
@@ -1502,6 +1527,7 @@ public class RouteOptimizeService {
     private Map<String, Object> coordinate(RoutePoint point) {
         Map<String, Object> coordinate = new HashMap<String, Object>();
         coordinate.put("facilityId", point.getFacilityId());
+        coordinate.put("sourceFacilityId", point.getSourceFacilityId());
         coordinate.put("longitude", point.getLongitude());
         coordinate.put("latitude", point.getLatitude());
         return coordinate;
@@ -1635,8 +1661,10 @@ public class RouteOptimizeService {
             latitude = centroidLatitude(points);
         }
         String anchorName = textOrDefault(request.get(prefix + "FacilityName"), name);
-        Long configuredFacilityId = toLong(request.get(prefix + "FacilityId"));
-        return new RoutePoint(configuredFacilityId != null && configuredFacilityId > 0 ? configuredFacilityId : facilityId,
+        String sourceFacilityId = sourceFacilityId(request.get(prefix + "SourceFacilityId"), request.get(prefix + "FacilityId"));
+        Long configuredFacilityId = numericFacilityId(sourceFacilityId);
+        Long effectiveFacilityId = configuredFacilityId != null && configuredFacilityId > 0 ? configuredFacilityId : facilityId;
+        return new RoutePoint(effectiveFacilityId, configuredFacilityId == null ? sourceFacilityId : String.valueOf(configuredFacilityId),
                 anchorName, longitude, latitude, null, 0D, 0D, null, 0D, null, "ANCHOR");
     }
 
@@ -1827,6 +1855,22 @@ public class RouteOptimizeService {
         }
         String text = String.valueOf(value).trim();
         return text.isEmpty() ? fallback : text;
+    }
+
+    private String sourceFacilityId(Object sourceValue, Object facilityValue) {
+        Object value = sourceValue == null ? facilityValue : sourceValue;
+        if (value == null) return null;
+        String text = String.valueOf(value).trim();
+        return text.isEmpty() ? null : text;
+    }
+
+    private Long numericFacilityId(String sourceFacilityId) {
+        if (sourceFacilityId == null || sourceFacilityId.isEmpty()) return null;
+        try {
+            return Long.valueOf(sourceFacilityId);
+        } catch (NumberFormatException ignored) {
+            return null;
+        }
     }
 
     private Long toLong(Object value) {

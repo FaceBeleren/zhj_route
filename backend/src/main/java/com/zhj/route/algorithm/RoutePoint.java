@@ -2,6 +2,7 @@ package com.zhj.route.algorithm;
 
 public class RoutePoint {
     private final Long facilityId;
+    private final String sourceFacilityId;
     private final String facilityName;
     private final Double longitude;
     private final Double latitude;
@@ -16,7 +17,15 @@ public class RoutePoint {
     public RoutePoint(Long facilityId, String facilityName, Double longitude, Double latitude, Integer originalOrder,
                       Double estimatedVolumeLiter, Double estimatedWeightKg, String containerInfo,
                       Double containerCount, Double litersPerTon, String weightSource) {
+        this(facilityId, facilityId == null ? null : String.valueOf(facilityId), facilityName, longitude, latitude,
+                originalOrder, estimatedVolumeLiter, estimatedWeightKg, containerInfo, containerCount, litersPerTon, weightSource);
+    }
+
+    public RoutePoint(Long facilityId, String sourceFacilityId, String facilityName, Double longitude, Double latitude, Integer originalOrder,
+                      Double estimatedVolumeLiter, Double estimatedWeightKg, String containerInfo,
+                      Double containerCount, Double litersPerTon, String weightSource) {
         this.facilityId = facilityId;
+        this.sourceFacilityId = sourceFacilityId;
         this.facilityName = facilityName;
         this.longitude = longitude;
         this.latitude = latitude;
@@ -31,6 +40,10 @@ public class RoutePoint {
 
     public Long getFacilityId() {
         return facilityId;
+    }
+
+    public String getSourceFacilityId() {
+        return sourceFacilityId;
     }
 
     public String getFacilityName() {
