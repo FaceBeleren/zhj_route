@@ -78,6 +78,7 @@ public class RoutePlanService {
             saveRouteInternal(groupId, route, routeNo++);
         }
         refreshGroupRouteCount(groupId);
+        ensureVersionRecord(groupId, rootGroupId == null ? groupId : rootGroupId, parentGroupId, versionNo, operationType, request);
         return group(groupId);
     }
 
@@ -122,6 +123,7 @@ public class RoutePlanService {
         route.putIfAbsent("routeVersionNo", versionNo);
         Long routeId = saveRouteInternal(groupId, route, toInt(route.get("routeNo"), 1));
         refreshGroupRouteCount(groupId);
+        ensureVersionRecord(groupId, rootGroupId == null ? groupId : rootGroupId, parentGroupId, versionNo, operationType, request);
         return route(routeId);
     }
 
@@ -193,9 +195,71 @@ public class RoutePlanService {
             args.add(like);
         }
         sql.append(" ORDER BY create_time DESC LIMIT 200");
-        return jdbcTemplate.queryForList(sql.toString(), args.toArray()).stream()
-                .map(this::groupRow)
-                .collect(Collectors.toList());
+        Map<String, Map<String, Object>> latestByRoot = new LinkedHashMap<>();
+        for (Map<String, Object> row : jdbcTemplate.queryForList(sql.toString(), args.toArray())) {
+            Map<String, Object> mapped = groupRow(row);
+            String root = String.valueOf(mapped.get("rootGroupId") == null ? mapped.get("id") : mapped.get("rootGroupId"));
+            Map<String, Object> current = latestByRoot.get(root);
+            if (current == null || toInt(mapped.get("versionNo"), 1) > toInt(current.get("versionNo"), 1)) {
+                latestByRoot.put(root, mapped);
+            }
+        }
+        for (Map<String, Object> mapped : latestByRoot.values()) {
+            Long rootId = toLong(mapped.get("rootGroupId"));
+            if (rootId != null) {
+                Integer count = jdbcTemplate.queryForObject(
+                        "SELECT COUNT(*) FROM zhj_route_plan_version WHERE root_group_id = ?", Integer.class, rootId);
+                mapped.put("versionCount", count == null ? 1 : count);
+            }
+        }
+        return new ArrayList<>(latestByRoot.values());
+    }
+
+    public List<Map<String, Object>> versions(Long rootGroupId) {
+        return jdbcTemplate.queryForList(
+                        "SELECT v.*, g.group_name, g.source_type, g.operation_type AS group_operation_type "
+                                + "FROM zhj_route_plan_version v JOIN zhj_route_plan_group g ON g.id = v.group_id "
+                                + "WHERE v.root_group_id = ? AND g.been_deleted = 0 ORDER BY v.version_no", rootGroupId)
+                .stream().map(row -> {
+                    Map<String, Object> result = new LinkedHashMap<>();
+                    result.put("id", row.get("id"));
+                    result.put("rootGroupId", row.get("root_group_id"));
+                    result.put("groupId", row.get("group_id"));
+                    result.put("versionNo", row.get("version_no"));
+                    result.put("parentVersionId", row.get("parent_version_id"));
+                    result.put("restoreFromVersionId", row.get("restore_from_version_id"));
+                    result.put("operationType", row.get("operation_type"));
+                    result.put("versionStatus", row.get("version_status"));
+                    result.put("changeSummary", row.get("change_summary"));
+                    result.put("createTime", row.get("create_time"));
+                    return result;
+                }).collect(Collectors.toList());
+    }
+
+    @Transactional
+    public Map<String, Object> restoreVersion(Long rootGroupId, Map<String, Object> request) {
+        Long versionId = toLong(request.get("versionId"));
+        if (versionId == null) throw new IllegalArgumentException("versionId不能为空");
+        Map<String, Object> version = jdbcTemplate.queryForMap(
+                "SELECT * FROM zhj_route_plan_version WHERE id = ? AND root_group_id = ?", versionId, rootGroupId);
+        Long sourceGroupId = toLong(version.get("group_id"));
+        Map<String, Object> source = group(sourceGroupId);
+        Map<String, Object> next = new LinkedHashMap<>(source);
+        next.remove("id");
+        next.put("mode", "group");
+        next.put("groupName", source.get("groupName"));
+        next.put("sourceType", source.get("sourceType"));
+        next.put("operationType", "RESTORE");
+        next.put("parentGroupId", sourceGroupId);
+        next.put("rootGroupId", rootGroupId);
+        Integer maxVersion = jdbcTemplate.queryForObject(
+                "SELECT COALESCE(MAX(version_no), 0) FROM zhj_route_plan_version WHERE root_group_id = ?", Integer.class, rootGroupId);
+        next.put("versionNo", (maxVersion == null ? 0 : maxVersion) + 1);
+        next.put("restoreFromVersionId", versionId);
+        next.put("routes", source.get("routes"));
+        next.put("summary", source.get("summary"));
+        next.put("request", request);
+        return saveGroup(next);
     }
 
     public Map<String, Object> folder(Long id) {
@@ -485,6 +549,22 @@ public class RoutePlanService {
         }, keyHolder);
         Number key = keyHolder.getKey();
         return key == null ? null : key.longValue();
+    }
+
+    private void ensureVersionRecord(Long groupId, Long rootGroupId, Long parentGroupId, int versionNo, String operationType, Map<String, Object> request) {
+        Integer exists = jdbcTemplate.queryForObject(
+                "SELECT COUNT(*) FROM zhj_route_plan_version WHERE group_id = ?", Integer.class, groupId);
+        if (exists != null && exists > 0) return;
+        Long parentVersionId = null;
+        if (parentGroupId != null) {
+            parentVersionId = jdbcTemplate.queryForObject(
+                    "SELECT id FROM zhj_route_plan_version WHERE group_id = ? ORDER BY id DESC LIMIT 1", Long.class, parentGroupId);
+        }
+        jdbcTemplate.update("INSERT INTO zhj_route_plan_version "
+                        + "(root_group_id, group_id, version_no, parent_version_id, restore_from_version_id, operation_type, version_status, change_summary) "
+                        + "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                rootGroupId, groupId, versionNo, parentVersionId, toLong(request.get("restoreFromVersionId")),
+                operationType, "PUBLISHED", textOrNull(request.get("changeSummary")));
     }
 
     private void refreshGroupRouteCount(Long groupId) {

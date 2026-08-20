@@ -238,6 +238,13 @@
                 <button class="secondary" @click="deleteSavedGroup(selectedSavedGroup)" :disabled="loading">删除方案</button>
               </div>
             </div>
+            <div class="version-toolbar">
+              <span>版本记录</span>
+              <select :value="selectedSavedGroup.id" @change="selectSavedVersion($event.target.value)">
+                <option v-for="version in savedVersionRecords" :key="version.id" :value="version.groupId">V{{ version.versionNo }} · {{ version.operationType || '版本' }}</option>
+              </select>
+              <button class="secondary" @click="restoreSelectedVersion" :disabled="loading || !selectedSavedVersionRecord">恢复为新版本</button>
+            </div>
             <div class="optimization-metrics saved-plan-metrics">
               <span>方案版本 V{{ selectedSavedGroup.versionNo || 1 }}</span>
               <span>路线 {{ selectedSavedGroup.routes?.length || 0 }}</span>
@@ -1876,6 +1883,8 @@ const selectedSavedFolderId = ref('all')
 const selectedSavedPlanIds = ref([])
 const selectedSavedGroup = ref(null)
 const selectedSavedRouteId = ref(null)
+const savedVersionRecords = ref([])
+const selectedSavedVersionRecord = computed(() => savedVersionRecords.value.find((version) => String(version.groupId) === String(selectedSavedGroup.value?.id)))
 const savedRouteEditMode = ref(false)
 const savedRouteEditPoints = ref([])
 const savedFilters = reactive({
@@ -4041,6 +4050,31 @@ async function selectSavedGroup(group) {
   await withLoading(async () => {
     selectedSavedGroup.value = await api('/api/route-plans/groups/' + group.id)
     selectedSavedRouteId.value = selectedSavedGroup.value.routes?.[0]?.id || null
+    savedVersionRecords.value = await api('/api/route-plans/groups/' + group.id + '/versions')
+  })
+}
+
+async function selectSavedVersion(groupId) {
+  if (!groupId || String(groupId) === String(selectedSavedGroup.value?.id)) return
+  await withLoading(async () => {
+    selectedSavedGroup.value = await api('/api/route-plans/groups/' + groupId)
+    selectedSavedRouteId.value = selectedSavedGroup.value.routes?.[0]?.id || null
+  })
+}
+
+async function restoreSelectedVersion() {
+  const group = selectedSavedGroup.value
+  const version = selectedSavedVersionRecord.value
+  const rootGroupId = group?.rootGroupId || group?.id
+  if (!rootGroupId || !version || !window.confirm(`确认基于 V${version.versionNo} 恢复为新版本？`)) return
+  await withLoading(async () => {
+    const restored = await api('/api/route-plans/groups/' + rootGroupId + '/restore', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ versionId: version.id, changeSummary: `从V${version.versionNo}恢复` })
+    })
+    await loadSavedGroups()
+    await selectSavedGroup({ id: restored.id })
   })
 }
 

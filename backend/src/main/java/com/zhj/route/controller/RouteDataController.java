@@ -99,6 +99,18 @@ public class RouteDataController {
         return routePlanService.group(id);
     }
 
+    @GetMapping("/route-plans/groups/{id}/versions")
+    public List<Map<String, Object>> routePlanVersions(@PathVariable Long id) {
+        Map<String, Object> group = routePlanService.group(id);
+        Long rootGroupId = group.get("rootGroupId") == null ? id : Long.valueOf(String.valueOf(group.get("rootGroupId")));
+        return routePlanService.versions(rootGroupId);
+    }
+
+    @PostMapping("/route-plans/groups/{id}/restore")
+    public Map<String, Object> restoreRoutePlanVersion(@PathVariable Long id, @RequestBody Map<String, Object> request) {
+        return routePlanService.restoreVersion(id, request);
+    }
+
     @GetMapping("/route-plans/routes/{id}")
     public Map<String, Object> routePlanRoute(@PathVariable Long id) {
         return routePlanService.route(id);
