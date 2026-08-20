@@ -2302,6 +2302,7 @@ async function selectSavedLibraryRoute(group, route) {
   const detail = await ensureSavedGroupDetail(group)
   selectedSavedGroup.value = detail
   selectedSavedRouteId.value = route.id
+  savedVersionRecords.value = await api('/api/route-plans/groups/' + detail.id + '/versions')
 }
 async function setSplitSourceMode(mode) {
   splitSourceMode.value = mode
@@ -2337,6 +2338,7 @@ async function selectSplitSavedRoute(group, route) {
   const detail = await ensureSavedGroupDetail(group, true)
   selectedSavedGroup.value = detail
   selectedSavedRouteId.value = route.id
+  savedVersionRecords.value = await api('/api/route-plans/groups/' + detail.id + '/versions')
   openSavedRouteSplit(route)
 }
 
