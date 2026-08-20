@@ -2028,9 +2028,11 @@ const optimizeOptions = reactive({
   traceEnabled: false,
   startLongitude: null,
   startLatitude: null,
+  startFacilityId: null,
   startFacilityName: null,
   endLongitude: null,
   endLatitude: null,
+  endFacilityId: null,
   endFacilityName: null
 })
 
@@ -3136,9 +3138,11 @@ function resetAnchors() {
   selectedEndAnchorKey.value = ''
   optimizeOptions.startLongitude = null
   optimizeOptions.startLatitude = null
+  optimizeOptions.startFacilityId = null
   optimizeOptions.startFacilityName = null
   optimizeOptions.endLongitude = null
   optimizeOptions.endLatitude = null
+  optimizeOptions.endFacilityId = null
   optimizeOptions.endFacilityName = null
 }
 
@@ -3261,15 +3265,18 @@ function selectedEndCandidateAnchors() {
 function applyAnchorToOptions(anchor, prefix) {
   const longitudeKey = `${prefix}Longitude`
   const latitudeKey = `${prefix}Latitude`
+  const idKey = `${prefix}FacilityId`
   const nameKey = `${prefix}FacilityName`
   if (!anchor) {
     optimizeOptions[longitudeKey] = null
     optimizeOptions[latitudeKey] = null
+    optimizeOptions[idKey] = null
     optimizeOptions[nameKey] = null
     return
   }
   optimizeOptions[longitudeKey] = Number(anchor.longitude)
   optimizeOptions[latitudeKey] = Number(anchor.latitude)
+  optimizeOptions[idKey] = anchor.facilityId || null
   optimizeOptions[nameKey] = anchor.facilityName || anchor.facilityId
 }
 

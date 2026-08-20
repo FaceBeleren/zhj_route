@@ -14,6 +14,7 @@ import java.util.Comparator;
 import java.util.HashSet;
 import java.util.HashMap;
 import java.util.List;
+import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
@@ -65,6 +66,7 @@ public class RouteOptimizeService {
         } else {
             planRows = routeQueryService.routePlanPoints(routeId);
         }
+        planRows = normalizeInputAnchorIds(planRows, request);
         List<RoutePoint> points = toRoutePoints(planRows);
         distanceContext.preload(points);
         if (displayContext != distanceContext) {
@@ -429,6 +431,29 @@ public class RouteOptimizeService {
         result.put("pathSource", displayRoadPath ? "OD_OR_BAIDU" : "DIRECT");
         result.put("stats", context.summary());
         return result;
+    }
+
+    private List<Map<String, Object>> normalizeInputAnchorIds(List<Map<String, Object>> rows, Map<String, Object> request) {
+        List<Map<String, Object>> normalized = new ArrayList<Map<String, Object>>();
+        for (Map<String, Object> source : rows) {
+            Map<String, Object> row = new LinkedHashMap<String, Object>(source);
+            Long facilityId = toLong(row.get("facilityId"));
+            String prefix = facilityId != null && facilityId == -2L ? "end" : (facilityId != null && facilityId == -1L ? "start" : null);
+            if (prefix != null) {
+                Long configuredId = toLong(request.get(prefix + "FacilityId"));
+                if (configuredId != null && configuredId > 0) {
+                    row.put("facilityId", configuredId);
+                    String configuredName = textOrDefault(request.get(prefix + "FacilityName"), null);
+                    if (configuredName != null) row.put("facilityName", configuredName);
+                    Double longitude = toDouble(request.get(prefix + "Longitude"));
+                    Double latitude = toDouble(request.get(prefix + "Latitude"));
+                    if (longitude != null) row.put("longitude", longitude);
+                    if (latitude != null) row.put("latitude", latitude);
+                }
+            }
+            normalized.add(row);
+        }
+        return normalized;
     }
 
     private List<RoutePoint> toRoutePoints(List<Map<String, Object>> rows) {
@@ -1610,7 +1635,9 @@ public class RouteOptimizeService {
             latitude = centroidLatitude(points);
         }
         String anchorName = textOrDefault(request.get(prefix + "FacilityName"), name);
-        return new RoutePoint(facilityId, anchorName, longitude, latitude, null, 0D, 0D, null, 0D, null, "ANCHOR");
+        Long configuredFacilityId = toLong(request.get(prefix + "FacilityId"));
+        return new RoutePoint(configuredFacilityId != null && configuredFacilityId > 0 ? configuredFacilityId : facilityId,
+                anchorName, longitude, latitude, null, 0D, 0D, null, 0D, null, "ANCHOR");
     }
 
     private double centroidLongitude(List<RoutePoint> points) {
