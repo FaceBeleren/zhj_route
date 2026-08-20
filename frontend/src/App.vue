@@ -4236,6 +4236,7 @@ function buildSingleOptimizationSavePayload() {
     return {
       mode: 'group',
       groupName: sourceGroup.groupName,
+      folderId: sourceGroup.folderId || null,
       sourceType: 'SINGLE_OPTIMIZE',
       operationType: 'OPTIMIZE',
       parentGroupId: sourceGroup.id,
@@ -4288,6 +4289,7 @@ function buildMultiGroupSavePayload(sourceType) {
   return {
     mode: 'group',
     groupName: sourceGroup?.groupName,
+    folderId: sourceGroup?.folderId || null,
     sourceType,
     operationType: sourceGroup ? sourceType : undefined,
     parentGroupId: sourceGroup?.id,

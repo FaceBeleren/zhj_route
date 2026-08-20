@@ -46,14 +46,16 @@ public class RoutePlanService {
         String operationType = text(request.get("operationType"), operationTypeFor(sourceType));
         Long parentGroupId = toLong(request.get("parentGroupId"));
         Long rootGroupId = toLong(request.get("rootGroupId"));
+        Long folderId = inheritedFolderId(request, parentGroupId, rootGroupId);
         int versionNo = Math.max(1, toInt(request.get("versionNo"), 1));
 
         String sql = "INSERT INTO zhj_route_plan_group "
-                + "(group_name, source_type, unit_id, unit_name, origin_route_id, origin_route_name, planning_strategy, "
+                + "(folder_id, group_name, source_type, unit_id, unit_name, origin_route_id, origin_route_name, planning_strategy, "
                 + "default_display_mode, route_count, summary_json, request_json, remark, root_group_id, version_no, "
                 + "parent_group_id, operation_type, version_status) "
                 + "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
         Long groupId = insert(sql,
+                folderId,
                 groupName,
                 sourceType,
                 textOrNull(request.get("unitId")),
@@ -96,13 +98,15 @@ public class RoutePlanService {
         String operationType = text(request.get("operationType"), operationTypeFor(sourceType));
         Long parentGroupId = toLong(request.get("parentGroupId"));
         Long rootGroupId = toLong(request.get("rootGroupId"));
+        Long folderId = inheritedFolderId(request, parentGroupId, rootGroupId);
         int versionNo = Math.max(1, toInt(request.get("versionNo"), 1));
 
         Long groupId = insert("INSERT INTO zhj_route_plan_group "
-                        + "(group_name, source_type, unit_id, unit_name, origin_route_id, origin_route_name, planning_strategy, "
+                        + "(folder_id, group_name, source_type, unit_id, unit_name, origin_route_id, origin_route_name, planning_strategy, "
                         + "default_display_mode, route_count, summary_json, request_json, remark, root_group_id, version_no, "
                         + "parent_group_id, operation_type, version_status) "
                         + "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                folderId,
                 groupName,
                 sourceType,
                 textOrNull(request.get("unitId")),
@@ -125,6 +129,20 @@ public class RoutePlanService {
         refreshGroupRouteCount(groupId);
         ensureVersionRecord(groupId, rootGroupId == null ? groupId : rootGroupId, parentGroupId, versionNo, operationType, request);
         return route(routeId);
+    }
+
+    private Long inheritedFolderId(Map<String, Object> request, Long parentGroupId, Long rootGroupId) {
+        Long folderId = toLong(request.get("folderId"));
+        if (folderId != null) return folderId;
+        Long sourceGroupId = parentGroupId != null ? parentGroupId : rootGroupId;
+        if (sourceGroupId == null) return null;
+        try {
+            return jdbcTemplate.queryForObject(
+                    "SELECT folder_id FROM zhj_route_plan_group WHERE id = ? AND been_deleted = 0",
+                    Long.class, sourceGroupId);
+        } catch (RuntimeException ignored) {
+            return null;
+        }
     }
 
     public List<Map<String, Object>> folders(String unitId) {
