@@ -459,6 +459,18 @@ button:disabled {
   width: 130px;
 }
 
+ .version-badge {
+  display: inline-block;
+  margin-left: 6px;
+  padding: 2px 7px;
+  border-radius: 10px;
+  color: #1d5fa7;
+  background: #e8f2ff;
+  font-size: 12px;
+  font-weight: 600;
+  vertical-align: middle;
+}
+
 .muted {
   color: #718096;
   font-size: 13px;
@@ -570,6 +582,13 @@ button:disabled {
   min-width: 180px;
   color: #52627a;
   font-size: 12px;
+}
+
+.dispatch-mode-row select.new-feature-select {
+  background: #e8f4ff;
+  border-color: #2b7dcc;
+  color: #145a9c;
+  font-weight: 600;
 }
 
 .dispatch-mode-row select {
@@ -1209,6 +1228,10 @@ tbody tr.active {
   border-bottom: 1px solid #eef3f8;
 }
 
+.multi-route-time-table .route-time-row {
+  grid-template-columns: 52px minmax(150px, 1.5fr) minmax(120px, 1fr) 90px minmax(100px, 1fr) 70px 90px;
+}
+
 .route-time-row.head {
   position: sticky;
   top: 0;
@@ -1256,6 +1279,25 @@ tbody tr.active {
 .multi-route-card.active {
   border-color: #1f6fca;
   box-shadow: 0 0 0 2px rgba(31, 111, 202, 0.12);
+}
+
+.time-warning {
+  color: #c53030;
+  font-style: normal;
+  font-weight: 600;
+  margin-left: 6px;
+}
+
+.time-ok {
+  color: #2f855a;
+  font-style: normal;
+  margin-left: 6px;
+}
+
+.time-progress {
+  color: #35658d;
+  font-style: normal;
+  margin-left: 6px;
 }
 
 .multi-route-card small {
@@ -1855,6 +1897,14 @@ tbody tr.active {
   fill: #24364b;
   stroke: #fff;
   stroke-width: 0.8;
+}
+
+.route-plot .plot-point-original {
+  fill: #dc2626;
+}
+
+.route-plot .plot-point-optimized {
+  fill: #16a34a;
 }
 
 .route-plot .plot-vehicle {
@@ -2914,4 +2964,54 @@ tbody tr.active {
   align-items: center;
   gap: 6px;
   flex-shrink: 0;
+}
+
+.od-cache-shell { display: grid; gap: 14px; }
+.od-cache-layout { display: grid; grid-template-columns: 240px minmax(320px, 1fr) minmax(280px, 360px); gap: 12px; align-items: stretch; }
+.od-cache-selection-panel, .od-cache-anchor-panel { min-width: 0; }
+.od-cache-section-head { display:flex; justify-content:space-between; align-items:center; gap:12px; border-bottom:1px solid #d9e5f2; padding-bottom:10px; margin-bottom:10px; }
+.od-cache-section-head h3, .od-cache-anchor-panel h4 { margin:0; }
+.od-cache-section-head h4 { color:#55708e; font-size:13px; }
+.toolbar-row { display:flex; gap:8px; flex-wrap:wrap; margin-bottom:8px; }
+.toolbar-row input { flex:1 1 180px; min-width:120px; }
+.od-cache-point-list, .anchor-check-list { max-height:430px; overflow:auto; display:grid; gap:5px; }
+.od-cache-point-list .list-item, .anchor-check-list .list-item { display:flex; align-items:flex-start; gap:8px; padding:7px 8px; }
+.list-item.compact small { display:block; color:#6b83a0; margin-top:2px; }
+.od-cache-progress-panel { padding:16px; }
+.od-cache-stats { display:flex; flex-wrap:wrap; gap:8px; margin:12px 0; }
+.od-cache-stats span { background:#eef5fc; color:#456582; border-radius:14px; padding:5px 10px; font-size:13px; }
+.od-cache-progress-panel .planning-progress-bar span { display:block; height:100%; background:#1d72c9; border-radius:inherit; transition:width .25s ease; }
+.planning-progress-steps { display:grid; gap:8px; }
+.progress-step { display:flex; align-items:center; gap:12px; border:1px solid #dbe6f1; border-radius:9px; padding:10px 12px; color:#7d90a6; }
+.progress-step b { width:26px; height:26px; display:grid; place-items:center; border-radius:50%; background:#eef3f8; color:#71859a; }
+.progress-step span { display:grid; gap:3px; }
+.progress-step small { color:#8093a8; }
+.progress-step.active { border-color:#77b4f5; background:#f0f7ff; color:#1f4f82; }
+.progress-step.active b { background:#2879ca; color:white; }
+.progress-step.done { color:#1d6a42; }
+.progress-step.done b { background:#20a464; color:white; }
+.od-cache-shell .danger { background:#dc4d4d; color:#fff; border-color:#dc4d4d; }
+@media (max-width: 1100px) { .od-cache-layout { grid-template-columns: 220px 1fr; } .od-cache-anchor-panel { grid-column: 1 / -1; } }
+@media (max-width: 700px) { .od-cache-layout { grid-template-columns: 1fr; } .od-cache-anchor-panel { grid-column:auto; } }
+.route-source-banner {
+  grid-column: 1 / -1;
+  padding: 8px 10px;
+  border-radius: 6px;
+  color: #7a4b00;
+  background: #fff7e6;
+  border: 1px solid #f4d28c;
+  font-size: 13px;
+}
+
+.version-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  border: 1px solid #dbe7f3;
+  border-radius: 6px;
+  background: #f7fbff;
+}
+.version-toolbar select {
+  min-width: 180px;
 }

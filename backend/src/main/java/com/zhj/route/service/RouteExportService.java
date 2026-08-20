@@ -91,7 +91,7 @@ public class RouteExportService {
 
     private void writeSegments(Workbook workbook, CellStyle headerStyle, Map<String, Object> result) {
         Sheet sheet = workbook.createSheet("路段明细");
-        writeHeader(sheet, headerStyle, "路线", "车辆", "车型", "第几趟", "路段", "起点ID", "起点名称", "终点ID", "终点名称", "距离m", "耗时min", "路径来源");
+        writeHeader(sheet, headerStyle, "路线", "车辆", "车型", "第几趟", "路段", "起点ID", "起点名称", "终点ID", "终点名称", "距离m", "耗时min", "速度km/h", "速度档位", "路径来源");
         int rowIndex = 1;
         for (Map<String, Object> route : maps(result.get("routes"))) {
             for (Map<String, Object> segment : maps(route.get("segments"))) {
@@ -107,10 +107,12 @@ public class RouteExportService {
                 write(row, 8, segment.get("toFacilityName"));
                 write(row, 9, segment.get("distance"));
                 write(row, 10, segment.get("durationMinutes"));
-                write(row, 11, pathSourceLabel(segment.get("pathSource")));
+                write(row, 11, segment.get("speedKmh"));
+                write(row, 12, segment.get("speedClass"));
+                write(row, 13, pathSourceLabel(segment.get("pathSource")));
             }
         }
-        autosize(sheet, 12);
+        autosize(sheet, 14);
     }
 
 

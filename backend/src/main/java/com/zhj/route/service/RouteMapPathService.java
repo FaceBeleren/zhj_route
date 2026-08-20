@@ -430,6 +430,7 @@ public class RouteMapPathService {
     private Map<String, Object> coordinate(RoutePoint point) {
         Map<String, Object> coordinate = coordinate(point.getLongitude(), point.getLatitude());
         coordinate.put("facilityId", point.getFacilityId());
+        coordinate.put("sourceFacilityId", point.getSourceFacilityId());
         return coordinate;
     }
 
@@ -441,7 +442,7 @@ public class RouteMapPathService {
     }
 
     public String pathKey(RoutePoint from, RoutePoint to) {
-        return pathKey(String.valueOf(from.getFacilityId()), String.valueOf(to.getFacilityId()));
+        return pathKey(pointCode(from), pointCode(to));
     }
 
     private String pathKey(String startCode, String endCode) {
@@ -455,7 +456,7 @@ public class RouteMapPathService {
         }
         for (RoutePoint point : points) {
             if (isCacheableFacility(point)) {
-                ids.add(String.valueOf(point.getFacilityId()));
+                ids.add(pointCode(point));
             }
         }
         return new ArrayList<String>(ids);
@@ -473,7 +474,21 @@ public class RouteMapPathService {
     }
 
     private boolean isCacheableFacility(RoutePoint point) {
-        return point.getFacilityId() != null && point.getFacilityId() > 0;
+        return point != null && pointCode(point) != null && !pointCode(point).isEmpty();
+    }
+
+    private String pointCode(RoutePoint point) {
+        if (point == null) return null;
+        if (point.getSourceFacilityId() != null && !point.getSourceFacilityId().trim().isEmpty()) {
+            String source = point.getSourceFacilityId().trim();
+            try {
+                return Long.parseLong(source) > 0 ? source : null;
+            } catch (NumberFormatException ignored) {
+                return source;
+            }
+        }
+        return point.getFacilityId() != null && point.getFacilityId() > 0
+                ? String.valueOf(point.getFacilityId()) : null;
     }
 
     private String pointLabel(RoutePoint point) {
@@ -481,8 +496,8 @@ public class RouteMapPathService {
             return "null";
         }
         String name = point.getFacilityName() == null ? "" : "/" + point.getFacilityName();
-        if (point.getFacilityId() != null) {
-            return point.getFacilityId() + name;
+        if (pointCode(point) != null) {
+            return pointCode(point) + name;
         }
         return "XY(" + point.getLongitude() + "," + point.getLatitude() + ")" + name;
     }
@@ -513,8 +528,18 @@ public class RouteMapPathService {
     }
 
     private RoutePoint previewPoint(Map<String, Object> request, String prefix) {
+        String sourceFacilityId = request.get(prefix + "SourceFacilityId") == null
+                ? (request.get(prefix + "FacilityId") == null ? null : String.valueOf(request.get(prefix + "FacilityId")).trim())
+                : String.valueOf(request.get(prefix + "SourceFacilityId")).trim();
+        Long numericFacilityId = null;
+        try {
+            if (sourceFacilityId != null && !sourceFacilityId.isEmpty()) numericFacilityId = Long.valueOf(sourceFacilityId);
+        } catch (NumberFormatException ignored) {
+            // Parking-lot IDs may be UUIDs; keep them as sourceFacilityId.
+        }
         return new RoutePoint(
-                toLong(request.get(prefix + "FacilityId")),
+                numericFacilityId,
+                sourceFacilityId,
                 null,
                 toDouble(request.get(prefix + "Longitude")),
                 toDouble(request.get(prefix + "Latitude")),

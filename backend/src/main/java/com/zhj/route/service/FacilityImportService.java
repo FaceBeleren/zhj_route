@@ -42,6 +42,9 @@ public class FacilityImportService {
             List<Map<String, Object>> groups = new ArrayList<Map<String, Object>>();
             Set<String> allNames = new LinkedHashSet<String>();
             for (int sheetIndex = 0; sheetIndex < workbook.getNumberOfSheets(); sheetIndex++) {
+                if (workbook.isSheetHidden(sheetIndex) || workbook.isSheetVeryHidden(sheetIndex)) {
+                    continue;
+                }
                 Sheet sheet = workbook.getSheetAt(sheetIndex);
                 Header header = findNameHeader(sheet, formatter);
                 if (header == null) {
@@ -292,6 +295,7 @@ public class FacilityImportService {
                 || "收集点名称".equals(normalized)
                 || "垃圾点名称".equals(normalized)
                 || "垃圾点位名称".equals(normalized)
+                || "具体位置或点位数量".equals(normalized)
                 || "垃圾位置".equals(normalized)
                 || "桶位位置".equals(normalized)
                 || "垃圾位置或桶位位置".equals(normalized)

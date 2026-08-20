@@ -52,6 +52,51 @@ public class SingleRouteOptimizer {
                 totalDistance(optimized, distanceCalculator));
     }
 
+    public RouteOptimizationResult optimizeWithFeedback(List<RoutePoint> points, java.util.Set<Long> feedbackFacilityIds, DistanceCalculator distanceCalculator) {
+        List<RoutePoint> original = new ArrayList<RoutePoint>(points);
+        if (points.size() < 3 || feedbackFacilityIds == null || feedbackFacilityIds.isEmpty()) {
+            double distance = totalDistance(original, distanceCalculator);
+            return new RouteOptimizationResult(original, original, distance, distance);
+        }
+
+        List<RoutePoint> fixed = new ArrayList<RoutePoint>();
+        List<RoutePoint> feedback = new ArrayList<RoutePoint>();
+        for (int i = 0; i < points.size(); i++) {
+            RoutePoint point = points.get(i);
+            boolean selected = point.getFacilityId() != null && feedbackFacilityIds.contains(point.getFacilityId());
+            // 起终点仍作为路线锚点，不允许反馈调整把路线首尾移走。
+            if (selected && i > 0 && i < points.size() - 1) {
+                feedback.add(point);
+            } else {
+                fixed.add(point);
+            }
+        }
+        if (feedback.isEmpty() || fixed.size() < 2) {
+            double distance = totalDistance(original, distanceCalculator);
+            return new RouteOptimizationResult(original, original, distance, distance);
+        }
+
+        List<RoutePoint> adjusted = new ArrayList<RoutePoint>(fixed);
+        for (RoutePoint candidate : feedback) {
+            int bestIndex = 1;
+            double bestIncrease = Double.POSITIVE_INFINITY;
+            for (int segment = 0; segment < adjusted.size() - 1; segment++) {
+                RoutePoint previous = adjusted.get(segment);
+                RoutePoint next = adjusted.get(segment + 1);
+                double increase = distanceCalculator.distance(previous, candidate)
+                        + distanceCalculator.distance(candidate, next)
+                        - distanceCalculator.distance(previous, next);
+                if (increase < bestIncrease) {
+                    bestIncrease = increase;
+                    bestIndex = segment + 1;
+                }
+            }
+            adjusted.add(bestIndex, candidate);
+        }
+        return new RouteOptimizationResult(original, adjusted,
+                totalDistance(original, distanceCalculator), totalDistance(adjusted, distanceCalculator));
+    }
+
     public double totalDistance(List<RoutePoint> points) {
         return totalDistance(points, new DistanceCalculator() {
             @Override
