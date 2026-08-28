@@ -346,7 +346,7 @@
           </section>
         </section>
         <section class="panel od-cache-progress-panel">
-          <div class="planning-progress-head"><div><h2>点位计算进度</h2><p>{{ odCacheTask.message }}</p></div><strong>{{ odCacheTask.percent }}%</strong></div>
+          <div class="planning-progress-head"><div><h2>点位计算进度</h2><p>{{ odCacheTask.message }}</p></div><div class="od-cache-progress-metrics"><strong>{{ odCacheTask.percent }}%</strong><small>已用时 {{ odCacheElapsedText }}</small></div></div>
           <div class="planning-progress-bar"><span :style="{ width: odCacheTask.percent + '%' }"></span></div>
           <div class="od-cache-stats"><span>节点 {{ odCachePayload.length }}</span><span>总点对 {{ odCacheTask.totalPairs || odCachePairCount }}</span><span>已缓存 {{ odCacheTask.cachedPairs || 0 }}</span><span>已完成 {{ odCacheTask.completedPairs || 0 }}</span><span>成功写入 {{ odCacheTask.successPairs || 0 }}</span><span>失败 {{ odCacheTask.failedPairs || 0 }}</span></div>
           <div class="planning-progress-steps"><div :class="odCacheStepClass(1)"><b>1</b><span><strong>整理选中节点</strong><small>点位、停车场、处置场和中转站去重</small></span></div><div :class="odCacheStepClass(2)"><b>2</b><span><strong>查询已缓存数据</strong><small>先读取现有 ljszy_odpair_pool</small></span></div><div :class="odCacheStepClass(3)"><b>3</b><span><strong>计算缺失道路 OD</strong><small>{{ odCacheTask.currentPair || '未开始' }}</small></span></div><div :class="odCacheStepClass(4)"><b>4</b><span><strong>完成并持久化</strong><small>成功结果由后端写入数据库</small></span></div></div>
@@ -1830,7 +1830,9 @@ const odCacheShowSelectedOnly = ref(false)
 const odCacheImportInput = ref(null)
 const odCacheImportSummary = ref('')
 const odCachePollTimer = ref(null)
-const odCacheTask = reactive({ visible: false, taskId: '', status: 'IDLE', phase: 'PREPARE', message: '请选择公司和节点', percent: 0, totalPairs: 0, cachedPairs: 0, completedPairs: 0, successPairs: 0, failedPairs: 0, currentPair: '', failures: [] })
+const odCacheClockTimer = ref(null)
+const odCacheClockNow = ref(Date.now())
+const odCacheTask = reactive({ visible: false, taskId: '', status: 'IDLE', phase: 'PREPARE', message: '请选择公司和节点', percent: 0, totalPairs: 0, cachedPairs: 0, completedPairs: 0, successPairs: 0, failedPairs: 0, currentPair: '', failures: [], startedAt: 0, elapsedMs: 0, finishedAt: 0 })
 const companies = ref([])
 const routes = ref([])
 const splitRoutes = ref([])
@@ -1961,6 +1963,14 @@ const odCachePayload = computed(() => {
 })
 const odCachePairCount = computed(() => odCachePayload.value.length * Math.max(0, odCachePayload.value.length - 1))
 const odCacheRunning = computed(() => ['QUEUED', 'RUNNING'].includes(odCacheTask.status))
+const odCacheElapsedMs = computed(() => {
+  const terminal = ['DONE', 'PARTIAL', 'FAILED', 'CANCELLED', 'NOT_FOUND'].includes(odCacheTask.status)
+  if (terminal && odCacheTask.elapsedMs) return Number(odCacheTask.elapsedMs)
+  if (!odCacheTask.startedAt) return 0
+  const end = terminal && odCacheTask.finishedAt ? Number(odCacheTask.finishedAt) : odCacheClockNow.value
+  return Math.max(0, end - Number(odCacheTask.startedAt))
+})
+const odCacheElapsedText = computed(() => formatOdCacheElapsed(odCacheElapsedMs.value))
 const companyScores = ref([])
 const routeScores = ref([])
 const tripScores = ref([])
@@ -4482,7 +4492,10 @@ function scorePointClass(point) {
   }
 }
 
-function resetOdCacheTask() { if (odCachePollTimer.value) { clearInterval(odCachePollTimer.value); odCachePollTimer.value = null }; Object.assign(odCacheTask, { visible: false, taskId: '', status: 'IDLE', phase: 'PREPARE', message: '请选择公司和节点', percent: 0, totalPairs: 0, cachedPairs: 0, completedPairs: 0, successPairs: 0, failedPairs: 0, currentPair: '', failures: [] }) }
+function formatOdCacheElapsed(ms) { const totalSeconds = Math.floor(Math.max(0, Number(ms) || 0) / 1000); const hours = Math.floor(totalSeconds / 3600); const minutes = Math.floor((totalSeconds % 3600) / 60); const seconds = totalSeconds % 60; return hours > 0 ? `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}` : `${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}` }
+function stopOdCacheClock() { if (odCacheClockTimer.value) { clearInterval(odCacheClockTimer.value); odCacheClockTimer.value = null } }
+function startOdCacheClock() { stopOdCacheClock(); odCacheClockNow.value = Date.now(); odCacheClockTimer.value = window.setInterval(() => { odCacheClockNow.value = Date.now() }, 1000) }
+function resetOdCacheTask() { if (odCachePollTimer.value) { clearInterval(odCachePollTimer.value); odCachePollTimer.value = null }; stopOdCacheClock(); Object.assign(odCacheTask, { visible: false, taskId: '', status: 'IDLE', phase: 'PREPARE', message: '请选择公司和节点', percent: 0, totalPairs: 0, cachedPairs: 0, completedPairs: 0, successPairs: 0, failedPairs: 0, currentPair: '', failures: [], startedAt: 0, elapsedMs: 0, finishedAt: 0 }) }
 function resetOdCacheSelection() { odCachePointIds.value = new Set(); odCacheParkingKeys.value = new Set(); odCacheFacilityKeys.value = new Set(); odCacheImportSummary.value = ''; resetOdCacheTask() }
 async function selectOdCacheCompany(company) { odCacheCompany.value = company; resetOdCacheSelection(); await withLoading(async () => { const [points, anchors] = await Promise.all([api(`/api/companies/${company.id}/facilities`), api(`/api/companies/${company.id}/route-anchors`)]); odCachePoints.value = points || []; odCachePointIds.value = new Set(odCachePoints.value.map((point) => String(point.facilityId))); odCacheParkingOptions.value = (anchors?.parkingLots || []).map((point) => ({ ...point, key: `parking:${point.facilityId}` })); odCacheFacilityOptions.value = [...(anchors?.disposalSites || []), ...(anchors?.transferStations || [])].map((point) => ({ ...point, key: `facility:${point.facilityId}` })); }) }
 function toggleOdCachePoint(id) { const next = new Set(odCachePointIds.value); const key = String(id); next.has(key) ? next.delete(key) : next.add(key); odCachePointIds.value = next; resetOdCacheTask() }
@@ -4492,9 +4505,9 @@ function toggleOdCacheAnchor(key, anchor) { const isParking = key.startsWith('pa
 function triggerOdCacheImport() { odCacheImportInput.value?.click() }
 async function importOdCacheNames(event) { const file = event.target.files?.[0]; event.target.value = ''; if (!file || !odCachePoints.value.length) return; const form = new FormData(); form.append('file', file); await withLoading(async () => { const response = await fetch('/api/import/facility-names', { method: 'POST', body: form }); if (!response.ok) throw new Error(await response.text()); const result = await response.json(); const names = new Set((result.names || []).map(normalizeFacilityName).filter(Boolean)); const selected = new Set(); odCachePoints.value.forEach((point) => { if (names.has(normalizeFacilityName(point.facilityName))) selected.add(String(point.facilityId)) }); odCachePointIds.value = selected; odCacheShowSelectedOnly.value = true; odCacheImportSummary.value = `导入 ${names.size} 个名称，匹配并选中 ${selected.size} 个点位`; resetOdCacheTask() }) }
 function applyOdCacheTask(task) { Object.assign(odCacheTask, { visible: true, ...task, percent: Number(task.percent || 0), failures: task.failures || [] }) }
-async function startOdCacheTask() { if (odCachePayload.value.length < 2) { error.value = '至少选择两个有坐标的节点'; return } resetOdCacheTask(); odCacheTask.visible = true; odCacheTask.status = 'QUEUED'; odCacheTask.message = '正在提交缓存计算任务'; try { const response = await api('/api/od-cache/tasks', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ points: odCachePayload.value }) }); applyOdCacheTask(response); if (odCachePollTimer.value) clearInterval(odCachePollTimer.value); odCachePollTimer.value = setInterval(() => pollOdCacheTask(response.taskId), 1000); await pollOdCacheTask(response.taskId) } catch (e) { odCacheTask.status = 'FAILED'; odCacheTask.phase = 'FAILED'; odCacheTask.message = e?.message || '缓存计算任务提交失败'; odCacheTask.finishedAt = Date.now(); error.value = odCacheTask.message } }
-async function pollOdCacheTask(taskId) { try { const task = await api(`/api/od-cache/tasks/${taskId}`); applyOdCacheTask(task); if (['DONE', 'PARTIAL', 'FAILED', 'CANCELLED', 'NOT_FOUND'].includes(task.status)) { clearInterval(odCachePollTimer.value); odCachePollTimer.value = null } } catch (e) { odCacheTask.message = e.message } }
-async function stopOdCacheTask() { if (!odCacheTask.taskId) return; const task = await api(`/api/od-cache/tasks/${odCacheTask.taskId}/cancel`, { method: 'POST' }); applyOdCacheTask(task); if (odCachePollTimer.value) { clearInterval(odCachePollTimer.value); odCachePollTimer.value = null } }
+async function startOdCacheTask() { if (odCachePayload.value.length < 2) { error.value = '至少选择两个有坐标的节点'; return } resetOdCacheTask(); odCacheTask.visible = true; odCacheTask.status = 'QUEUED'; odCacheTask.message = '正在提交缓存计算任务'; try { const response = await api('/api/od-cache/tasks', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ points: odCachePayload.value }) }); applyOdCacheTask(response); startOdCacheClock(); if (odCachePollTimer.value) clearInterval(odCachePollTimer.value); odCachePollTimer.value = setInterval(() => pollOdCacheTask(response.taskId), 1000); await pollOdCacheTask(response.taskId) } catch (e) { odCacheTask.status = 'FAILED'; odCacheTask.phase = 'FAILED'; odCacheTask.message = e?.message || '缓存计算任务提交失败'; odCacheTask.finishedAt = Date.now(); stopOdCacheClock(); error.value = odCacheTask.message } }
+async function pollOdCacheTask(taskId) { try { const task = await api(`/api/od-cache/tasks/${taskId}`); applyOdCacheTask(task); if (['DONE', 'PARTIAL', 'FAILED', 'CANCELLED', 'NOT_FOUND'].includes(task.status)) { clearInterval(odCachePollTimer.value); odCachePollTimer.value = null; stopOdCacheClock() } } catch (e) { odCacheTask.message = e.message } }
+async function stopOdCacheTask() { if (!odCacheTask.taskId) return; const task = await api(`/api/od-cache/tasks/${odCacheTask.taskId}/cancel`, { method: 'POST' }); applyOdCacheTask(task); if (odCachePollTimer.value) { clearInterval(odCachePollTimer.value); odCachePollTimer.value = null }; stopOdCacheClock() }
 function odCacheStepClass(index) { const phase = odCacheTask.phase; const done = (index === 1 && ['CHECK_CACHE','CALCULATE','DONE'].includes(phase)) || (index === 2 && ['CALCULATE','DONE'].includes(phase)) || (index === 3 && phase === 'DONE') || (index === 4 && ['DONE','CANCELLED','FAILED'].includes(phase)); const active = (index === 1 && phase === 'PREPARE') || (index === 2 && phase === 'CHECK_CACHE') || (index === 3 && phase === 'CALCULATE') || (index === 4 && phase === 'DONE'); return { 'progress-step': true, done, active } }
 async function reloadCurrent() {
   await loadRouteMapStatus()

@@ -3015,3 +3015,5 @@ tbody tr.active {
 .version-toolbar select {
   min-width: 180px;
 }
+
+.od-cache-progress-metrics { display: flex; flex-direction: column; align-items: flex-end; min-width: 72px; }
