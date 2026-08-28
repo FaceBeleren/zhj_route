@@ -82,6 +82,44 @@ public class RouteMapPathService {
         return directPath(from, to);
     }
 
+    /**
+     * 仅加载可复用点对的键，供大批量缓存预热任务使用。
+     * 不读取 msg_full，避免一次性把大量道路 JSON 加载到内存。
+     */
+    public Set<String> preloadCachedKeys(List<RoutePoint> points) {
+        long startedAt = System.currentTimeMillis();
+        Set<String> cachedKeys = new LinkedHashSet<String>();
+        List<String> facilityIds = cacheableFacilityIds(points);
+        if (facilityIds.size() < 2) {
+            return cachedKeys;
+        }
+        String placeholders = placeholders(facilityIds.size());
+        String sql = "SELECT DISTINCT start_code, end_code " +
+                "FROM ljszy_odpair_pool " +
+                "WHERE been_deleted = 0 AND msg_full IS NOT NULL " +
+                "AND start_code IN (" + placeholders + ") " +
+                "AND end_code IN (" + placeholders + ")";
+        List<Object> args = new ArrayList<Object>();
+        args.addAll(facilityIds);
+        args.addAll(facilityIds);
+        try {
+            log.info("OD preload key query starting: cacheablePoints={}", facilityIds.size());
+            List<Map<String, Object>> rows = jdbcTemplate.queryForList(sql, args.toArray());
+            for (Map<String, Object> row : rows) {
+                String startCode = String.valueOf(row.get("start_code"));
+                String endCode = String.valueOf(row.get("end_code"));
+                cachedKeys.add(pathKey(startCode, endCode));
+            }
+            log.info("OD preload key query finished: cacheablePoints={}, rows={}, cachedPairs={}, elapsed={}ms",
+                    facilityIds.size(), rows.size(), cachedKeys.size(), System.currentTimeMillis() - startedAt);
+            return cachedKeys;
+        } catch (RuntimeException e) {
+            log.warn("OD preload key query failed: cacheablePoints={}, elapsed={}ms, {}",
+                    facilityIds.size(), System.currentTimeMillis() - startedAt, e.getMessage(), e);
+            throw new IllegalStateException("缓存查询失败，未开始道路补算: " + e.getMessage(), e);
+        }
+    }
+
     public Map<String, ResolvedPath> preloadCachedPaths(List<RoutePoint> points) {
         long startedAt = System.currentTimeMillis();
         Map<String, ResolvedPath> cachedPaths = new HashMap<String, ResolvedPath>();

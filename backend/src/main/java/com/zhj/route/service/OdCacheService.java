@@ -50,7 +50,7 @@ public class OdCacheService {
         long started = System.currentTimeMillis();
         try {
             task.status = "RUNNING"; task.phase = "CHECK_CACHE"; task.message = "正在查询已缓存道路 OD";
-            Map<String, RouteMapPathService.ResolvedPath> cached = routeMapPathService.preloadCachedPaths(task.points);
+            Set<String> cached = routeMapPathService.preloadCachedKeys(task.points);
             task.cachedPairs = cached.size(); task.completedPairs = task.cachedPairs; task.totalPairs = task.points.size() * (task.points.size() - 1);
             task.message = "已找到 " + task.cachedPairs + " 对缓存，待计算 " + Math.max(0, task.totalPairs - task.cachedPairs) + " 对";
             if (task.cancelled) return;
@@ -59,7 +59,7 @@ public class OdCacheService {
                 if (from.getFacilityId().equals(to.getFacilityId())) continue;
                 if (task.cancelled || Thread.currentThread().isInterrupted()) return;
                 String key = routeMapPathService.pathKey(from, to);
-                if (cached.containsKey(key)) continue;
+                if (cached.contains(key)) continue;
                 task.currentPair = label(from) + " -> " + label(to);
                 RouteMapPathService.ResolvedPath path = routeMapPathService.resolveWithoutCache(from, to);
                 if (path != null && path.getDistanceMeters() != null && ("BAIDU_ONLINE".equals(path.getSource()) || path.getSource().startsWith("OD"))) task.successPairs++;
