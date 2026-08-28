@@ -92,7 +92,7 @@ public class RouteMapPathService {
         }
 
         String placeholders = placeholders(facilityIds.size());
-        String sql = "SELECT start_code, end_code, distance, time_duration, msg_full, latitude_end, latitude_start, longitude_end, longitude_start " +
+        String sql = "SELECT /*+ MAX_EXECUTION_TIME(15000) */ start_code, end_code, distance, time_duration, msg_full, latitude_end, latitude_start, longitude_end, longitude_start " +
                 "FROM ljszy_odpair_pool " +
                 "WHERE been_deleted = 0 AND msg_full IS NOT NULL " +
                 "AND start_code IN (" + placeholders + ") " +
@@ -103,6 +103,7 @@ public class RouteMapPathService {
         args.addAll(facilityIds);
 
         try {
+            log.info("OD preload query starting: cacheablePoints={}, ids={}", facilityIds.size(), facilityIds.size());
             List<Map<String, Object>> rows = jdbcTemplate.queryForList(sql, args.toArray());
             int invalidRows = 0;
             for (Map<String, Object> row : rows) {
