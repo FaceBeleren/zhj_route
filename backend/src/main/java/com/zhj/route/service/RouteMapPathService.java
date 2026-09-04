@@ -94,7 +94,7 @@ public class RouteMapPathService {
             return cachedKeys;
         }
         String placeholders = placeholders(facilityIds.size());
-        String sql = "SELECT DISTINCT start_code, end_code " +
+        String sql = "SELECT start_code, end_code " +
                 "FROM ljszy_odpair_pool " +
                 "WHERE been_deleted = 0 AND msg_full IS NOT NULL " +
                 "AND start_code IN (" + placeholders + ") " +

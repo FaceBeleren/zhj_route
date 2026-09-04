@@ -9,6 +9,7 @@ import com.zhj.route.service.RouteExportService;
 import com.zhj.route.service.RouteClusterService;
 import com.zhj.route.service.RoutePlanService;
 import com.zhj.route.service.OdCacheService;
+import com.zhj.route.service.FlowAnalysisService;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
@@ -38,6 +39,7 @@ public class RouteDataController {
     private final RouteClusterService routeClusterService;
     private final RoutePlanService routePlanService;
     private final OdCacheService odCacheService;
+    private final FlowAnalysisService flowAnalysisService;
 
     public RouteDataController(
             RouteQueryService routeQueryService,
@@ -48,7 +50,8 @@ public class RouteDataController {
             FacilityImportService facilityImportService,
             RouteClusterService routeClusterService,
             RoutePlanService routePlanService,
-            OdCacheService odCacheService) {
+            OdCacheService odCacheService,
+            FlowAnalysisService flowAnalysisService) {
         this.routeQueryService = routeQueryService;
         this.routeConformanceService = routeConformanceService;
         this.routeOptimizeService = routeOptimizeService;
@@ -58,6 +61,7 @@ public class RouteDataController {
         this.routeClusterService = routeClusterService;
         this.routePlanService = routePlanService;
         this.odCacheService = odCacheService;
+        this.flowAnalysisService = flowAnalysisService;
     }
 
 
@@ -139,6 +143,34 @@ public class RouteDataController {
     @PostMapping("/od-cache/tasks/{taskId}/cancel")
     public Map<String, Object> cancelOdCacheTask(@PathVariable String taskId) {
         return odCacheService.cancel(taskId);
+    }
+
+    @GetMapping("/flow-analysis/vehicles")
+    public List<Map<String, Object>> flowAnalysisVehicles(
+            @RequestParam String unitId,
+            @RequestParam(required = false) String startDate,
+            @RequestParam(required = false) String endDate) {
+        return flowAnalysisService.vehicles(unitId, startDate, endDate);
+    }
+
+    @PostMapping("/flow-analysis/tasks")
+    public Map<String, Object> startFlowAnalysis(@RequestBody Map<String, Object> request) {
+        return flowAnalysisService.start(request);
+    }
+
+    @GetMapping("/flow-analysis/tasks/{taskId}")
+    public Map<String, Object> flowAnalysisTask(@PathVariable String taskId) {
+        return flowAnalysisService.get(taskId);
+    }
+
+    @PostMapping("/flow-analysis/tasks/{taskId}/cancel")
+    public Map<String, Object> cancelFlowAnalysis(@PathVariable String taskId) {
+        return flowAnalysisService.cancel(taskId);
+    }
+
+    @PutMapping("/flow-analysis/tasks/{taskId}/adjustments")
+    public Map<String, Object> adjustFlowAnalysis(@PathVariable String taskId, @RequestBody Map<String, Object> adjustments) {
+        return flowAnalysisService.adjust(taskId, adjustments);
     }
 
     @GetMapping("/companies")

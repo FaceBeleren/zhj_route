@@ -42,6 +42,9 @@
       <button :class="{ active: currentView === 'score' }" @click="currentView = 'score'">
         路线评分
       </button>
+      <button :class="{ active: currentView === 'flow-analysis' }" @click="currentView = 'flow-analysis'">
+        流水分析
+      </button>
       <button :class="{ active: currentView === 'workbench' }" @click="currentView = 'workbench'">
         路线详情
       </button>
@@ -91,7 +94,59 @@
 
 
 
-    <template v-if="currentView === 'saved'">
+    <template v-if="currentView === 'flow-analysis'">
+      <section class="flow-analysis-shell">
+        <section class="panel flow-analysis-filter-panel">
+          <div class="panel-head">
+            <div><h2>车辆流水分析</h2><span class="muted">从实际流水还原趟次，归纳历史岗位分堆</span></div>
+            <div class="panel-actions"><button class="secondary" @click="loadFlowVehicles" :disabled="flowAnalysisLoading">刷新车辆</button><button @click="startFlowAnalysis" :disabled="flowAnalysisRunning || !flowAnalysisCompanyId || !flowAnalysisCarCode">开始分析</button><button class="danger" v-if="flowAnalysisRunning" @click="cancelFlowAnalysis">停止</button></div>
+          </div>
+          <div class="flow-analysis-filters">
+            <label class="flow-company-picker">项目公司<input v-model="flowAnalysisCompanyKeyword" placeholder="输入公司名称或编号模糊查找" /><span v-if="flowAnalysisCompany" class="flow-selected-company">已选：{{ flowAnalysisCompany.depName || flowAnalysisCompany.id }}</span><span v-if="flowAnalysisCompanyKeyword && !flowAnalysisCompany" class="flow-company-results"><button v-for="company in filteredFlowAnalysisCompanies" :key="'flow-company-'+company.id" type="button" @click="selectFlowAnalysisCompany(company)">{{ company.depName || company.id }}</button><em v-if="!filteredFlowAnalysisCompanies.length">没有匹配公司</em></span></label>
+            <label>车辆<select v-model="flowAnalysisCarCode" @change="resetFlowAnalysisResult"><option value="">请选择车辆</option><option v-for="vehicle in flowAnalysisVehicles" :key="'flow-car-'+vehicle.carCode" :value="vehicle.carCode">{{ vehicle.carCode }} · {{ vehicle.recordCount }} 条流水</option></select></label>
+            <label>开始日期<input v-model="flowAnalysisFilters.startDate" type="date" /></label>
+            <label>结束日期<input v-model="flowAnalysisFilters.endDate" type="date" /></label>
+            <label>岗位<select v-model="flowAnalysisRouteId"><option value="">自动按岗位分别分析</option><option v-for="job in flowAnalysisJobs" :key="'flow-job-'+job.routeId" :value="String(job.routeId)">{{ job.routeName || '未绑定岗位' }} · {{ job.recordCount }} 条</option></select></label>
+            <label>相似度阈值<input v-model.number="flowAnalysisThreshold" type="number" min="0.3" max="0.9" step="0.05" /></label>
+          </div>
+          <p class="muted">单日用于查看真实趟次；多日用于归纳稳定分堆。原始流水只读，人工修正只影响本次分析。</p>
+        </section>
+
+        <section class="panel flow-progress-panel">
+          <div class="planning-progress-head"><div><h2>流水分析进度</h2><p>{{ flowAnalysisTask.message }}</p></div><strong>{{ flowAnalysisTask.percent }}%</strong></div>
+          <div class="planning-progress-bar"><span :style="{ width: flowAnalysisTask.percent + '%' }"></span></div>
+          <div class="od-cache-stats"><span>流水 {{ flowAnalysisTask.totalRecords || 0 }}</span><span>事件 {{ flowAnalysisTask.loadedEvents || 0 }}</span><span>状态 {{ flowAnalysisTask.status }}</span><span v-if="flowAnalysisTask.elapsedMs">耗时 {{ formatOdCacheElapsed(flowAnalysisTask.elapsedMs) }}</span></div>
+        </section>
+
+        <template v-if="flowAnalysisResult">
+          <section class="flow-summary-grid">
+            <div class="summary-strip"><div><span>有效作业日</span><strong>{{ flowAnalysisResult.activeDays }}</strong></div><div><span>识别趟次</span><strong>{{ flowAnalysisResult.tripCount }}</strong></div><div><span>完整趟次</span><strong>{{ flowAnalysisResult.completeTripCount }}</strong></div><div><span>日均趟次</span><strong>{{ flowAnalysisResult.avgTripsPerActiveDay }}</strong></div><div><span>异常趟次</span><strong>{{ flowAnalysisResult.anomalyTripCount }}</strong></div></div>
+            <div v-if="flowAnalysisResult.tripCountMismatchRecords" class="flow-warning">有 {{ flowAnalysisResult.tripCountMismatchRecords }} 条流水记录的预计趟数与实际切分趟数不一致，请结合时间轴核对场站事件。</div>
+            <div class="flow-view-tabs"><button :class="{ active: flowAnalysisTab === 'trips' }" @click="flowAnalysisTab = 'trips'">实际趟次</button><button :class="{ active: flowAnalysisTab === 'stats' }" @click="flowAnalysisTab = 'stats'">趟次统计</button></div>
+          </section>
+          <section v-if="flowAnalysisTab === 'trips'" class="flow-analysis-results">
+            <section class="panel flow-daily-panel">
+              <div class="panel-head"><div><h2>实际趟次</h2><span class="muted">按场站事件切分，展开查看点位顺序</span></div></div>
+              <div v-for="day in flowAnalysisResult.dailyTrips" :key="'flow-day-'+day.date" class="flow-day"><h3>{{ day.date }} <small>{{ day.tripCount }} 趟</small></h3><div v-for="(trip, index) in day.trips" :key="'flow-trip-'+trip.recordId+'-'+index" class="flow-trip"><div><strong>{{ trip.date || day.date || '日期未知' }} · 第 {{ index + 1 }} 趟</strong><span>{{ trip.complete ? '已到场' : '未记录终点' }} · {{ trip.pointCount }} 个收集点 · 已收 {{ trip.collectedPointCount || 0 }} · 途经 {{ trip.throughPointCount || 0 }} <button class="ghost-button" @click="selectFlowTrip(trip)">查看统计</button><button v-if="!trip.complete && trip.points?.length" class="ghost-button" @click="markFlowBoundary(trip)">将末点作为人工边界</button></span></div><div class="flow-sequence"><span v-if="trip.start">{{ trip.start.facilityName }}</span><span v-for="point in trip.points" :key="'flow-point-'+trip.recordId+'-'+point.eventId" :class="flowPointClass(point)">{{ point.facilityName || point.facilityId }} <small>{{ point.matchLabel || '未知' }}</small></span><b v-if="trip.end">→ {{ trip.end.facilityName }}</b></div></div></div>
+              <div v-if="!flowAnalysisResult.dailyTrips?.length" class="empty">没有找到可分析的流水</div>
+            </section>
+            <section class="panel flow-groups-panel">
+              <div class="panel-head"><div><h2>历史岗位分堆</h2><span class="muted">稳定分堆可保存为岗位草案</span></div><button @click="openSaveFlowAnalysis" :disabled="!flowAnalysisResult.groups?.length">保存分堆草案</button></div>
+              <div v-for="group in flowAnalysisResult.groups" :key="'flow-group-'+group.groupNo" class="flow-group"><div class="flow-group-head"><div><h3>{{ group.groupName }} <small :class="group.stable ? 'flow-stable' : 'flow-unstable'">{{ group.stable ? '稳定' : '样本不足' }}</small></h3><span>{{ group.tripCount }} 趟 · 覆盖 {{ group.activeDays }} 天 · 每周约 {{ group.visitsPerWeek }} 趟 · 稳定度 {{ group.stability }}</span></div><button class="secondary" @click="selectFlowGroup(group)">查看地图</button></div><p class="muted">典型终点：{{ group.typicalEnd?.facilityName || '未确定' }} · 覆盖完整趟 {{ group.supportOfAllCompleteTrips }}</p><div class="flow-point-chips"><span v-for="point in group.points" :key="'flow-group-point-'+group.groupNo+'-'+point.facilityId" :class="[flowPointClass(point), { optional: Number(point.support) < 0.6 }]">{{ point.facilityName || point.facilityId }} · {{ point.matchLabel || '未知' }} · {{ Math.round(Number(point.support) * 100) }}%</span></div></div><div v-if="!flowAnalysisResult.groups?.length" class="empty">暂未形成分堆</div>
+              <div v-if="flowAnalysisResult.unassignedPoints?.length" class="flow-warning">有 {{ flowAnalysisResult.unassignedPoints.length }} 个低频点位未作为核心点，请结合实际情况确认。</div>
+              <div v-if="flowForcedBoundaryIds.size" class="flow-adjustments"><span>已标记 {{ flowForcedBoundaryIds.size }} 个人工边界</span><button class="secondary" @click="rerunFlowAnalysisWithAdjustments">按修正重新分析</button></div>
+            </section>
+          </section>
+          <section v-else class="panel flow-trip-stats-panel">
+            <div class="panel-head"><div><h2>趟次统计</h2><span class="muted">点击左侧某一趟查看该趟的点位、匹配类别和停留统计</span></div><button class="secondary" @click="flowAnalysisTab = 'trips'">返回实际趟次</button></div>
+            <div v-if="flowSelectedTrip" class="flow-trip-detail"><div class="flow-trip-detail-summary"><strong>{{ flowSelectedTrip.date || '日期未知' }} · 流水 {{ flowSelectedTrip.recordId }}</strong><span>{{ flowSelectedTrip.complete ? '已到场' : '未记录终点' }} · {{ flowSelectedTrip.uniquePointCount || 0 }} 个唯一点位 · 已收 {{ flowSelectedTrip.collectedPointCount || 0 }} · 途经 {{ flowSelectedTrip.throughPointCount || 0 }} · 重复 {{ flowSelectedTrip.duplicatePointCount || 0 }} · 停留 {{ Math.round(Number(flowSelectedTrip.operationSeconds || 0)) }} 秒</span></div><table class="flow-trip-table"><thead><tr><th>顺序</th><th>点位</th><th>匹配类别</th><th>进入时间</th><th>离开时间</th><th>停留秒数</th></tr></thead><tbody><tr v-for="(point, index) in flowSelectedTrip.points" :key="'flow-stat-point-'+point.eventId"><td>{{ index + 1 }}</td><td>{{ point.facilityName || point.facilityId }}</td><td><span :class="flowPointClass(point)">{{ point.matchLabel || '未知' }}</span></td><td>{{ formatFlowTime(point.time) }}</td><td>{{ formatFlowTime(point.leaveTime) }}</td><td>{{ point.operationLength || 0 }}</td></tr></tbody></table></div><div v-else class="empty">请从“实际趟次”点击“查看统计”。</div>
+          </section>
+          <RouteMapPanel v-if="flowSelectedGroup && flowAnalysisTab === 'trips'" :original-points="[]" :optimized-points="flowMapPoints(flowSelectedGroup)" :show-original="false" optimized-label="历史分堆" />
+        </template>
+      </section>
+    </template>
+
+    <template v-else-if="currentView === 'saved'">
       <section class="saved-plan-shell">
         <aside class="panel saved-plan-list-panel">
           <div class="panel-head">
@@ -161,6 +216,7 @@
               <option value="SPLIT">路线拆分</option>
               <option value="MULTI">多路线生成</option>
               <option value="IMPORT">导入路线</option>
+              <option value="FLOW_ANALYSIS">流水归纳草案</option>
             </select>
             <select v-model="savedFilters.unitId" @change="loadSavedGroups">
               <option value="">全部公司</option>
@@ -1817,6 +1873,21 @@ const loginForm = reactive({
 const loginError = ref('')
 
 const currentView = ref('score')
+const flowAnalysisCompanyId = ref('')
+const flowAnalysisCompanyKeyword = ref('')
+const flowAnalysisCarCode = ref('')
+const flowAnalysisRouteId = ref('')
+const flowAnalysisVehicles = ref([])
+const flowAnalysisTask = reactive({ taskId: '', status: 'IDLE', phase: 'PREPARE', message: '请选择公司和车辆', percent: 0, totalRecords: 0, loadedEvents: 0, elapsedMs: 0 })
+const flowAnalysisResult = ref(null)
+const flowSelectedGroup = ref(null)
+const flowAnalysisTab = ref('trips')
+const flowSelectedTrip = ref(null)
+const flowAnalysisPollTimer = ref(null)
+const flowAnalysisLoading = ref(false)
+const flowAnalysisThreshold = ref(0.6)
+const flowForcedBoundaryIds = ref(new Set())
+const flowAnalysisFilters = reactive({ startDate: toDateInput(new Date(Date.now() - 29 * 86400000)), endDate: toDateInput(new Date()) })
 const odCacheCompany = ref(null)
 const odCacheCompanyKeyword = ref('')
 const odCachePoints = ref([])
@@ -1943,6 +2014,16 @@ const filteredOdCacheCompanies = computed(() => {
   const keyword = odCacheCompanyKeyword.value.trim().toLowerCase()
   if (!keyword) return companies.value
   return companies.value.filter((company) => `${company.depName || ''} ${company.id || ''}`.toLowerCase().includes(keyword))
+})
+const flowAnalysisCompany = computed(() => companies.value.find((item) => String(item.id) === String(flowAnalysisCompanyId.value)) || null)
+const filteredFlowAnalysisCompanies = computed(() => {
+  const keyword = flowAnalysisCompanyKeyword.value.trim().toLowerCase()
+  if (!keyword) return []
+  return companies.value.filter((company) => `${company.depName || ''} ${company.id || ''}`.toLowerCase().includes(keyword)).slice(0, 30)
+})
+const flowAnalysisJobs = computed(() => {
+  const rows = flowAnalysisVehicles.value.filter((row) => String(row.carCode) === String(flowAnalysisCarCode.value))
+  return rows.filter((row, index) => rows.findIndex((item) => String(item.routeId || '') === String(row.routeId || '')) === index)
 })
 const odCacheVisiblePoints = computed(() => {
   const keyword = odCachePointKeyword.value.trim().toLowerCase()
@@ -4366,6 +4447,7 @@ function sourceTypeLabel(value) {
   if (value === 'MULTI') return '多路线生成'
   if (value === 'IMPORT') return '导入路线'
   if (value === 'EDIT') return '路线编辑'
+  if (value === 'FLOW_ANALYSIS') return '流水归纳草案'
   return value || '-'
 }
 
@@ -4492,6 +4574,145 @@ function scorePointClass(point) {
   }
 }
 
+const flowAnalysisRunning = computed(() => ['QUEUED', 'RUNNING'].includes(flowAnalysisTask.status))
+
+function resetFlowAnalysisResult() {
+  flowAnalysisResult.value = null
+  flowSelectedGroup.value = null
+  flowAnalysisTab.value = 'trips'
+  flowSelectedTrip.value = null
+  flowForcedBoundaryIds.value = new Set()
+  Object.assign(flowAnalysisTask, { taskId: '', status: 'IDLE', phase: 'PREPARE', message: '请选择公司和车辆', percent: 0, totalRecords: 0, loadedEvents: 0, elapsedMs: 0 })
+}
+
+async function loadFlowVehicles() {
+  if (!flowAnalysisCompanyId.value) return
+  flowAnalysisLoading.value = true
+  try {
+    const params = new URLSearchParams({ unitId: flowAnalysisCompanyId.value, startDate: flowAnalysisFilters.startDate, endDate: flowAnalysisFilters.endDate })
+    flowAnalysisVehicles.value = await api(`/api/flow-analysis/vehicles?${params}`)
+    if (!flowAnalysisVehicles.value.some((item) => String(item.carCode) === String(flowAnalysisCarCode.value))) flowAnalysisCarCode.value = ''
+    resetFlowAnalysisResult()
+  } finally {
+    flowAnalysisLoading.value = false
+  }
+}
+
+async function selectFlowAnalysisCompany(company) {
+  flowAnalysisCompanyId.value = String(company.id)
+  flowAnalysisCompanyKeyword.value = company.depName || String(company.id)
+  flowAnalysisCarCode.value = ''
+  flowAnalysisRouteId.value = ''
+  await loadFlowVehicles()
+}
+
+function flowAnalysisJobName() {
+  const job = flowAnalysisJobs.value.find((item) => String(item.routeId || '') === String(flowAnalysisRouteId.value || ''))
+  return job?.routeName || '车辆流水归纳'
+}
+
+function applyFlowAnalysisTask(task) {
+  Object.assign(flowAnalysisTask, task || {}, { percent: Number(task?.percent || 0) })
+  if (task?.result) {
+    flowAnalysisResult.value = task.result
+    flowSelectedGroup.value = task.result.groups?.[0] || null
+  }
+}
+
+async function startFlowAnalysis() {
+  if (!flowAnalysisCompanyId.value || !flowAnalysisCarCode.value) return
+  if (flowAnalysisPollTimer.value) clearInterval(flowAnalysisPollTimer.value)
+  resetFlowAnalysisResult()
+  Object.assign(flowAnalysisTask, { status: 'QUEUED', phase: 'PREPARE', message: '正在提交流水分析任务', percent: 0 })
+  try {
+    const response = await api('/api/flow-analysis/tasks', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ unitId: flowAnalysisCompanyId.value, carCode: flowAnalysisCarCode.value, routeId: flowAnalysisRouteId.value || null, startDate: flowAnalysisFilters.startDate, endDate: flowAnalysisFilters.endDate, jaccardThreshold: flowAnalysisThreshold.value })
+    })
+    applyFlowAnalysisTask(response)
+    flowAnalysisPollTimer.value = setInterval(() => pollFlowAnalysis(response.taskId), 1000)
+    await pollFlowAnalysis(response.taskId)
+  } catch (error) {
+    Object.assign(flowAnalysisTask, { status: 'FAILED', phase: 'FAILED', message: error?.message || '流水分析提交失败' })
+  }
+}
+
+async function pollFlowAnalysis(taskId) {
+  try {
+    const task = await api(`/api/flow-analysis/tasks/${taskId}`)
+    applyFlowAnalysisTask(task)
+    if (['DONE', 'FAILED', 'CANCELLED', 'NOT_FOUND'].includes(task.status)) {
+      clearInterval(flowAnalysisPollTimer.value)
+      flowAnalysisPollTimer.value = null
+    }
+  } catch (error) {
+    flowAnalysisTask.message = error.message
+  }
+}
+
+async function cancelFlowAnalysis() {
+  if (!flowAnalysisTask.taskId) return
+  const task = await api(`/api/flow-analysis/tasks/${flowAnalysisTask.taskId}/cancel`, { method: 'POST' })
+  applyFlowAnalysisTask(task)
+  if (flowAnalysisPollTimer.value) clearInterval(flowAnalysisPollTimer.value)
+  flowAnalysisPollTimer.value = null
+}
+
+function markFlowBoundary(trip) {
+  const lastPoint = trip?.points?.[trip.points.length - 1]
+  if (!lastPoint?.eventId) return
+  const next = new Set(flowForcedBoundaryIds.value)
+  next.add(Number(lastPoint.eventId))
+  flowForcedBoundaryIds.value = next
+}
+
+async function rerunFlowAnalysisWithAdjustments() {
+  if (!flowAnalysisTask.taskId) return
+  const task = await api(`/api/flow-analysis/tasks/${flowAnalysisTask.taskId}/adjustments`, {
+    method: 'PUT', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ boundaryAfterEventIds: [...flowForcedBoundaryIds.value] })
+  })
+  applyFlowAnalysisTask(task)
+  flowAnalysisPollTimer.value = setInterval(() => pollFlowAnalysis(task.taskId), 1000)
+}
+
+function selectFlowGroup(group) { flowSelectedGroup.value = group }
+
+function selectFlowTrip(trip) { flowSelectedTrip.value = trip; flowAnalysisTab.value = 'stats' }
+function formatFlowTime(value) { if (!value) return '-'; const text = String(value); return text.replace('T', ' ').replace(/(\.\d+)?([+-]\d\d:?\d\d|Z)?$/, '') }
+function flowPointClass(point) { return { 'flow-point-collected': Number(point.matchType) === 0, 'flow-point-through': Number(point.matchType) === 1, 'flow-point-repeat-2': Number(point.visitCount || 0) === 2, 'flow-point-repeat-3': Number(point.visitCount || 0) >= 3 } }
+
+function flowMapPoints(group) {
+  const points = (group?.points || []).map((point, index) => ({ ...point, order: index + 1, role: 'MIDDLE' }))
+  if (group?.typicalEnd) points.push({ ...group.typicalEnd, order: points.length + 1, role: 'END' })
+  return points
+}
+
+function openSaveFlowAnalysis() {
+  if (!flowAnalysisResult.value?.groups?.length) return
+  const company = companies.value.find((item) => String(item.id) === String(flowAnalysisCompanyId.value))
+  const routes = flowAnalysisResult.value.groups.map((group, index) => ({
+    routeNo: index + 1,
+    routeName: `${flowAnalysisJobName()} · 流水分堆${index + 1}`,
+    vehicleName: flowAnalysisCarCode.value,
+    tripNo: index + 1,
+    points: flowMapPoints(group),
+    distance: null,
+    travelDurationMinutes: null,
+    totalDurationMinutes: null,
+    estimatedWeightKg: null,
+    loadRate: null,
+    sourceType: 'FLOW_ANALYSIS',
+    flowGroup: group
+  }))
+  openSaveDialog('保存流水归纳草案', {
+    mode: 'group', groupName: `${flowAnalysisJobName()} · 流水归纳草案`, sourceType: 'FLOW_ANALYSIS', operationType: 'ANALYZE', versionStatus: 'DRAFT',
+    unitId: company?.id || flowAnalysisCompanyId.value, unitName: company?.depName, originRouteId: flowAnalysisRouteId.value || null, originRouteName: flowAnalysisJobName(),
+    defaultDisplayMode: 'DIRECT', routes, summary: flowAnalysisResult.value,
+    request: { analysisVersion: flowAnalysisResult.value.analysisVersion, unitId: flowAnalysisCompanyId.value, carCode: flowAnalysisCarCode.value, routeId: flowAnalysisRouteId.value || null, startDate: flowAnalysisFilters.startDate, endDate: flowAnalysisFilters.endDate, jaccardThreshold: flowAnalysisThreshold.value }
+  })
+}
+
 function formatOdCacheElapsed(ms) { const totalSeconds = Math.floor(Math.max(0, Number(ms) || 0) / 1000); const hours = Math.floor(totalSeconds / 3600); const minutes = Math.floor((totalSeconds % 3600) / 60); const seconds = totalSeconds % 60; return hours > 0 ? `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}` : `${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}` }
 function stopOdCacheClock() { if (odCacheClockTimer.value) { clearInterval(odCacheClockTimer.value); odCacheClockTimer.value = null } }
 function startOdCacheClock() { stopOdCacheClock(); odCacheClockNow.value = Date.now(); odCacheClockTimer.value = window.setInterval(() => { odCacheClockNow.value = Date.now() }, 1000) }
@@ -4536,6 +4757,11 @@ async function reloadCurrent() {
   }
   if (currentView.value === 'od-cache') {
     await loadCompanies()
+    return
+  }
+  if (currentView.value === 'flow-analysis') {
+    if (flowAnalysisCompanyId.value) await loadFlowVehicles()
+    else await loadCompanies()
     return
   }
   if (currentView.value === 'multi' || currentView.value === 'cluster') {

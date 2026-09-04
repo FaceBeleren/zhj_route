@@ -53,7 +53,7 @@ public class RoutePlanService {
                 + "(folder_id, group_name, source_type, unit_id, unit_name, origin_route_id, origin_route_name, planning_strategy, "
                 + "default_display_mode, route_count, summary_json, request_json, remark, root_group_id, version_no, "
                 + "parent_group_id, operation_type, version_status) "
-                + "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
+                + "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
         Long groupId = insert(sql,
                 folderId,
                 groupName,
@@ -68,7 +68,7 @@ public class RoutePlanService {
                 json(summary),
                 json(requestPayload),
                 textOrNull(request.get("remark")),
-                rootGroupId, versionNo, parentGroupId, operationType, "PUBLISHED");
+                rootGroupId, versionNo, parentGroupId, operationType, versionStatus(request));
         if (rootGroupId == null) {
             jdbcTemplate.update("UPDATE zhj_route_plan_group SET root_group_id = ? WHERE id = ?", groupId, groupId);
         }
@@ -105,7 +105,7 @@ public class RoutePlanService {
                         + "(folder_id, group_name, source_type, unit_id, unit_name, origin_route_id, origin_route_name, planning_strategy, "
                         + "default_display_mode, route_count, summary_json, request_json, remark, root_group_id, version_no, "
                         + "parent_group_id, operation_type, version_status) "
-                        + "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                        + "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 folderId,
                 groupName,
                 sourceType,
@@ -119,7 +119,7 @@ public class RoutePlanService {
                 json(request.get("summary")),
                 json(request),
                 textOrNull(request.get("remark")),
-                rootGroupId, versionNo, parentGroupId, operationType, "PUBLISHED");
+                rootGroupId, versionNo, parentGroupId, operationType, versionStatus(request));
         if (rootGroupId == null) {
             jdbcTemplate.update("UPDATE zhj_route_plan_group SET root_group_id = ? WHERE id = ?", groupId, groupId);
         }
@@ -612,6 +612,12 @@ public class RoutePlanService {
         if ("SPLIT".equals(sourceType)) return "SPLIT";
         if ("MULTI".equals(sourceType)) return "MULTI";
         return "LEGACY";
+    }
+
+    private String versionStatus(Map<String, Object> request) {
+        String sourceType = text(request.get("sourceType"), "");
+        String requested = text(request.get("versionStatus"), "PUBLISHED");
+        return "FLOW_ANALYSIS".equals(sourceType) && "DRAFT".equalsIgnoreCase(requested) ? "DRAFT" : "PUBLISHED";
     }
 
     private String defaultGroupName(String sourceType) {
