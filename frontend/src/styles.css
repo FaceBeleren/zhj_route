@@ -3078,6 +3078,8 @@ tbody tr.active {
 .flow-multi-trip-head span { color: #607a94; font-size: 12px; }
 .flow-multi-trip-card p { margin: 7px 0; }
 .flow-generated-sequence { display: flex; flex-wrap: wrap; gap: 5px; }
+.flow-generated-route-label { margin: 9px 0 5px; color: #456582; font-size: 12px; font-weight: 600; }
+.flow-generated-sequence b { color: #71859a; font-weight: normal; }
 .flow-generated-sequence span { padding: 4px 7px; border-radius: 12px; background: #eaf3ff; color: #315f8a; font-size: 12px; }
 .flow-generated-sequence span.flow-point-collected { background: #e9f7ef; color: #176b45; }
 .flow-generated-sequence span.flow-point-through { background: #f1f4f7; color: #71808e; border: 1px dashed #aab7c2; }
