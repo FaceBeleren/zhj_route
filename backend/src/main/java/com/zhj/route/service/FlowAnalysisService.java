@@ -166,7 +166,7 @@ public class FlowAnalysisService {
                     e.id = number(row.get("id")); e.recordId = number(row.get("recordId")); e.facilityId = number(row.get("facilityId"));
                     e.name = text(row.get("facilityName")); e.workType = integer(row.get("workType")); e.matchType = integer(row.get("matchType"));
                     e.time = dateTime(row.get("entryTime")); e.leaveTime = dateTime(row.get("leaveTime")); if (e.time == null) e.time = e.leaveTime;
-                    e.operationLength = decimal(row.get("operationLength")); e.longitude = decimal(row.get("longitude")); e.latitude = decimal(row.get("latitude"));
+                    e.operationLength = decimal(row.get("operationLength")); e.longitude = nullableDecimal(row.get("longitude")); e.latitude = nullableDecimal(row.get("latitude"));
                     e.mergeSign = text(row.get("mergeSign"));
                     if (!result.containsKey(e.recordId)) result.put(e.recordId, new ArrayList<Event>());
                     result.get(e.recordId).add(e);
@@ -178,8 +178,32 @@ public class FlowAnalysisService {
                 int c = String.valueOf(a.time).compareTo(String.valueOf(b.time)); return c != 0 ? c : Long.compare(a.id, b.id);
             }});
         }
+        fillMissingCoordinates(result);
         task.loadedEvents = result.values().stream().mapToInt(List::size).sum();
         return result;
+    }
+
+
+    private void fillMissingCoordinates(Map<Long, List<Event>> events) {
+        if (events.isEmpty() || !tableExists("ljszy_facility_info")) return;
+        Set<Long> facilityIds = new LinkedHashSet<Long>();
+        for (List<Event> list : events.values()) for (Event event : list) if (event.facilityId != null && (event.longitude == null || event.latitude == null)) facilityIds.add(event.facilityId);
+        if (facilityIds.isEmpty()) return;
+        Map<Long, Double[]> coordinates = new HashMap<Long, Double[]>();
+        for (List<Long> chunk : chunks(new ArrayList<Long>(facilityIds), 600)) {
+            String sql = "SELECT id, longitude_done AS longitude, latitude_done AS latitude FROM ljszy_facility_info WHERE been_deleted=0 AND id IN (" + placeholders(chunk.size()) + ")";
+            for (Map<String, Object> row : jdbcTemplate.queryForList(sql, chunk.toArray())) {
+                Double longitude = nullableDecimal(row.get("longitude"));
+                Double latitude = nullableDecimal(row.get("latitude"));
+                if (longitude != null && latitude != null) coordinates.put(number(row.get("id")), new Double[]{longitude, latitude});
+            }
+        }
+        for (List<Event> list : events.values()) for (Event event : list) {
+            Double[] coordinate = coordinates.get(event.facilityId);
+            if (coordinate == null) continue;
+            if (event.longitude == null) event.longitude = coordinate[0];
+            if (event.latitude == null) event.latitude = coordinate[1];
+        }
     }
 
     private List<Trip> buildTrips(List<Record> records, Map<Long, List<Event>> events, Map<String, Object> request) {
@@ -427,6 +451,7 @@ public class FlowAnalysisService {
     private boolean blank(String v){return v==null||v.trim().isEmpty();}
     private Long number(Object v){try{return v==null?null:Long.valueOf(String.valueOf(v));}catch(Exception e){return null;}}
     private Integer integer(Object v){try{return v==null?null:Integer.valueOf(String.valueOf(v));}catch(Exception e){return null;}}
+    private Double nullableDecimal(Object v){if(v==null)return null;String s=String.valueOf(v).trim();if(s.isEmpty()||"null".equalsIgnoreCase(s))return null;try{return Double.valueOf(s);}catch(Exception e){return null;}}
     private Double decimal(Object v){try{return v==null?0D:Double.valueOf(String.valueOf(v));}catch(Exception e){return 0D;}}
     private LocalDateTime dateTime(Object v){if(v instanceof LocalDateTime)return (LocalDateTime)v;if(v instanceof java.time.LocalDate)return ((java.time.LocalDate)v).atStartOfDay();if(v instanceof java.sql.Timestamp)return ((java.sql.Timestamp)v).toLocalDateTime();if(v instanceof java.util.Date)return LocalDateTime.ofInstant(((java.util.Date)v).toInstant(),java.time.ZoneId.systemDefault());if(v instanceof CharSequence){String s=String.valueOf(v).trim();try{return LocalDateTime.parse(s.replace(" ","T"));}catch(Exception ignored){try{return java.time.LocalDate.parse(s).atStartOfDay();}catch(Exception ignoredDate){return null;}}}return null;}
     private Map<String,Object> missing(String id){Map<String,Object>m=new HashMap<String,Object>();m.put("taskId",id);m.put("status","NOT_FOUND");m.put("message","任务不存在或服务已重启");return m;}

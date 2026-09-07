@@ -141,7 +141,7 @@
               <div v-if="flowForcedBoundaryIds.size" class="flow-adjustments"><span>已标记 {{ flowForcedBoundaryIds.size }} 个人工边界</span><button class="secondary" @click="rerunFlowAnalysisWithAdjustments">按修正重新分析</button></div>
             </section>
           </section>
-          <RouteMapPanel v-if="flowSelectedGroup" :key="'flow-map-' + flowSelectedGroup.groupNo" :original-points="[]" :optimized-points="flowMapPoints(flowSelectedGroup)" :show-original="false" :optimized-label="flowSelectedGroup.groupName || '历史分堆'" />
+          <RouteMapPanel v-if="flowSelectedGroup" :key="'flow-map-' + flowSelectedGroup.groupNo" :original-points="[]" :optimized-points="flowMapPoints(flowSelectedGroup)" :show-original="false" optimized-label="历史分堆点位直线" />
         </template>
       </section>
     </template>
