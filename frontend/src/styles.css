@@ -3041,8 +3041,16 @@ tbody tr.active {
 .flow-sequence b { color: #166b43; background: #e9f7ef; }
 .flow-group { border-top: 1px solid #e1e9f1; padding: 12px 0; }
 
-.flow-filter-toggle { display: inline-flex; align-items: center; gap: 6px; color: #315f8a; font-size: 13px; cursor: pointer; white-space: nowrap; }
-.flow-filter-toggle input { accent-color: #176bc1; }
+.flow-filter-toggle { display: inline-flex; align-items: center; gap: 8px; min-height: 38px; padding: 5px 10px 5px 7px; border: 1px solid #cbd9e8; border-radius: 8px; background: #fff; color: #315f8a; cursor: pointer; transition: border-color .15s ease, background .15s ease, box-shadow .15s ease; }
+.flow-filter-toggle:hover { border-color: #8eb5db; background: #f7fbff; }
+.flow-filter-toggle.active { border-color: #176bc1; background: #eef6ff; color: #125b9f; box-shadow: 0 0 0 2px rgba(23, 107, 193, .08); }
+.flow-filter-toggle input { position: absolute; opacity: 0; pointer-events: none; }
+.flow-filter-check { display: inline-flex; align-items: center; justify-content: center; width: 20px; height: 20px; border: 1px solid #b8c9da; border-radius: 5px; background: #fff; color: transparent; font-size: 13px; font-weight: 700; }
+.flow-filter-toggle.active .flow-filter-check { border-color: #176bc1; background: #176bc1; color: #fff; }
+.flow-filter-copy { display: flex; flex-direction: column; gap: 1px; line-height: 1.1; }
+.flow-filter-copy strong { font-size: 13px; font-weight: 600; }
+.flow-filter-copy small { color: #7890a6; font-size: 11px; }
+.flow-filter-toggle.active .flow-filter-copy small { color: #4d7ca9; }
 .flow-day-point-stats { display: flex; flex-wrap: wrap; gap: 6px; margin: 8px 0 10px; padding: 8px; background: #f8fbfe; border: 1px solid #dce7f1; border-radius: 6px; }
 .flow-day-point-stats span { background: #eaf3ff; color: #315f8a; border-radius: 12px; padding: 4px 8px; font-size: 12px; }
 .flow-day-point-stats span.flow-point-collected { background: #e9f7ef; color: #176b45; }
@@ -3064,22 +3072,10 @@ tbody tr.active {
 .flow-point-chips span.optional { background: #fff5df; color: #8a641f; }
 .flow-warning { margin-top: 10px; border: 1px solid #f1d18d; background: #fff8e8; color: #8b641c; border-radius: 6px; padding: 9px; font-size: 13px; }
 .flow-summary-grid .summary-strip { margin: 0; }
-.flow-view-tabs { display: flex; gap: 6px; margin-top: 12px; }
-.flow-view-tabs button { border: 1px solid #c8d8e8; background: #fff; color: #315f8a; padding: 7px 14px; border-radius: 6px; cursor: pointer; }
-.flow-view-tabs button.active { background: #176bc1; border-color: #176bc1; color: #fff; }
 .flow-sequence span.flow-point-collected { background: #e9f7ef; color: #176b45; }
 .flow-sequence span.flow-point-through { background: #f1f4f7; color: #71808e; border: 1px dashed #aab7c2; }
 .flow-sequence span.flow-point-repeat-2::after, .flow-sequence span.flow-point-repeat-3::after { margin-left: 4px; padding: 1px 4px; border-radius: 8px; color: #76500f; background: #ffe4a8; content: '2次'; font-size: 10px; }
 .flow-sequence span.flow-point-repeat-3::after { color: #fff; background: #d97706; content: '3次+'; }
 .flow-sequence small { font-size: 10px; opacity: .8; }
-.flow-trip-stats-panel { padding: 16px; }
-.flow-trip-detail-summary { display: flex; justify-content: space-between; gap: 12px; flex-wrap: wrap; padding: 12px; background: #f5f9fd; border: 1px solid #dce7f1; border-radius: 6px; color: #456582; }
-.flow-trip-detail-summary strong { color: #183d60; }
-.flow-trip-table { width: 100%; margin-top: 12px; border-collapse: collapse; font-size: 13px; }
-.flow-trip-table th, .flow-trip-table td { padding: 9px 8px; border-bottom: 1px solid #e1e9f1; text-align: left; }
-.flow-trip-table th { background: #f3f7fb; color: #536a80; font-weight: 600; }
-.flow-trip-table td span { display: inline-block; padding: 3px 7px; border-radius: 10px; }
-.flow-trip-table td span.flow-point-collected { background: #e9f7ef; color: #176b45; }
-.flow-trip-table td span.flow-point-through { background: #f1f4f7; color: #71808e; border: 1px dashed #aab7c2; }
 @media (max-width: 1050px) { .flow-analysis-filters { grid-template-columns: repeat(3, minmax(130px, 1fr)); } .flow-analysis-results { grid-template-columns: 1fr; } }
 @media (max-width: 650px) { .flow-analysis-filters { grid-template-columns: 1fr 1fr; } }
