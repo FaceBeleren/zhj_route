@@ -3031,6 +3031,11 @@ tbody tr.active {
 .flow-selected-company { color: #176b45; font-size: 12px; }
 .flow-analysis-results { display: grid; grid-template-columns: minmax(340px, 1fr) minmax(420px, 1.25fr); gap: 14px; align-items: start; }
 .flow-daily-panel, .flow-groups-panel { padding: 14px; min-width: 0; }
+.flow-daily-actions { display: inline-flex; align-items: center; justify-content: flex-end; gap: 8px; flex-wrap: wrap; }
+.flow-collapse-button { border: 1px solid #cbd9e8; border-radius: 6px; padding: 6px 10px; background: #fff; color: #315f8a; font-size: 12px; cursor: pointer; white-space: nowrap; }
+.flow-collapse-button:hover { border-color: #176bc1; background: #f3f8fe; color: #125b9f; }
+.flow-days-content { min-width: 0; }
+.flow-collapsed-hint { margin-top: 10px; padding: 10px; border: 1px dashed #cbd9e8; border-radius: 7px; background: #f8fbfe; color: #607a94; font-size: 13px; }
 .flow-day { border-top: 1px solid #e1e9f1; padding: 10px 0; }
 .flow-day-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
 .flow-day-toggle { display: inline-flex; align-items: center; gap: 4px; border: 1px solid #cbd9e8; border-radius: 6px; padding: 5px 9px; background: #fff; color: #315f8a; font-size: 12px; cursor: pointer; white-space: nowrap; }
@@ -3077,6 +3082,7 @@ tbody tr.active {
 .flow-generated-sequence span.flow-point-collected { background: #e9f7ef; color: #176b45; }
 .flow-generated-sequence span.flow-point-through { background: #f1f4f7; color: #71808e; border: 1px dashed #aab7c2; }
 .flow-group-head h3 { margin: 0 0 4px; font-size: 16px; }
+.flow-group-head button.active { background: #176bc1; border-color: #176bc1; color: #fff; }
 .flow-group-head span { color: #607a94; font-size: 13px; }
 .flow-stable, .flow-unstable { display: inline-block; border-radius: 10px; padding: 2px 7px; font-size: 12px; }
 .flow-stable { background: #e8f7ef; color: #167346 !important; }
