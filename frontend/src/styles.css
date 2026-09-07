@@ -3064,8 +3064,9 @@ tbody tr.active {
 .flow-day-point-stats span.flow-point-repeat-2::after, .flow-day-point-stats span.flow-point-repeat-3::after { margin-left: 4px; padding: 1px 4px; border-radius: 8px; color: #76500f; background: #ffe4a8; content: '2次'; font-size: 10px; }
 .flow-day-point-stats span.flow-point-repeat-3::after { color: #fff; background: #d97706; content: '3次+'; }
 .flow-group-head { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
-.flow-group-actions { display: inline-flex; align-items: center; gap: 8px; }
-.flow-multi-trip-panel { grid-column: 1 / -1; padding: 14px; }
+.flow-group-actions { display: inline-flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.flow-generated-status { color: #176b45; font-size: 12px; white-space: nowrap; }
+.flow-multi-trip-preview { margin: 10px 0 12px; padding: 12px; border: 1px solid #bcd4ea; border-radius: 8px; background: #f7fbff; }
 .flow-multi-trip-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 10px; }
 .flow-multi-trip-card { padding: 12px; border: 1px solid #cdddec; border-radius: 8px; background: #fbfdff; }
 .flow-multi-trip-head { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; color: #183d60; }
