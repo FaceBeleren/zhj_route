@@ -277,12 +277,36 @@ public class FlowAnalysisService {
         result.put("avgTripsPerActiveDay", round(activeDays == 0 ? 0 : (double) trips.size() / activeDays));
         result.put("anomalyTripCount", trips.size() - complete.size());
         result.put("dailyTrips", dailyTrips(trips));
+        result.put("configuredPoints", configuredPoints(request, records));
         List<Map<String, Object>> groups = new ArrayList<Map<String, Object>>(); int groupNo = 1;
         for (Cluster cluster : clusters) groups.add(clusterView(cluster, groupNo++, range, complete.size()));
         result.put("groups", groups); result.put("unassignedPoints", unassignedPoints(groups));
         return result;
     }
 
+    private List<Map<String, Object>> configuredPoints(Map<String, Object> request, List<Record> records) {
+        Set<Long> routeIds = new LinkedHashSet<Long>();
+        Long requestedRouteId = number(request.get("routeId"));
+        if (requestedRouteId != null) routeIds.add(requestedRouteId);
+        else for (Record record : records) if (record.routeId != null) routeIds.add(record.routeId);
+        if (routeIds.isEmpty()) return new ArrayList<Map<String, Object>>();
+        String sql = "SELECT b.route_id AS routeId, b.fac_id AS facilityId, b.order_num AS orderNum, "
+                + "f.name AS facilityName, f.facility_type_name AS facilityTypeName, "
+                + "f.longitude_done AS longitude, f.latitude_done AS latitude "
+                + "FROM ljszy_route_fac_banding b LEFT JOIN ljszy_facility_info f ON f.id = b.fac_id "
+                + "WHERE b.been_deleted=0 AND b.route_id IN (" + placeholders(routeIds.size()) + ") "
+                + "ORDER BY b.route_id, COALESCE(b.order_num, 999999), b.id";
+        List<Object> args = new ArrayList<Object>(); args.addAll(routeIds);
+        List<Map<String, Object>> rows = new ArrayList<Map<String, Object>>();
+        for (Map<String, Object> row : jdbcTemplate.queryForList(sql, args.toArray())) {
+            Map<String, Object> point = new LinkedHashMap<String, Object>();
+            point.put("routeId", row.get("routeId")); point.put("facilityId", row.get("facilityId"));
+            point.put("orderNum", row.get("orderNum")); point.put("facilityName", row.get("facilityName"));
+            point.put("facilityTypeName", row.get("facilityTypeName")); point.put("longitude", row.get("longitude"));
+            point.put("latitude", row.get("latitude")); rows.add(point);
+        }
+        return rows;
+    }
     private List<Cluster> cluster(List<Trip> trips, double threshold) {
         List<Cluster> clusters = new ArrayList<Cluster>(); for (Trip t : trips) { Cluster c = new Cluster(); c.trips.add(t); clusters.add(c); }
         while (true) {

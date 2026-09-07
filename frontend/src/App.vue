@@ -135,6 +135,10 @@
             <div v-if="flowMultiTripGenerated" class="flow-multi-trip-preview">
               <div class="panel-head"><div><h2>生成的多趟路线</h2><span class="muted">普通点位按支持率唯一归属；达到阈值的点位作为共享点位保留在多个候选趟次中；仅用于预览，不会自动保存</span></div><button class="ghost-button" @click="flowMultiTripGenerated = false">关闭预览</button></div>
               <div class="flow-multi-trip-grid"><article v-for="group in flowGeneratedGroups" :key="'flow-generated-group-'+group.groupNo" class="flow-multi-trip-card"><div class="flow-multi-trip-head"><div><strong>候选第 {{ group.groupNo }} 趟</strong><span>来源：流水分堆{{ group.groupNo }} · 历史样本 {{ group.tripCount }} 趟</span></div><button type="button" class="secondary" :class="{ active: flowSelectedGroup?.groupNo === group.groupNo }" @click="selectFlowGroup(group)">{{ flowSelectedGroup?.groupNo === group.groupNo ? '当前地图' : '查看地图' }}</button></div><p class="muted">候选点位 {{ group.points?.length || 0 }} 个 · 覆盖 {{ group.activeDays }} 天 · 典型终点：{{ group.typicalEnd?.facilityName || '未确定' }}</p><div class="flow-generated-route-label">候选路线顺序</div><div class="flow-generated-sequence"><template v-for="(point, index) in group.points" :key="'flow-generated-point-'+group.groupNo+'-'+point.facilityId"><span :class="{ ...flowPointClass(point), 'flow-point-shared': point.candidateShared, 'flow-point-shared-priority': point.candidateMultiCollection, 'flow-point-shared-flexible': point.candidateSharedFlexible }" :title="flowCandidatePointTitle(point)">{{ index + 1 }}. {{ point.facilityName || point.facilityId }}<small v-if="point.candidateMultiCollection">多次收运</small><small v-else-if="point.candidateShared">共享</small></span><b v-if="index < group.points.length - 1">→</b></template><b v-if="group.typicalEnd">→ {{ group.typicalEnd.facilityName }}</b></div></article></div>
+              <div v-if="flowConfiguredExcludedPoints.length" class="flow-configured-excluded">
+                <div class="flow-configured-excluded-head"><div><strong>低频或岗位点位未进入候选</strong><span class="muted">低频点不进入候选；岗位配置中未被本次流水支持的点位也单独列出</span></div><span class="flow-generated-status">{{ flowConfiguredExcludedPoints.length }} 个点位</span></div>
+                <div class="flow-configured-excluded-list"><span v-for="point in flowConfiguredExcludedPoints" :key="'flow-configured-excluded-'+point.facilityId" :class="['flow-configured-point', 'status-'+point.status]"><strong>{{ point.facilityName || point.facilityId }}</strong><small>{{ point.statusLabel }} · 收运 {{ point.collectedCount }} 次 · 途经 {{ point.throughCount }} 次</small></span></div>
+              </div>
             </div>
               <div v-for="group in flowAnalysisResult.groups" :key="'flow-group-'+group.groupNo" class="flow-group"><div class="flow-group-head"><div><h3>{{ group.groupName }} <small :class="group.stable ? 'flow-stable' : 'flow-unstable'">{{ group.stable ? '稳定' : '样本不足' }}</small></h3><span>{{ group.tripCount }} 趟 · 覆盖 {{ group.activeDays }} 天 · 每周约 {{ group.visitsPerWeek }} 趟 · 稳定度 {{ group.stability }}</span></div><button class="secondary" :class="{ active: flowSelectedGroup?.groupNo === group.groupNo }" @click="selectFlowGroup(group)">{{ flowSelectedGroup?.groupNo === group.groupNo ? '当前地图' : '查看地图' }}</button></div><p class="muted">典型终点：{{ group.typicalEnd?.facilityName || '未确定' }} · 覆盖完整趟 {{ group.supportOfAllCompleteTrips }}</p><div class="flow-point-chips"><span v-for="point in group.points" :key="'flow-group-point-'+group.groupNo+'-'+point.facilityId" :class="[flowPointClass(point), { optional: Number(point.support) < 0.6 }]">{{ point.facilityName || point.facilityId }} · {{ point.finalMatchLabel || point.matchLabel || '未知' }} · {{ Math.round(Number(point.support) * 100) }}%</span></div></div><div v-if="!flowAnalysisResult.groups?.length" class="empty">暂未形成分堆</div>
               <div v-if="flowAnalysisResult.unassignedPoints?.length" class="flow-warning">有 {{ flowAnalysisResult.unassignedPoints.length }} 个低频点位未作为核心点，请结合实际情况确认。</div>
@@ -1907,6 +1911,7 @@ const flowPointCollectionSummary = computed(() => {
   }
   return summary
 })
+const flowCandidateSupportThreshold = 0.3
 const flowGeneratedGroups = computed(() => {
   const sourceGroups = flowAnalysisResult.value?.groups || []
   const candidates = new Map()
@@ -1930,6 +1935,7 @@ const flowGeneratedGroups = computed(() => {
   return sourceGroups.map((group) => ({
     ...group,
     points: (group.points || []).filter((point) => {
+      if (Number(point.support || 0) < flowCandidateSupportThreshold) return false
       const allocation = owners.get(String(point.facilityId))
       return allocation?.shared?.has(group.groupNo) || allocation?.owner === group.groupNo
     }).map((point) => {
@@ -1941,6 +1947,31 @@ const flowGeneratedGroups = computed(() => {
       return { ...point, candidateShared, candidateMultiCollection, candidateSharedFlexible: candidateShared && !candidateMultiCollection, collectedPeriodCount: summary.collectedCount, throughPeriodCount: summary.throughCount, maxDailyCollectedCount: summary.maxDailyCollectedCount }
     })
   }))
+})
+const flowConfiguredExcludedPoints = computed(() => {
+  const candidateIds = new Set()
+  for (const group of flowGeneratedGroups.value) for (const point of (group.points || [])) candidateIds.add(String(point.facilityId))
+  const unique = new Map()
+  const statsFor = (facilityId) => flowPointCollectionSummary.value.get(String(facilityId)) || { collectedCount: 0, throughCount: 0 }
+  const statusFor = (stat) => stat.collectedCount > 0 ? { status: 'collected-not-candidate', statusLabel: '统计期收运过但未入选' } : stat.throughCount > 0 ? { status: 'through-only', statusLabel: '统计期只途经未收运' } : { status: 'never-seen', statusLabel: '统计期未出现' }
+  for (const point of (flowAnalysisResult.value?.configuredPoints || [])) {
+    const key = String(point.facilityId)
+    if (candidateIds.has(key) || unique.has(key)) continue
+    const stat = statsFor(point.facilityId)
+    unique.set(key, { ...point, ...stat, ...statusFor(stat) })
+  }
+  for (const point of (flowAnalysisResult.value?.unassignedPoints || [])) {
+    const key = String(point.facilityId)
+    if (candidateIds.has(key)) continue
+    const stat = statsFor(point.facilityId)
+    if (unique.has(key)) {
+      unique.get(key).statusLabel = `低频未入选 · ${unique.get(key).statusLabel}`
+      unique.get(key).status = 'low-frequency'
+    } else {
+      unique.set(key, { ...point, ...stat, status: 'low-frequency', statusLabel: '低频点位，未进入候选' })
+    }
+  }
+  return [...unique.values()]
 })
 const odCacheCompany = ref(null)
 const odCacheCompanyKeyword = ref('')
