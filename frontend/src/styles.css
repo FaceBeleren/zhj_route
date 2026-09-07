@@ -3040,6 +3040,15 @@ tbody tr.active {
 .flow-sequence span, .flow-sequence b { background: #eef5fc; border-radius: 12px; padding: 3px 7px; font-weight: normal; }
 .flow-sequence b { color: #166b43; background: #e9f7ef; }
 .flow-group { border-top: 1px solid #e1e9f1; padding: 12px 0; }
+
+.flow-filter-toggle { display: inline-flex; align-items: center; gap: 6px; color: #315f8a; font-size: 13px; cursor: pointer; white-space: nowrap; }
+.flow-filter-toggle input { accent-color: #176bc1; }
+.flow-day-point-stats { display: flex; flex-wrap: wrap; gap: 6px; margin: 8px 0 10px; padding: 8px; background: #f8fbfe; border: 1px solid #dce7f1; border-radius: 6px; }
+.flow-day-point-stats span { background: #eaf3ff; color: #315f8a; border-radius: 12px; padding: 4px 8px; font-size: 12px; }
+.flow-day-point-stats span.flow-point-collected { background: #e9f7ef; color: #176b45; }
+.flow-day-point-stats span.flow-point-through { background: #f1f4f7; color: #71808e; border: 1px dashed #aab7c2; }
+.flow-day-point-stats span.flow-point-repeat-2::after, .flow-day-point-stats span.flow-point-repeat-3::after { margin-left: 4px; padding: 1px 4px; border-radius: 8px; color: #76500f; background: #ffe4a8; content: '2次'; font-size: 10px; }
+.flow-day-point-stats span.flow-point-repeat-3::after { color: #fff; background: #d97706; content: '3次+'; }
 .flow-group-head { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
 .flow-group-head h3 { margin: 0 0 4px; font-size: 16px; }
 .flow-group-head span { color: #607a94; font-size: 13px; }

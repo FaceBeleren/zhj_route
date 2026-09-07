@@ -286,14 +286,121 @@ public class FlowAnalysisService {
             Set<Long> seenInTrip = new HashSet<Long>(); for (int i = 0; i < trip.points.size(); i++) { Event p = trip.points.get(i); if (p.facilityId == null || !seenInTrip.add(p.facilityId)) continue; counts.put(p.facilityId, value(counts.get(p.facilityId)) + 1); catalog.put(p.facilityId, p); if (!positions.containsKey(p.facilityId)) positions.put(p.facilityId, new ArrayList<Double>()); positions.get(p.facilityId).add(trip.points.size() <= 1 ? 0D : (double)i / (trip.points.size() - 1)); }
         }
         List<Long> ordered = new ArrayList<Long>(counts.keySet()); Collections.sort(ordered, new Comparator<Long>() { public int compare(Long a, Long b) { return Double.compare(avg(positions.get(a)), avg(positions.get(b))); } });
-        List<Map<String,Object>> points = new ArrayList<Map<String,Object>>(); for (Long id : ordered) { Event p = catalog.get(id); Map<String,Object> row = eventView(p); int support = counts.get(id); int exact = 0; int through = 0; for (Trip trip : cluster.trips) { Event best = null; for (Event event : trip.points) if (id.equals(event.facilityId) && (best == null || (best.matchType != null && best.matchType != 0 && event.matchType != null && event.matchType == 0))) best = event; if (best != null) { if (best.matchType != null && best.matchType == 0) exact++; else if (best.matchType != null && best.matchType == 1) through++; } } row.put("support", round((double)support / cluster.trips.size())); row.put("visitCount", support); row.put("collectedCount", exact); row.put("throughCount", through); row.put("repeatLevel", support >= 3 ? "3+" : String.valueOf(support)); row.put("orderConfidence", round(orderConfidence(p.facilityId, cluster.trips, ordered))); row.put("pointSource", "FLOW_INFERRED"); points.add(row); }
+        List<Map<String,Object>> points = new ArrayList<Map<String,Object>>(); for (Long id : ordered) { Event p = catalog.get(id); Map<String,Object> row = eventView(p); int support = counts.get(id); int exact = 0; int through = 0; for (Trip trip : cluster.trips) { Event best = null; for (Event event : trip.points) if (id.equals(event.facilityId) && (best == null || (best.matchType != null && best.matchType != 0 && event.matchType != null && event.matchType == 0))) best = event; if (best != null) { if (best.matchType != null && best.matchType == 0) exact++; else if (best.matchType != null && best.matchType == 1) through++; } } row.put("support", round((double)support / cluster.trips.size())); row.put("visitCount", support); row.put("collectedCount", exact); row.put("throughCount", through); row.put("finalMatchType", exact > 0 ? 0 : through > 0 ? 1 : null); row.put("finalMatchLabel", exact > 0 ? "已收运" : through > 0 ? "仅途经" : "未知"); row.put("repeatLevel", support >= 3 ? "3+" : String.valueOf(support)); row.put("orderConfidence", round(orderConfidence(p.facilityId, cluster.trips, ordered))); row.put("pointSource", "FLOW_INFERRED"); points.add(row); }
         String endpointKey = mostFrequent(endpoints); Event endpoint = endpointRows.get(endpointKey);
         List<Map<String,Object>> tripViews = new ArrayList<Map<String,Object>>(); for (Trip t : cluster.trips) tripViews.add(tripView(t));
         Map<String,Object> view = new LinkedHashMap<String,Object>(); view.put("groupNo", no); view.put("groupName", "流水分堆" + no); view.put("tripCount", cluster.trips.size()); view.put("activeDays", dates.size()); view.put("stable", cluster.trips.size() >= 3 && dates.size() >= 2); view.put("stability", round(averageWithin(cluster))); view.put("supportOfAllCompleteTrips", round(totalComplete == 0 ? 0 : (double)cluster.trips.size() / totalComplete)); view.put("visitsPerWeek", round(cluster.trips.size() * 7D / Math.max(1, ChronoUnit.DAYS.between(range.start, range.end) + 1))); view.put("points", points); view.put("representativePoints", ordered); view.put("typicalEnd", endpoint == null ? null : eventView(endpoint)); view.put("alternativeEnds", endpointDistribution(endpoints, endpointRows, cluster.trips.size())); view.put("trips", tripViews); return view;
     }
 
-    private List<Map<String,Object>> dailyTrips(List<Trip> trips) { Map<LocalDate,List<Map<String,Object>>> map = new LinkedHashMap<LocalDate,List<Map<String,Object>>>(); for (Trip t:trips) { if(!map.containsKey(t.date)) map.put(t.date,new ArrayList<Map<String,Object>>()); map.get(t.date).add(tripView(t)); } List<Map<String,Object>> out=new ArrayList<Map<String,Object>>(); for(Map.Entry<LocalDate,List<Map<String,Object>>> e:map.entrySet()){Map<String,Object> row=new LinkedHashMap<String,Object>();row.put("date",e.getKey()==null?null:e.getKey().toString());row.put("tripCount",e.getValue().size());row.put("trips",e.getValue());out.add(row);} return out; }
-    private Map<String,Object> tripView(Trip t){Map<String,Object> row=new LinkedHashMap<String,Object>();row.put("recordId",t.recordId);row.put("date",t.date==null?null:t.date.toString());row.put("complete",t.complete);row.put("expectedTrips",t.expectedTrips);row.put("start",t.start==null?null:eventView(t.start));row.put("end",t.end==null?null:eventView(t.end));List<Map<String,Object>> ps=new ArrayList<Map<String,Object>>();Set<Long> unique=new HashSet<Long>();Map<Long,Integer> occurrence=new HashMap<Long,Integer>();for(Event e:t.points)if(e.facilityId!=null)occurrence.put(e.facilityId,value(occurrence.get(e.facilityId))+1);int exact=0,through=0;double operationSeconds=0;for(Event e:t.points){Map<String,Object> point=eventView(e);point.put("visitCount",e.facilityId==null?1:occurrence.get(e.facilityId));ps.add(point);if(e.facilityId!=null)unique.add(e.facilityId);if(e.matchType!=null&&e.matchType==0)exact++;if(e.matchType!=null&&e.matchType==1)through++;operationSeconds+=e.operationLength==null?0:e.operationLength;}row.put("points",ps);row.put("pointCount",t.points.size());row.put("uniquePointCount",unique.size());row.put("duplicatePointCount",Math.max(0,t.points.size()-unique.size()));row.put("collectedPointCount",exact);row.put("throughPointCount",through);row.put("operationSeconds",operationSeconds);return row;}
+    private List<Map<String,Object>> dailyTrips(List<Trip> trips) {
+        Map<LocalDate, List<Map<String,Object>>> byDate = new LinkedHashMap<LocalDate, List<Map<String,Object>>>();
+        for (Trip trip : trips) {
+            LocalDate date = trip.date;
+            if (!byDate.containsKey(date)) byDate.put(date, new ArrayList<Map<String,Object>>());
+            byDate.get(date).add(tripView(trip));
+        }
+        List<Map<String,Object>> out = new ArrayList<Map<String,Object>>();
+        for (Map.Entry<LocalDate, List<Map<String,Object>>> entry : byDate.entrySet()) {
+            Map<String,Object> row = new LinkedHashMap<String,Object>();
+            row.put("date", entry.getKey() == null ? null : entry.getKey().toString());
+            row.put("tripCount", entry.getValue().size());
+            row.put("trips", entry.getValue());
+            applyDailyPointOccurrences(entry.getValue(), row);
+            out.add(row);
+        }
+        return out;
+    }
+
+    /** Add day-level counts while retaining every trip event in chronological order. */
+    private void applyDailyPointOccurrences(List<Map<String,Object>> trips, Map<String,Object> day) {
+        Map<Long, Map<String,Object>> stats = new LinkedHashMap<Long, Map<String,Object>>();
+        Map<Long, Integer> totalIndexes = new HashMap<Long, Integer>();
+        Map<Long, Integer> collectedIndexes = new HashMap<Long, Integer>();
+        Map<Long, Integer> throughIndexes = new HashMap<Long, Integer>();
+        for (Map<String,Object> trip : trips) {
+            @SuppressWarnings("unchecked")
+            List<Map<String,Object>> points = (List<Map<String,Object>>) trip.get("points");
+            if (points == null) continue;
+            for (Map<String,Object> point : points) {
+                Long facilityId = point.get("facilityId") == null ? null : number(point.get("facilityId"));
+                if (facilityId == null) continue;
+                Map<String,Object> stat = stats.get(facilityId);
+                if (stat == null) {
+                    stat = new LinkedHashMap<String,Object>();
+                    stat.put("facilityId", facilityId);
+                    stat.put("facilityName", point.get("facilityName"));
+                    stat.put("totalCount", 0);
+                    stat.put("collectedCount", 0);
+                    stat.put("throughCount", 0);
+                    stats.put(facilityId, stat);
+                }
+                int totalIndex = value(totalIndexes.get(facilityId)) + 1;
+                totalIndexes.put(facilityId, totalIndex);
+                stat.put("totalCount", totalIndex);
+                point.put("dailyVisitIndex", totalIndex);
+                Integer matchType = integer(point.get("matchType"));
+                if (matchType != null && matchType == 0) {
+                    int index = value(collectedIndexes.get(facilityId)) + 1;
+                    collectedIndexes.put(facilityId, index);
+                    stat.put("collectedCount", index);
+                    point.put("typeVisitIndex", index);
+                } else if (matchType != null && matchType == 1) {
+                    int index = value(throughIndexes.get(facilityId)) + 1;
+                    throughIndexes.put(facilityId, index);
+                    stat.put("throughCount", index);
+                    point.put("typeVisitIndex", index);
+                }
+            }
+        }
+        for (Map<String,Object> trip : trips) {
+            @SuppressWarnings("unchecked")
+            List<Map<String,Object>> points = (List<Map<String,Object>>) trip.get("points");
+            if (points == null) continue;
+            for (Map<String,Object> point : points) {
+                Long facilityId = point.get("facilityId") == null ? null : number(point.get("facilityId"));
+                if (facilityId == null || !stats.containsKey(facilityId)) continue;
+                Map<String,Object> stat = stats.get(facilityId);
+                point.put("dailyVisitTotal", stat.get("totalCount"));
+                Integer matchType = integer(point.get("matchType"));
+                point.put("typeVisitTotal", matchType != null && matchType == 0 ? stat.get("collectedCount") : matchType != null && matchType == 1 ? stat.get("throughCount") : 0);
+            }
+        }
+        List<Map<String,Object>> pointStats = new ArrayList<Map<String,Object>>();
+        for (Map<String,Object> stat : stats.values()) {
+            int collected = intValue(stat.get("collectedCount"));
+            int through = intValue(stat.get("throughCount"));
+            stat.put("finalMatchType", collected > 0 ? 0 : through > 0 ? 1 : null);
+            stat.put("finalMatchLabel", collected > 0 ? "已收运" : through > 0 ? "仅途经" : "未知");
+            stat.put("totalCount", collected + through);
+            pointStats.add(stat);
+        }
+        day.put("pointStats", pointStats);
+    }
+
+    private Map<String,Object> tripView(Trip t) {
+        Map<String,Object> row=new LinkedHashMap<String,Object>();
+        row.put("recordId",t.recordId); row.put("date",t.date==null?null:t.date.toString());
+        row.put("complete",t.complete); row.put("expectedTrips",t.expectedTrips);
+        row.put("start",t.start==null?null:eventView(t.start)); row.put("end",t.end==null?null:eventView(t.end));
+        List<Map<String,Object>> ps=new ArrayList<Map<String,Object>>(); Set<Long> unique=new HashSet<Long>();
+        Map<Long,Integer> occurrence=new HashMap<Long,Integer>(); Map<Long,Integer> collectedOccurrence=new HashMap<Long,Integer>(); Map<Long,Integer> throughOccurrence=new HashMap<Long,Integer>();
+        for(Event e:t.points) if(e.facilityId!=null) occurrence.put(e.facilityId,value(occurrence.get(e.facilityId))+1);
+        int exact=0,through=0; double operationSeconds=0;
+        for(Event e:t.points){
+            Map<String,Object> point=eventView(e);
+            int totalVisit = e.facilityId == null ? 1 : occurrence.get(e.facilityId);
+            point.put("visitCount", totalVisit);
+            if (e.facilityId != null && e.matchType != null && e.matchType == 0) {
+                int index = value(collectedOccurrence.get(e.facilityId)) + 1; collectedOccurrence.put(e.facilityId, index); point.put("typeVisitIndex", index); point.put("typeVisitTotal", null);
+            } else if (e.facilityId != null && e.matchType != null && e.matchType == 1) {
+                int index = value(throughOccurrence.get(e.facilityId)) + 1; throughOccurrence.put(e.facilityId, index); point.put("typeVisitIndex", index); point.put("typeVisitTotal", null);
+            }
+            ps.add(point); if(e.facilityId!=null)unique.add(e.facilityId); if(e.matchType!=null&&e.matchType==0)exact++; if(e.matchType!=null&&e.matchType==1)through++; operationSeconds+=e.operationLength==null?0:e.operationLength;
+        }
+        row.put("points",ps); row.put("pointCount",t.points.size()); row.put("uniquePointCount",unique.size());
+        row.put("duplicatePointCount",Math.max(0,t.points.size()-unique.size())); row.put("collectedPointCount",exact); row.put("throughPointCount",through); row.put("operationSeconds",operationSeconds); return row;
+    }
+
     private Map<String,Object> eventView(Event e){Map<String,Object> row=new LinkedHashMap<String,Object>();row.put("eventId",e.id);row.put("facilityId",e.facilityId);row.put("facilityName",e.name);row.put("facilityWorkType",e.workType);row.put("matchType",e.matchType);row.put("matchLabel",e.matchType!=null&&e.matchType==0?"已收":e.matchType!=null&&e.matchType==1?"途经":"未知");row.put("time",e.time);row.put("leaveTime",e.leaveTime);row.put("longitude",e.longitude);row.put("latitude",e.latitude);row.put("operationLength",e.operationLength);return row;}
     private List<Map<String,Object>> endpointDistribution(Map<String,Integer> counts,Map<String,Event> rows,int total){List<Map<String,Object>> out=new ArrayList<Map<String,Object>>();for(String key:counts.keySet()){Map<String,Object> row=eventView(rows.get(key));row.put("count",counts.get(key));row.put("ratio",round((double)counts.get(key)/Math.max(1,total)));out.add(row);}return out;}
     @SuppressWarnings("unchecked")
@@ -313,6 +420,7 @@ public class FlowAnalysisService {
     private List<LocalDate> dates(List<Trip> ts){List<LocalDate>out=new ArrayList<LocalDate>();for(Trip t:ts)out.add(t.date);return out;}
     private String mostFrequent(Map<String,Integer> m){String best=null;int n=-1;for(Map.Entry<String,Integer>e:m.entrySet())if(e.getValue()>n){best=e.getKey();n=e.getValue();}return best;}
     private int value(Integer n){return n==null?0:n;}
+    private int intValue(Object v){try{return v==null?0:Integer.parseInt(String.valueOf(v));}catch(Exception e){return 0;}}
     private double avg(List<Double>v){if(v==null||v.isEmpty())return 0;double s=0;for(Double x:v)s+=x;return s/v.size();}
     private double round(double n){return Math.round(n*100D)/100D;}
     private String text(Object v){return v==null?null:String.valueOf(v);}
