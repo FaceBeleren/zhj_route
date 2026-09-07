@@ -126,7 +126,7 @@
           <section class="flow-analysis-results">
             <section class="panel flow-daily-panel">
               <div class="panel-head"><div><h2>实际趟次</h2><span class="muted">按场站事件切分，展开查看点位顺序；同一天的次数按日期汇总</span></div><label class="flow-filter-toggle" :class="{ active: flowShowCollectedOnly }"><input type="checkbox" v-model="flowShowCollectedOnly" /><span class="flow-filter-check" aria-hidden="true">✓</span><span class="flow-filter-copy"><strong>只展示收运点位</strong><small>隐藏纯途经点</small></span></label></div>
-              <div v-for="day in flowAnalysisResult.dailyTrips" :key="'flow-day-'+day.date" class="flow-day"><h3>{{ day.date }} <small>{{ day.tripCount }} 趟</small></h3><div v-if="day.pointStats?.length" class="flow-day-point-stats"><template v-for="point in day.pointStats" :key="'flow-day-point-'+day.date+'-'+point.facilityId"><span v-if="!flowShowCollectedOnly || Number(point.collectedCount || 0) > 0" :class="flowDailyPointClass(point)">{{ point.facilityName || point.facilityId }} · {{ point.finalMatchLabel }} · 收运 {{ point.collectedCount || 0 }}次 · 途经 {{ point.throughCount || 0 }}次</span></template></div><div v-for="(trip, index) in day.trips" :key="'flow-trip-'+trip.recordId+'-'+index" class="flow-trip"><div><strong>{{ trip.date || day.date || '日期未知' }} · 第 {{ index + 1 }} 趟</strong><span>{{ trip.complete ? '已到场' : '未记录终点' }} · {{ trip.pointCount }} 个收集点 · 已收 {{ trip.collectedPointCount || 0 }} · 途经 {{ trip.throughPointCount || 0 }}<button v-if="!trip.complete && trip.points?.length" class="ghost-button" @click="markFlowBoundary(trip)">将末点作为人工边界</button></span></div><div class="flow-sequence"><span v-if="trip.start">{{ trip.start.facilityName }}</span><template v-for="point in trip.points" :key="'flow-point-'+trip.recordId+'-'+point.eventId"><span v-if="!flowShowCollectedOnly || Number(point.matchType) === 0" :class="flowPointClass(point)">{{ point.facilityName || point.facilityId }} <small>{{ point.matchLabel || '未知' }}{{ flowPointOccurrenceLabel(point) }}</small></span></template><b v-if="trip.end">→ {{ trip.end.facilityName }}</b></div></div></div>
+              <div v-for="day in flowAnalysisResult.dailyTrips" :key="'flow-day-'+day.date" class="flow-day"><div class="flow-day-head"><h3>{{ day.date }} <small>{{ day.tripCount }} 趟</small></h3><button type="button" class="flow-day-toggle" :class="{ expanded: flowExpandedDays.has(day.date) }" :aria-expanded="flowExpandedDays.has(day.date)" @click="toggleFlowDay(day.date)"><span aria-hidden="true">⌄</span>{{ flowExpandedDays.has(day.date) ? '收起趟次' : '展开趟次' }}</button></div><div v-if="day.pointStats?.length" class="flow-day-point-stats"><template v-for="point in day.pointStats" :key="'flow-day-point-'+day.date+'-'+point.facilityId"><span v-if="!flowShowCollectedOnly || Number(point.collectedCount || 0) > 0" :class="flowDailyPointClass(point)">{{ point.facilityName || point.facilityId }} · {{ point.finalMatchLabel }} · 收运 {{ point.collectedCount || 0 }}次 · 途经 {{ point.throughCount || 0 }}次</span></template></div><div v-if="flowExpandedDays.has(day.date)" class="flow-day-trips"><div v-for="(trip, index) in day.trips" :key="'flow-trip-'+trip.recordId+'-'+index" class="flow-trip"><div><strong>{{ trip.date || day.date || '日期未知' }} · 第 {{ index + 1 }} 趟</strong><span>{{ trip.complete ? '已到场' : '未记录终点' }} · {{ trip.pointCount }} 个收集点 · 已收 {{ trip.collectedPointCount || 0 }} · 途经 {{ trip.throughPointCount || 0 }}<button v-if="!trip.complete && trip.points?.length" class="ghost-button" @click="markFlowBoundary(trip)">将末点作为人工边界</button></span></div><div class="flow-sequence"><span v-if="trip.start">{{ trip.start.facilityName }}</span><template v-for="point in trip.points" :key="'flow-point-'+trip.recordId+'-'+point.eventId"><span v-if="!flowShowCollectedOnly || Number(point.matchType) === 0" :class="flowPointClass(point)">{{ point.facilityName || point.facilityId }} <small>{{ point.matchLabel || '未知' }}{{ flowPointOccurrenceLabel(point) }}</small></span></template><b v-if="trip.end">→ {{ trip.end.facilityName }}</b></div></div></div></div>
               <div v-if="!flowAnalysisResult.dailyTrips?.length" class="empty">没有找到可分析的流水</div>
             </section>
             <section class="panel flow-groups-panel">
@@ -1877,6 +1877,7 @@ const flowAnalysisTask = reactive({ taskId: '', status: 'IDLE', phase: 'PREPARE'
 const flowAnalysisResult = ref(null)
 const flowSelectedGroup = ref(null)
 const flowShowCollectedOnly = ref(false)
+const flowExpandedDays = ref(new Set())
 const flowAnalysisPollTimer = ref(null)
 const flowAnalysisLoading = ref(false)
 const flowAnalysisThreshold = ref(0.6)
@@ -4574,6 +4575,7 @@ function resetFlowAnalysisResult() {
   flowAnalysisResult.value = null
   flowSelectedGroup.value = null
   flowShowCollectedOnly.value = false
+  flowExpandedDays.value = new Set()
   flowForcedBoundaryIds.value = new Set()
   Object.assign(flowAnalysisTask, { taskId: '', status: 'IDLE', phase: 'PREPARE', message: '请选择公司和车辆', percent: 0, totalRecords: 0, loadedEvents: 0, elapsedMs: 0 })
 }
@@ -4670,6 +4672,7 @@ async function rerunFlowAnalysisWithAdjustments() {
 }
 
 function selectFlowGroup(group) { flowSelectedGroup.value = group }
+function toggleFlowDay(date) { const next = new Set(flowExpandedDays.value); if (next.has(date)) next.delete(date); else next.add(date); flowExpandedDays.value = next }
 
 function formatFlowTime(value) { if (!value) return '-'; const text = String(value); return text.replace('T', ' ').replace(/(\.\d+)?([+-]\d\d:?\d\d|Z)?$/, '') }
 function flowPointClass(point) { const type = point.finalMatchType === null || point.finalMatchType === undefined ? Number(point.matchType) : Number(point.finalMatchType); return { 'flow-point-collected': type === 0, 'flow-point-through': type === 1, 'flow-point-repeat-2': Number(point.visitCount || point.totalCount || 0) === 2, 'flow-point-repeat-3': Number(point.visitCount || point.totalCount || 0) >= 3 } }

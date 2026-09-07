@@ -3032,6 +3032,12 @@ tbody tr.active {
 .flow-analysis-results { display: grid; grid-template-columns: minmax(340px, 1fr) minmax(420px, 1.25fr); gap: 14px; align-items: start; }
 .flow-daily-panel, .flow-groups-panel { padding: 14px; min-width: 0; }
 .flow-day { border-top: 1px solid #e1e9f1; padding: 10px 0; }
+.flow-day-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.flow-day-toggle { display: inline-flex; align-items: center; gap: 4px; border: 1px solid #cbd9e8; border-radius: 6px; padding: 5px 9px; background: #fff; color: #315f8a; font-size: 12px; cursor: pointer; white-space: nowrap; }
+.flow-day-toggle:hover { border-color: #176bc1; background: #f3f8fe; color: #125b9f; }
+.flow-day-toggle span { display: inline-block; font-size: 15px; line-height: 10px; transform: rotate(0deg); transition: transform .15s ease; }
+.flow-day-toggle.expanded span { transform: rotate(180deg); }
+.flow-day-trips { margin-top: 6px; }
 .flow-day h3 { margin: 0 0 8px; font-size: 15px; color: #294765; }
 .flow-day h3 small, .flow-group-head small { color: #71859a; font-weight: normal; }
 .flow-trip { border: 1px solid #dce7f1; border-radius: 7px; padding: 8px; margin-top: 6px; background: #fbfdff; }
