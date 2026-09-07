@@ -3070,7 +3070,7 @@ tbody tr.active {
 .flow-day-point-stats span.flow-point-repeat-3::after { color: #fff; background: #d97706; content: '3次+'; }
 .flow-group-head { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
 .flow-group-actions { display: inline-flex; align-items: center; gap: 8px; flex-wrap: wrap; }
-.flow-generated-status { color: #176b45; font-size: 12px; white-space: nowrap; }
+.flow-generated-status { color: #176b45; font-size: 12px; white-space: nowrap; } .flow-shared-threshold { display: inline-flex; align-items: center; gap: 5px; color: #456582; font-size: 12px; white-space: nowrap; } .flow-shared-threshold input { width: 58px; padding: 4px 6px; border: 1px solid #bfd0e0; border-radius: 5px; color: #31536f; background: #fff; }
 .flow-multi-trip-preview { margin: 10px 0 12px; padding: 12px; border: 1px solid #bcd4ea; border-radius: 8px; background: #f7fbff; }
 .flow-multi-trip-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 10px; }
 .flow-multi-trip-card { padding: 12px; border: 1px solid #cdddec; border-radius: 8px; background: #fbfdff; }
@@ -3082,7 +3082,7 @@ tbody tr.active {
 .flow-generated-sequence b { color: #71859a; font-weight: normal; }
 .flow-generated-sequence span { padding: 4px 7px; border-radius: 12px; background: #eaf3ff; color: #315f8a; font-size: 12px; }
 .flow-generated-sequence span.flow-point-collected { background: #e9f7ef; color: #176b45; }
-.flow-generated-sequence span.flow-point-through { background: #f1f4f7; color: #71808e; border: 1px dashed #aab7c2; }
+.flow-generated-sequence span.flow-point-through { background: #f1f4f7; color: #71808e; border: 1px dashed #aab7c2; } .flow-generated-sequence span.flow-point-shared { background: #f2eaff; color: #6741a0; border: 1px solid #b79be0; box-shadow: inset 0 0 0 1px #fff; } .flow-generated-sequence span.flow-point-shared small { margin-left: 4px; padding: 1px 4px; border-radius: 8px; background: #8b5fc6; color: #fff; font-size: 10px; }
 .flow-group-head h3 { margin: 0 0 4px; font-size: 16px; }
 .flow-group-head button.active { background: #176bc1; border-color: #176bc1; color: #fff; }
 .flow-group-head span { color: #607a94; font-size: 13px; }

@@ -131,10 +131,10 @@
               <div v-if="!flowAnalysisResult.dailyTrips?.length" class="empty">没有找到可分析的流水</div>
             </section>
             <section class="panel flow-groups-panel">
-              <div class="panel-head"><div><h2>历史岗位分堆</h2><span class="muted">先归纳历史趟次，再生成岗位内多趟预览</span></div><div class="flow-group-actions"><button class="secondary" @click="generateFlowMultiTrips" :disabled="!flowAnalysisResult.groups?.length">{{ flowMultiTripGenerated ? '重新生成多趟' : '生成多趟' }}</button><button @click="openSaveFlowAnalysis" :disabled="!flowAnalysisResult.groups?.length">保存分堆草案</button><span v-if="flowMultiTripGenerated" class="flow-generated-status">已生成 {{ flowGeneratedGroups.length }} 个候选趟次</span></div></div>
+              <div class="panel-head"><div><h2>历史岗位分堆</h2><span class="muted">先归纳历史趟次，再生成岗位内多趟预览</span></div><div class="flow-group-actions"><label class="flow-shared-threshold">共享点位阈值<input v-model.number="flowSharedPointThreshold" type="number" min="0.3" max="1" step="0.05" /></label><button class="secondary" @click="generateFlowMultiTrips" :disabled="!flowAnalysisResult.groups?.length">{{ flowMultiTripGenerated ? '重新生成多趟' : '生成多趟' }}</button><button @click="openSaveFlowAnalysis" :disabled="!flowAnalysisResult.groups?.length">保存分堆草案</button><span v-if="flowMultiTripGenerated" class="flow-generated-status">已生成 {{ flowGeneratedGroups.length }} 个候选趟次</span></div></div>
             <div v-if="flowMultiTripGenerated" class="flow-multi-trip-preview">
-              <div class="panel-head"><div><h2>生成的多趟路线</h2><span class="muted">按分堆内支持率将点位唯一归属到候选趟次，重复点位不会出现在多个候选趟次中；仅用于预览，不会自动保存</span></div><button class="ghost-button" @click="flowMultiTripGenerated = false">关闭预览</button></div>
-              <div class="flow-multi-trip-grid"><article v-for="group in flowGeneratedGroups" :key="'flow-generated-group-'+group.groupNo" class="flow-multi-trip-card"><div class="flow-multi-trip-head"><div><strong>候选第 {{ group.groupNo }} 趟</strong><span>来源：流水分堆{{ group.groupNo }} · 历史样本 {{ group.tripCount }} 趟</span></div><button type="button" class="secondary" :class="{ active: flowSelectedGroup?.groupNo === group.groupNo }" @click="selectFlowGroup(group)">{{ flowSelectedGroup?.groupNo === group.groupNo ? '当前地图' : '查看地图' }}</button></div><p class="muted">候选点位 {{ group.points?.length || 0 }} 个 · 覆盖 {{ group.activeDays }} 天 · 典型终点：{{ group.typicalEnd?.facilityName || '未确定' }}</p><div class="flow-generated-route-label">候选路线顺序</div><div class="flow-generated-sequence"><template v-for="(point, index) in group.points" :key="'flow-generated-point-'+group.groupNo+'-'+point.facilityId"><span :class="flowPointClass(point)">{{ index + 1 }}. {{ point.facilityName || point.facilityId }}</span><b v-if="index < group.points.length - 1">→</b></template><b v-if="group.typicalEnd">→ {{ group.typicalEnd.facilityName }}</b></div></article></div>
+              <div class="panel-head"><div><h2>生成的多趟路线</h2><span class="muted">普通点位按支持率唯一归属；达到阈值的点位作为共享点位保留在多个候选趟次中；仅用于预览，不会自动保存</span></div><button class="ghost-button" @click="flowMultiTripGenerated = false">关闭预览</button></div>
+              <div class="flow-multi-trip-grid"><article v-for="group in flowGeneratedGroups" :key="'flow-generated-group-'+group.groupNo" class="flow-multi-trip-card"><div class="flow-multi-trip-head"><div><strong>候选第 {{ group.groupNo }} 趟</strong><span>来源：流水分堆{{ group.groupNo }} · 历史样本 {{ group.tripCount }} 趟</span></div><button type="button" class="secondary" :class="{ active: flowSelectedGroup?.groupNo === group.groupNo }" @click="selectFlowGroup(group)">{{ flowSelectedGroup?.groupNo === group.groupNo ? '当前地图' : '查看地图' }}</button></div><p class="muted">候选点位 {{ group.points?.length || 0 }} 个 · 覆盖 {{ group.activeDays }} 天 · 典型终点：{{ group.typicalEnd?.facilityName || '未确定' }}</p><div class="flow-generated-route-label">候选路线顺序</div><div class="flow-generated-sequence"><template v-for="(point, index) in group.points" :key="'flow-generated-point-'+group.groupNo+'-'+point.facilityId"><span :class="{ ...flowPointClass(point), 'flow-point-shared': point.candidateShared }" :title="point.candidateShared ? '该点在多个分堆中均达到共享阈值' : ''">{{ index + 1 }}. {{ point.facilityName || point.facilityId }}<small v-if="point.candidateShared">共享</small></span><b v-if="index < group.points.length - 1">→</b></template><b v-if="group.typicalEnd">→ {{ group.typicalEnd.facilityName }}</b></div></article></div>
             </div>
               <div v-for="group in flowAnalysisResult.groups" :key="'flow-group-'+group.groupNo" class="flow-group"><div class="flow-group-head"><div><h3>{{ group.groupName }} <small :class="group.stable ? 'flow-stable' : 'flow-unstable'">{{ group.stable ? '稳定' : '样本不足' }}</small></h3><span>{{ group.tripCount }} 趟 · 覆盖 {{ group.activeDays }} 天 · 每周约 {{ group.visitsPerWeek }} 趟 · 稳定度 {{ group.stability }}</span></div><button class="secondary" :class="{ active: flowSelectedGroup?.groupNo === group.groupNo }" @click="selectFlowGroup(group)">{{ flowSelectedGroup?.groupNo === group.groupNo ? '当前地图' : '查看地图' }}</button></div><p class="muted">典型终点：{{ group.typicalEnd?.facilityName || '未确定' }} · 覆盖完整趟 {{ group.supportOfAllCompleteTrips }}</p><div class="flow-point-chips"><span v-for="point in group.points" :key="'flow-group-point-'+group.groupNo+'-'+point.facilityId" :class="[flowPointClass(point), { optional: Number(point.support) < 0.6 }]">{{ point.facilityName || point.facilityId }} · {{ point.finalMatchLabel || point.matchLabel || '未知' }} · {{ Math.round(Number(point.support) * 100) }}%</span></div></div><div v-if="!flowAnalysisResult.groups?.length" class="empty">暂未形成分堆</div>
               <div v-if="flowAnalysisResult.unassignedPoints?.length" class="flow-warning">有 {{ flowAnalysisResult.unassignedPoints.length }} 个低频点位未作为核心点，请结合实际情况确认。</div>
@@ -1888,6 +1888,7 @@ const flowExpandedDays = ref(new Set())
 const flowAnalysisPollTimer = ref(null)
 const flowAnalysisLoading = ref(false)
 const flowAnalysisThreshold = ref(0.6)
+const flowSharedPointThreshold = ref(0.6)
 const flowForcedBoundaryIds = ref(new Set())
 const flowAnalysisFilters = reactive({ startDate: toDateInput(new Date(Date.now() - 29 * 86400000)), endDate: toDateInput(new Date()) })
 
@@ -1903,12 +1904,23 @@ const flowGeneratedGroups = computed(() => {
   }
   const owners = new Map()
   for (const [facilityId, entries] of candidates.entries()) {
+    const sharedEntries = entries.filter((entry) => entry.support >= flowSharedPointThreshold.value)
+    if (sharedEntries.length >= 2) {
+      owners.set(facilityId, { shared: new Set(sharedEntries.map((entry) => entry.groupNo)) })
+      continue
+    }
     entries.sort((a, b) => b.support - a.support || b.visitCount - a.visitCount || Number(a.groupNo) - Number(b.groupNo))
-    owners.set(facilityId, entries[0].groupNo)
+    owners.set(facilityId, { owner: entries[0].groupNo })
   }
   return sourceGroups.map((group) => ({
     ...group,
-    points: (group.points || []).filter((point) => owners.get(String(point.facilityId)) === group.groupNo)
+    points: (group.points || []).filter((point) => {
+      const allocation = owners.get(String(point.facilityId))
+      return allocation?.shared?.has(group.groupNo) || allocation?.owner === group.groupNo
+    }).map((point) => {
+      const allocation = owners.get(String(point.facilityId))
+      return { ...point, candidateShared: Boolean(allocation?.shared?.has(group.groupNo)) }
+    })
   }))
 })
 const odCacheCompany = ref(null)
