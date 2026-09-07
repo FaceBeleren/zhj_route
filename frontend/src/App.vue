@@ -4676,13 +4676,32 @@ function toggleFlowDay(date) { const next = new Set(flowExpandedDays.value); if 
 
 function formatFlowTime(value) { if (!value) return '-'; const text = String(value); return text.replace('T', ' ').replace(/(\.\d+)?([+-]\d\d:?\d\d|Z)?$/, '') }
 function flowPointClass(point) { const type = point.finalMatchType === null || point.finalMatchType === undefined ? Number(point.matchType) : Number(point.finalMatchType); return { 'flow-point-collected': type === 0, 'flow-point-through': type === 1, 'flow-point-repeat-2': Number(point.visitCount || point.totalCount || 0) === 2, 'flow-point-repeat-3': Number(point.visitCount || point.totalCount || 0) >= 3 } }
-function flowTripPointWasCollected(point, day) {
-  if (Number(point.matchType) !== 1 || !point.facilityId) return false
-  const stat = (day?.pointStats || []).find((item) => String(item.facilityId) === String(point.facilityId))
-  return Number(stat?.collectedCount || 0) > 0
+function flowTripPointPhase(point, day) {
+  if (Number(point.matchType) !== 1 || !point.facilityId) return 'none'
+  const samePointEvents = []
+  for (const trip of (day?.trips || [])) {
+    for (const event of (trip.points || [])) {
+      if (String(event.facilityId) === String(point.facilityId)) samePointEvents.push(event)
+    }
+  }
+  samePointEvents.sort((a, b) => {
+    const timeCompare = String(a.time || '').localeCompare(String(b.time || ''))
+    return timeCompare || Number(a.eventId || 0) - Number(b.eventId || 0)
+  })
+  const currentIndex = samePointEvents.findIndex((event) => String(event.eventId) === String(point.eventId))
+  if (currentIndex < 0) return samePointEvents.some((event) => Number(event.matchType) === 0) ? 'before' : 'none'
+  const hasCollectedToday = samePointEvents.some((event) => Number(event.matchType) === 0)
+  if (!hasCollectedToday) return 'none'
+  return samePointEvents.slice(0, currentIndex).some((event) => Number(event.matchType) === 0) ? 'after' : 'before'
 }
-function flowTripPointClass(point, day) { return { ...flowPointClass(point), 'flow-point-through-after-collected': flowTripPointWasCollected(point, day) } }
-function flowPointDisplayLabel(point, day) { return flowTripPointWasCollected(point, day) ? '已收运后途经' : (point.matchLabel || '未知') }
+function flowTripPointClass(point, day) {
+  const phase = flowTripPointPhase(point, day)
+  return { ...flowPointClass(point), 'flow-point-through-before-collected': phase === 'before', 'flow-point-through-after-collected': phase === 'after' }
+}
+function flowPointDisplayLabel(point, day) {
+  const phase = flowTripPointPhase(point, day)
+  return phase === 'before' ? '收运前途经' : phase === 'after' ? '收运后途经' : (point.matchLabel || '未知')
+}
 function flowDailyPointClass(point) { return { 'flow-point-collected': Number(point.finalMatchType) === 0, 'flow-point-through': Number(point.finalMatchType) === 1, 'flow-point-repeat-2': Number(point.totalCount || 0) === 2, 'flow-point-repeat-3': Number(point.totalCount || 0) >= 3 } }
 function flowPointOccurrenceLabel(point) { const index = Number(point.typeVisitIndex || 0); const total = Number(point.typeVisitTotal || 0); return index > 0 && total > 0 ? ` · 第${index}/${total}次` : '' }
 

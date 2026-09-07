@@ -3080,8 +3080,10 @@ tbody tr.active {
 .flow-summary-grid .summary-strip { margin: 0; }
 .flow-sequence span.flow-point-collected { background: #e9f7ef; color: #176b45; }
 .flow-sequence span.flow-point-through { background: #f1f4f7; color: #71808e; border: 1px dashed #aab7c2; }
+.flow-sequence span.flow-point-through-before-collected { background: #fff7e6; color: #956318; border: 1px solid #e6c77d; }
+.flow-sequence span.flow-point-through-before-collected::after { margin-left: 4px; padding: 1px 4px; border-radius: 8px; color: #956318; background: #ffe7b0; content: '收运前途经'; font-size: 10px; }
 .flow-sequence span.flow-point-through-after-collected { background: #eef0ff; color: #5754a3; border: 1px solid #9d9ad8; }
-.flow-sequence span.flow-point-through-after-collected::after { margin-left: 4px; padding: 1px 4px; border-radius: 8px; color: #5754a3; background: #dcdcff; content: '已收后途经'; font-size: 10px; }
+.flow-sequence span.flow-point-through-after-collected::after { margin-left: 4px; padding: 1px 4px; border-radius: 8px; color: #5754a3; background: #dcdcff; content: '收运后途经'; font-size: 10px; }
 .flow-sequence span.flow-point-repeat-2::after, .flow-sequence span.flow-point-repeat-3::after { margin-left: 4px; padding: 1px 4px; border-radius: 8px; color: #76500f; background: #ffe4a8; content: '2次'; font-size: 10px; }
 .flow-sequence span.flow-point-repeat-3::after { color: #fff; background: #d97706; content: '3次+'; }
 .flow-sequence small { font-size: 10px; opacity: .8; }
