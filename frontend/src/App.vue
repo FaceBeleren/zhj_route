@@ -130,10 +130,14 @@
               <div v-if="!flowAnalysisResult.dailyTrips?.length" class="empty">没有找到可分析的流水</div>
             </section>
             <section class="panel flow-groups-panel">
-              <div class="panel-head"><div><h2>历史岗位分堆</h2><span class="muted">稳定分堆可保存为岗位草案</span></div><button @click="openSaveFlowAnalysis" :disabled="!flowAnalysisResult.groups?.length">保存分堆草案</button></div>
+              <div class="panel-head"><div><h2>历史岗位分堆</h2><span class="muted">先归纳历史趟次，再生成岗位内多趟预览</span></div><div class="flow-group-actions"><button class="secondary" @click="generateFlowMultiTrips" :disabled="!flowAnalysisResult.groups?.length">{{ flowMultiTripGenerated ? '重新生成多趟' : '生成多趟' }}</button><button @click="openSaveFlowAnalysis" :disabled="!flowAnalysisResult.groups?.length">保存分堆草案</button></div></div>
               <div v-for="group in flowAnalysisResult.groups" :key="'flow-group-'+group.groupNo" class="flow-group"><div class="flow-group-head"><div><h3>{{ group.groupName }} <small :class="group.stable ? 'flow-stable' : 'flow-unstable'">{{ group.stable ? '稳定' : '样本不足' }}</small></h3><span>{{ group.tripCount }} 趟 · 覆盖 {{ group.activeDays }} 天 · 每周约 {{ group.visitsPerWeek }} 趟 · 稳定度 {{ group.stability }}</span></div><button class="secondary" @click="selectFlowGroup(group)">查看地图</button></div><p class="muted">典型终点：{{ group.typicalEnd?.facilityName || '未确定' }} · 覆盖完整趟 {{ group.supportOfAllCompleteTrips }}</p><div class="flow-point-chips"><span v-for="point in group.points" :key="'flow-group-point-'+group.groupNo+'-'+point.facilityId" :class="[flowPointClass(point), { optional: Number(point.support) < 0.6 }]">{{ point.facilityName || point.facilityId }} · {{ point.finalMatchLabel || point.matchLabel || '未知' }} · {{ Math.round(Number(point.support) * 100) }}%</span></div></div><div v-if="!flowAnalysisResult.groups?.length" class="empty">暂未形成分堆</div>
               <div v-if="flowAnalysisResult.unassignedPoints?.length" class="flow-warning">有 {{ flowAnalysisResult.unassignedPoints.length }} 个低频点位未作为核心点，请结合实际情况确认。</div>
               <div v-if="flowForcedBoundaryIds.size" class="flow-adjustments"><span>已标记 {{ flowForcedBoundaryIds.size }} 个人工边界</span><button class="secondary" @click="rerunFlowAnalysisWithAdjustments">按修正重新分析</button></div>
+            </section>
+            <section v-if="flowMultiTripGenerated" class="panel flow-multi-trip-panel">
+              <div class="panel-head"><div><h2>生成的多趟预览</h2><span class="muted">根据历史分堆生成岗位内多趟候选，仅用于预览，不会自动保存</span></div><button class="ghost-button" @click="flowMultiTripGenerated = false">关闭预览</button></div>
+              <div class="flow-multi-trip-grid"><article v-for="group in flowAnalysisResult.groups" :key="'flow-generated-group-'+group.groupNo" class="flow-multi-trip-card"><div class="flow-multi-trip-head"><strong>第 {{ group.groupNo }} 趟堆</strong><span>{{ group.tripCount }} 个历史趟次 · 覆盖 {{ group.activeDays }} 天</span></div><p class="muted">典型终点：{{ group.typicalEnd?.facilityName || '未确定' }} · 每周约 {{ group.visitsPerWeek }} 趟</p><div class="flow-generated-sequence"><span v-for="(point, index) in group.points" :key="'flow-generated-point-'+group.groupNo+'-'+point.facilityId" :class="flowPointClass(point)">{{ index + 1 }}. {{ point.facilityName || point.facilityId }} · {{ Math.round(Number(point.support || 0) * 100) }}%</span></div></article></div>
             </section>
           </section>
           <RouteMapPanel v-if="flowSelectedGroup" :original-points="[]" :optimized-points="flowMapPoints(flowSelectedGroup)" :show-original="false" optimized-label="历史分堆" />
@@ -1877,6 +1881,7 @@ const flowAnalysisTask = reactive({ taskId: '', status: 'IDLE', phase: 'PREPARE'
 const flowAnalysisResult = ref(null)
 const flowSelectedGroup = ref(null)
 const flowShowCollectedOnly = ref(false)
+const flowMultiTripGenerated = ref(false)
 const flowExpandedDays = ref(new Set())
 const flowAnalysisPollTimer = ref(null)
 const flowAnalysisLoading = ref(false)
@@ -4575,6 +4580,7 @@ function resetFlowAnalysisResult() {
   flowAnalysisResult.value = null
   flowSelectedGroup.value = null
   flowShowCollectedOnly.value = false
+  flowMultiTripGenerated.value = false
   flowExpandedDays.value = new Set()
   flowForcedBoundaryIds.value = new Set()
   Object.assign(flowAnalysisTask, { taskId: '', status: 'IDLE', phase: 'PREPARE', message: '请选择公司和车辆', percent: 0, totalRecords: 0, loadedEvents: 0, elapsedMs: 0 })
@@ -4672,6 +4678,7 @@ async function rerunFlowAnalysisWithAdjustments() {
 }
 
 function selectFlowGroup(group) { flowSelectedGroup.value = group }
+function generateFlowMultiTrips() { if (flowAnalysisResult.value?.groups?.length) flowMultiTripGenerated.value = true }
 function toggleFlowDay(date) { const next = new Set(flowExpandedDays.value); if (next.has(date)) next.delete(date); else next.add(date); flowExpandedDays.value = next }
 
 function formatFlowTime(value) { if (!value) return '-'; const text = String(value); return text.replace('T', ' ').replace(/(\.\d+)?([+-]\d\d:?\d\d|Z)?$/, '') }

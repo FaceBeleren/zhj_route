@@ -3064,6 +3064,17 @@ tbody tr.active {
 .flow-day-point-stats span.flow-point-repeat-2::after, .flow-day-point-stats span.flow-point-repeat-3::after { margin-left: 4px; padding: 1px 4px; border-radius: 8px; color: #76500f; background: #ffe4a8; content: '2次'; font-size: 10px; }
 .flow-day-point-stats span.flow-point-repeat-3::after { color: #fff; background: #d97706; content: '3次+'; }
 .flow-group-head { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+.flow-group-actions { display: inline-flex; align-items: center; gap: 8px; }
+.flow-multi-trip-panel { grid-column: 1 / -1; padding: 14px; }
+.flow-multi-trip-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 10px; }
+.flow-multi-trip-card { padding: 12px; border: 1px solid #cdddec; border-radius: 8px; background: #fbfdff; }
+.flow-multi-trip-head { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; color: #183d60; }
+.flow-multi-trip-head span { color: #607a94; font-size: 12px; }
+.flow-multi-trip-card p { margin: 7px 0; }
+.flow-generated-sequence { display: flex; flex-wrap: wrap; gap: 5px; }
+.flow-generated-sequence span { padding: 4px 7px; border-radius: 12px; background: #eaf3ff; color: #315f8a; font-size: 12px; }
+.flow-generated-sequence span.flow-point-collected { background: #e9f7ef; color: #176b45; }
+.flow-generated-sequence span.flow-point-through { background: #f1f4f7; color: #71808e; border: 1px dashed #aab7c2; }
 .flow-group-head h3 { margin: 0 0 4px; font-size: 16px; }
 .flow-group-head span { color: #607a94; font-size: 13px; }
 .flow-stable, .flow-unstable { display: inline-block; border-radius: 10px; padding: 2px 7px; font-size: 12px; }
