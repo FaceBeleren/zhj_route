@@ -3066,8 +3066,6 @@ tbody tr.active {
 .flow-day-point-stats span { background: #eaf3ff; color: #315f8a; border-radius: 12px; padding: 4px 8px; font-size: 12px; }
 .flow-day-point-stats span.flow-point-collected { background: #e9f7ef; color: #176b45; }
 .flow-day-point-stats span.flow-point-through { background: #f1f4f7; color: #71808e; border: 1px dashed #aab7c2; }
-.flow-day-point-stats span.flow-point-repeat-2::after, .flow-day-point-stats span.flow-point-repeat-3::after { margin-left: 4px; padding: 1px 4px; border-radius: 8px; color: #76500f; background: #ffe4a8; content: '2次'; font-size: 10px; }
-.flow-day-point-stats span.flow-point-repeat-3::after { color: #fff; background: #d97706; content: '3次+'; }
 .flow-group-head { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
 .flow-group-actions { display: inline-flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .flow-generated-status { color: #176b45; font-size: 12px; white-space: nowrap; } .flow-shared-threshold { display: inline-flex; align-items: center; gap: 5px; color: #456582; font-size: 12px; white-space: nowrap; } .flow-shared-threshold input { width: 58px; padding: 4px 6px; border: 1px solid #bfd0e0; border-radius: 5px; color: #31536f; background: #fff; }
@@ -3093,9 +3091,8 @@ tbody tr.active {
 .flow-point-chips span { background: #eaf3ff; color: #315f8a; border-radius: 12px; padding: 4px 8px; font-size: 12px; }
 .flow-point-chips span.flow-point-collected { background: #e9f7ef; color: #176b45; }
 .flow-point-chips span.flow-point-through { background: #f1f4f7; color: #71808e; border: 1px dashed #aab7c2; }
-.flow-point-chips span.flow-point-repeat-2::after, .flow-point-chips span.flow-point-repeat-3::after { margin-left: 4px; padding: 1px 4px; border-radius: 8px; color: #76500f; background: #ffe4a8; content: '2次'; font-size: 10px; }
-.flow-point-chips span.flow-point-repeat-3::after { color: #fff; background: #d97706; content: '3次+'; }
 .flow-point-chips span.flow-point-collected.optional { background: #fff5df; color: #8a641f; }
+.flow-repeat-count { margin-left: 4px; padding: 1px 4px; border-radius: 8px; background: #d97706; color: #fff; font-size: 10px; }
 .flow-warning { margin-top: 10px; border: 1px solid #f1d18d; background: #fff8e8; color: #8b641c; border-radius: 6px; padding: 9px; font-size: 13px; }
 .flow-summary-grid .summary-strip { margin: 0; }
 .flow-sequence span.flow-point-collected { background: #e9f7ef; color: #176b45; }
@@ -3104,8 +3101,6 @@ tbody tr.active {
 .flow-sequence span.flow-point-through-before-collected::after { margin-left: 4px; padding: 1px 4px; border-radius: 8px; color: #956318; background: #ffe7b0; content: '收运前途经'; font-size: 10px; }
 .flow-sequence span.flow-point-through-after-collected { background: #eef0ff; color: #5754a3; border: 1px solid #9d9ad8; }
 .flow-sequence span.flow-point-through-after-collected::after { margin-left: 4px; padding: 1px 4px; border-radius: 8px; color: #5754a3; background: #dcdcff; content: '收运后途经'; font-size: 10px; }
-.flow-sequence span.flow-point-repeat-2::after, .flow-sequence span.flow-point-repeat-3::after { margin-left: 4px; padding: 1px 4px; border-radius: 8px; color: #76500f; background: #ffe4a8; content: '2次'; font-size: 10px; }
-.flow-sequence span.flow-point-repeat-3::after { color: #fff; background: #d97706; content: '3次+'; }
 .flow-sequence small { font-size: 10px; opacity: .8; }
 /* 途经点统一使用虚线；黄色仅表示已收运的低频点。 */
 .flow-generated-sequence span.flow-point-through, .flow-sequence span.flow-point-through, .flow-sequence span.flow-point-through-before-collected, .flow-sequence span.flow-point-through-after-collected { background: #f1f4f7; color: #71808e; border: 1px dashed #aab7c2; box-shadow: none; }
