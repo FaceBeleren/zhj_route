@@ -3029,8 +3029,8 @@ tbody tr.active {
 .flow-company-results button:hover { background: #eef5fc; }
 .flow-company-results em { display: block; padding: 9px 10px; color: #71859a; font-style: normal; }
 .flow-selected-company { color: #176b45; font-size: 12px; }
-.flow-analysis-results { display: grid; grid-template-columns: minmax(340px, 1fr) minmax(420px, 1.25fr); gap: 14px; align-items: start; }
-.flow-daily-panel, .flow-groups-panel { padding: 14px; min-width: 0; }
+.flow-analysis-results { display: grid; grid-template-columns: minmax(340px, 1fr) minmax(420px, 1.25fr); gap: 14px; align-items: stretch; }
+.flow-daily-panel, .flow-groups-panel { padding: 14px; min-width: 0; height: min(760px, calc(100vh - 300px)); min-height: 420px; overflow: hidden; } .flow-daily-panel { display: flex; flex-direction: column; } .flow-daily-panel .flow-days-content { flex: 1 1 auto; min-height: 0; overflow-y: auto; padding-right: 4px; } .flow-groups-panel { overflow-y: auto; }
 .flow-daily-actions { display: inline-flex; align-items: center; justify-content: flex-end; gap: 8px; flex-wrap: wrap; }
 .flow-collapse-button { border: 1px solid #cbd9e8; border-radius: 6px; padding: 6px 10px; background: #fff; color: #315f8a; font-size: 12px; cursor: pointer; white-space: nowrap; }
 .flow-collapse-button:hover { border-color: #176bc1; background: #f3f8fe; color: #125b9f; }
@@ -3107,5 +3107,5 @@ tbody tr.active {
 .flow-sequence span.flow-point-repeat-2::after, .flow-sequence span.flow-point-repeat-3::after { margin-left: 4px; padding: 1px 4px; border-radius: 8px; color: #76500f; background: #ffe4a8; content: '2次'; font-size: 10px; }
 .flow-sequence span.flow-point-repeat-3::after { color: #fff; background: #d97706; content: '3次+'; }
 .flow-sequence small { font-size: 10px; opacity: .8; }
-@media (max-width: 1050px) { .flow-analysis-filters { grid-template-columns: repeat(3, minmax(130px, 1fr)); } .flow-analysis-results { grid-template-columns: 1fr; } }
+@media (max-width: 1050px) { .flow-analysis-filters { grid-template-columns: repeat(3, minmax(130px, 1fr)); } .flow-analysis-results { grid-template-columns: 1fr; } .flow-daily-panel, .flow-groups-panel { height: auto; min-height: 0; overflow: visible; } .flow-daily-panel .flow-days-content { max-height: 620px; overflow-y: auto; } }
 @media (max-width: 650px) { .flow-analysis-filters { grid-template-columns: 1fr 1fr; } }
