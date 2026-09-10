@@ -1969,28 +1969,20 @@ function flowBuildGeneratedGroups(result) {
     if (!entries.length) continue
     const candidateEntries = entries.filter(entry => entry.support >= flowCandidateSupportThreshold)
     const thresholdEntries = candidateEntries.filter(entry => entry.support >= flowSharedPointThreshold.value)
+    const lowEntries = entries.filter(entry => entry.support < flowCandidateSupportThreshold)
+    const includedSlots = new Set(lowEntries.map(entry => entry.index))
+    const lowSlots = new Set(lowEntries.map(entry => entry.index))
+    let sharedSlots = new Set()
     if (thresholdEntries.length >= 2) {
-      allocations.set(facilityId, {
-        includedSlots: new Set(thresholdEntries.map(entry => entry.index)),
-        sharedSlots: new Set(thresholdEntries.map(entry => entry.index)),
-        lowSlots: new Set()
-      })
+      thresholdEntries.forEach(entry => includedSlots.add(entry.index))
+      sharedSlots = new Set(thresholdEntries.map(entry => entry.index))
     } else if (thresholdEntries.length === 1) {
-      allocations.set(facilityId, {
-        includedSlots: new Set([thresholdEntries[0].index]),
-        sharedSlots: new Set(),
-        lowSlots: new Set()
-      })
+      includedSlots.add(thresholdEntries[0].index)
     } else if (candidateEntries.length) {
       candidateEntries.sort((a, b) => b.support - a.support || b.row.collectedCount - a.row.collectedCount || a.index - b.index)
-      allocations.set(facilityId, { includedSlots: new Set([candidateEntries[0].index]), sharedSlots: new Set(), lowSlots: new Set() })
-    } else {
-      allocations.set(facilityId, {
-        includedSlots: new Set(entries.map(entry => entry.index)),
-        sharedSlots: new Set(),
-        lowSlots: new Set(entries.map(entry => entry.index))
-      })
+      includedSlots.add(candidateEntries[0].index)
     }
+    allocations.set(facilityId, { includedSlots, sharedSlots, lowSlots })
   }
 
   return slots.map((slot, slotIndex) => {
