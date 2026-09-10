@@ -133,7 +133,7 @@
             <section class="panel flow-groups-panel">
               <div class="panel-head"><div><h2>历史岗位分堆</h2><span class="muted">先归纳历史趟次，再生成岗位内多趟预览</span></div><div class="flow-group-actions"><label class="flow-shared-threshold">共享支持率阈值<input v-model.number="flowSharedPointThreshold" type="number" min="0.3" max="1" step="0.05" /></label><button class="secondary" @click="generateFlowMultiTrips" :disabled="!flowAnalysisResult.groups?.length">{{ flowMultiTripGenerated ? '重新生成多趟' : '生成多趟' }}</button><button @click="openSaveFlowAnalysis" :disabled="!flowAnalysisResult.groups?.length">保存分堆草案</button><span v-if="flowMultiTripGenerated" class="flow-generated-status">已生成 {{ flowGeneratedGroups.length }} 个候选趟次</span></div></div>
             <div v-if="flowMultiTripGenerated" class="flow-multi-trip-preview">
-              <div class="panel-head"><div><h2>生成的多趟路线</h2><span class="muted">按岗位日均 {{ flowGeneratedTripCount }} 趟（四舍五入）生成；支持率达到30%才进入候选；达到60%的多个候选趟次才共享；低于30%的点列入未进入候选；多次收运独立标记；仅用于预览，不会自动保存</span></div><button class="ghost-button" @click="flowMultiTripGenerated = false">关闭预览</button></div>
+              <div class="panel-head"><div><h2>生成的多趟路线</h2><span class="muted">按岗位日均 {{ flowGeneratedTripCount }} 趟（四舍五入）生成；支持率达到30%显示绿色；达到60%的多个候选趟次才共享；低于30%但实际收运过的点以白框纳入；多次收运独立标记；仅用于预览，不会自动保存</span></div><button class="ghost-button" @click="flowMultiTripGenerated = false">关闭预览</button></div>
               <div class="flow-multi-trip-grid"><article v-for="group in flowGeneratedGroups" :key="'flow-generated-group-'+group.groupNo" class="flow-multi-trip-card"><div class="flow-multi-trip-head"><div><strong>候选第 {{ group.groupNo }} 趟</strong><span>依据：每日第 {{ group.groupNo }} 趟 · 历史样本 {{ group.tripCount }} 趟</span></div><button type="button" class="secondary" :class="{ active: flowSelectedGroup?.groupNo === group.groupNo }" @click="selectFlowGroup(group)">{{ flowSelectedGroup?.groupNo === group.groupNo ? '当前地图' : '查看地图' }}</button></div><p class="muted">候选点位 {{ group.points?.length || 0 }} 个 · 覆盖 {{ group.activeDays }} 天 · 典型终点：{{ group.typicalEnd?.facilityName || '未确定' }}</p><div class="flow-generated-route-label">候选路线顺序</div><div class="flow-generated-sequence"><template v-for="(point, index) in group.points" :key="'flow-generated-point-'+group.groupNo+'-'+point.facilityId"><span :class="{ ...flowPointClass(point), 'flow-point-shared': point.candidateShared, 'flow-point-shared-priority': point.candidateMultiCollection, 'flow-point-shared-flexible': point.candidateSharedFlexible, 'flow-point-low-frequency': point.candidateLowFrequency }" :title="flowCandidatePointTitle(point)">{{ index + 1 }}. {{ point.facilityName || point.facilityId }}<small v-if="point.candidateMultiCollection">多次收运</small><small v-else-if="point.candidateShared">共享</small><small v-else-if="point.candidateLowFrequency">低频</small></span><b v-if="index < group.points.length - 1">→</b></template><b v-if="group.typicalEnd">→ {{ group.typicalEnd.facilityName }}</b></div></article></div>
               <div v-if="flowConfiguredExcludedPoints.length" class="flow-configured-excluded">
                 <div class="flow-configured-excluded-head"><div><strong>低频或岗位点位未进入候选</strong><span class="muted">低频点不进入候选；岗位配置中未被本次流水支持的点位也单独列出</span></div><span class="flow-generated-status">{{ flowConfiguredExcludedPoints.length }} 个点位</span></div>
@@ -1972,13 +1972,24 @@ function flowBuildGeneratedGroups(result) {
     if (thresholdEntries.length >= 2) {
       allocations.set(facilityId, {
         includedSlots: new Set(thresholdEntries.map(entry => entry.index)),
-        sharedSlots: new Set(thresholdEntries.map(entry => entry.index))
+        sharedSlots: new Set(thresholdEntries.map(entry => entry.index)),
+        lowSlots: new Set()
+      })
+    } else if (thresholdEntries.length === 1) {
+      allocations.set(facilityId, {
+        includedSlots: new Set([thresholdEntries[0].index]),
+        sharedSlots: new Set(),
+        lowSlots: new Set()
       })
     } else if (candidateEntries.length) {
       candidateEntries.sort((a, b) => b.support - a.support || b.row.collectedCount - a.row.collectedCount || a.index - b.index)
-      allocations.set(facilityId, { includedSlots: new Set([candidateEntries[0].index]), sharedSlots: new Set() })
+      allocations.set(facilityId, { includedSlots: new Set([candidateEntries[0].index]), sharedSlots: new Set(), lowSlots: new Set() })
     } else {
-      allocations.set(facilityId, { includedSlots: new Set(), sharedSlots: new Set() })
+      allocations.set(facilityId, {
+        includedSlots: new Set(entries.map(entry => entry.index)),
+        sharedSlots: new Set(),
+        lowSlots: new Set(entries.map(entry => entry.index))
+      })
     }
   }
 
@@ -2003,7 +2014,7 @@ function flowBuildGeneratedGroups(result) {
         maxDailyCollectedCount: summary.maxDailyCollectedCount,
         candidateShared: Boolean(allocation?.sharedSlots.has(slotIndex)),
         candidateMultiCollection: Boolean(summary.collectedCount > Number(result?.periodDays || 0)),
-        candidateLowFrequency: false,
+        candidateLowFrequency: Boolean(allocation?.lowSlots.has(slotIndex)),
         candidateSharedFlexible: false,
         orderPosition: row.positions.reduce((sum, value) => sum + value, 0) / Math.max(1, row.positions.length)
       }
