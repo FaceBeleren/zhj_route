@@ -133,8 +133,8 @@
             <section class="panel flow-groups-panel">
               <div class="panel-head"><div><h2>历史岗位分堆</h2><span class="muted">先归纳历史趟次，再生成岗位内多趟预览</span></div><div class="flow-group-actions"><button class="secondary" @click="generateFlowMultiTrips" :disabled="!flowAnalysisResult.groups?.length">{{ flowMultiTripGenerated ? '重新生成多趟' : '生成多趟' }}</button><button @click="openSaveFlowAnalysis" :disabled="!flowAnalysisResult.groups?.length">保存分堆草案</button><span v-if="flowMultiTripGenerated" class="flow-generated-status">已生成 {{ flowGeneratedGroups.length }} 个候选趟次</span></div></div>
             <div v-if="flowMultiTripGenerated" class="flow-multi-trip-preview">
-              <div class="panel-head"><div><h2>生成的多趟路线</h2><span class="muted">按岗位日均 {{ flowGeneratedTripCount }} 趟（四舍五入）生成；收运过一次即纳入；高支持率点位保留为共享点，低频点按收运次数归属，相同次数保留为共享点；仅用于预览，不会自动保存</span></div><button class="ghost-button" @click="flowMultiTripGenerated = false">关闭预览</button></div>
-              <div class="flow-multi-trip-grid"><article v-for="group in flowGeneratedGroups" :key="'flow-generated-group-'+group.groupNo" class="flow-multi-trip-card"><div class="flow-multi-trip-head"><div><strong>候选第 {{ group.groupNo }} 趟</strong><span>依据：每日第 {{ group.groupNo }} 趟 · 历史样本 {{ group.tripCount }} 趟</span></div><button type="button" class="secondary" :class="{ active: flowSelectedGroup?.groupNo === group.groupNo }" @click="selectFlowGroup(group)">{{ flowSelectedGroup?.groupNo === group.groupNo ? '当前地图' : '查看地图' }}</button></div><p class="muted">候选点位 {{ group.points?.length || 0 }} 个 · 覆盖 {{ group.activeDays }} 天 · 典型终点：{{ group.typicalEnd?.facilityName || '未确定' }}</p><div class="flow-generated-route-label">候选路线顺序</div><div class="flow-generated-sequence"><template v-for="(point, index) in group.points" :key="'flow-generated-point-'+group.groupNo+'-'+point.facilityId"><span :class="{ ...flowPointClass(point), 'flow-point-shared': point.candidateShared, 'flow-point-shared-priority': point.candidateMultiCollection, 'flow-point-shared-flexible': point.candidateSharedFlexible }" :title="flowCandidatePointTitle(point)">{{ index + 1 }}. {{ point.facilityName || point.facilityId }}<small v-if="point.candidateMultiCollection && point.candidateShared">高频共享</small><small v-else-if="point.candidateMultiCollection">多次收运</small><small v-else-if="point.candidateSharedFlexible">低频共享</small></span><b v-if="index < group.points.length - 1">→</b></template><b v-if="group.typicalEnd">→ {{ group.typicalEnd.facilityName }}</b></div></article></div>
+              <div class="panel-head"><div><h2>生成的多趟路线</h2><span class="muted">按岗位日均 {{ flowGeneratedTripCount }} 趟（四舍五入）生成；收运过一次即纳入；两个候选趟次都收运过就保留为共享点，只在一趟收运的点按归属趟次展示；仅用于预览，不会自动保存</span></div><button class="ghost-button" @click="flowMultiTripGenerated = false">关闭预览</button></div>
+              <div class="flow-multi-trip-grid"><article v-for="group in flowGeneratedGroups" :key="'flow-generated-group-'+group.groupNo" class="flow-multi-trip-card"><div class="flow-multi-trip-head"><div><strong>候选第 {{ group.groupNo }} 趟</strong><span>依据：每日第 {{ group.groupNo }} 趟 · 历史样本 {{ group.tripCount }} 趟</span></div><button type="button" class="secondary" :class="{ active: flowSelectedGroup?.groupNo === group.groupNo }" @click="selectFlowGroup(group)">{{ flowSelectedGroup?.groupNo === group.groupNo ? '当前地图' : '查看地图' }}</button></div><p class="muted">候选点位 {{ group.points?.length || 0 }} 个 · 覆盖 {{ group.activeDays }} 天 · 典型终点：{{ group.typicalEnd?.facilityName || '未确定' }}</p><div class="flow-generated-route-label">候选路线顺序</div><div class="flow-generated-sequence"><template v-for="(point, index) in group.points" :key="'flow-generated-point-'+group.groupNo+'-'+point.facilityId"><span :class="{ ...flowPointClass(point), 'flow-point-shared': point.candidateShared, 'flow-point-shared-priority': point.candidateMultiCollection, 'flow-point-shared-flexible': point.candidateSharedFlexible }" :title="flowCandidatePointTitle(point)">{{ index + 1 }}. {{ point.facilityName || point.facilityId }}<small v-if="point.candidateMultiCollection">多次收运</small><small v-else-if="point.candidateSharedFlexible">共享低频</small></span><b v-if="index < group.points.length - 1">→</b></template><b v-if="group.typicalEnd">→ {{ group.typicalEnd.facilityName }}</b></div></article></div>
               <div v-if="flowConfiguredExcludedPoints.length" class="flow-configured-excluded">
                 <div class="flow-configured-excluded-head"><div><strong>低频或岗位点位未进入候选</strong><span class="muted">低频点不进入候选；岗位配置中未被本次流水支持的点位也单独列出</span></div><span class="flow-generated-status">{{ flowConfiguredExcludedPoints.length }} 个点位</span></div>
                 <div class="flow-configured-excluded-list"><span v-for="point in flowConfiguredExcludedPoints" :key="'flow-configured-excluded-'+point.facilityId" :class="['flow-configured-point', 'status-'+point.status]"><strong>{{ point.facilityName || point.facilityId }}</strong><small>{{ point.statusLabel }} · 收运 {{ point.collectedCount }} 次 · 途经 {{ point.throughCount }} 次</small></span></div>
@@ -1956,27 +1956,20 @@ function flowBuildGeneratedGroups(result) {
   })
 
   const allocations = new Map()
-  const sharedSupportThreshold = 0.6
   const allPointIds = new Set(slotPointRows.flatMap(rows => [...rows.keys()]))
   for (const facilityId of allPointIds) {
     const entries = slotPointRows.map((rows, index) => {
       const row = rows.get(facilityId)
-      return row && row.collectedCount > 0
-        ? { index, row, support: row.visits / Math.max(1, slots[index].trips.length) }
-        : null
+      return row && row.collectedCount > 0 ? { index, row } : null
     }).filter(Boolean)
     if (!entries.length) continue
 
-    // 保留原来的高支持率共享规则；低频点再按收运次数补充归属。
-    const supportShared = entries.filter(entry => entry.support >= sharedSupportThreshold)
-    if (supportShared.length >= 2) {
-      allocations.set(facilityId, { shared: new Set(supportShared.map(entry => entry.index)) })
+    // 只要两个候选趟次都实际收运过，就保留为共享点；只在一趟收运的才按归属趟次展示。
+    if (entries.length >= 2) {
+      allocations.set(facilityId, { shared: new Set(entries.map(entry => entry.index)) })
       continue
     }
-    const maxCollected = Math.max(...entries.map(entry => entry.row.collectedCount))
-    const topEntries = entries.filter(entry => entry.row.collectedCount === maxCollected)
-    if (topEntries.length >= 2) allocations.set(facilityId, { shared: new Set(topEntries.map(entry => entry.index)) })
-    else allocations.set(facilityId, { owner: topEntries[0].index })
+    allocations.set(facilityId, { owner: entries[0].index })
   }
 
   return slots.map((slot, slotIndex) => {
@@ -4853,7 +4846,7 @@ function toggleFlowTrips() { flowTripsCollapsed.value = !flowTripsCollapsed.valu
 
 function formatFlowTime(value) { if (!value) return '-'; const text = String(value); return text.replace('T', ' ').replace(/(\.\d+)?([+-]\d\d:?\d\d|Z)?$/, '') }
 function flowPointClass(point) { const type = point.finalMatchType === null || point.finalMatchType === undefined ? Number(point.matchType) : Number(point.finalMatchType); return { 'flow-point-collected': type === 0, 'flow-point-through': type === 1, 'flow-point-repeat-2': Number(point.visitCount || point.totalCount || 0) === 2, 'flow-point-repeat-3': Number(point.visitCount || point.totalCount || 0) >= 3 } }
-function flowCandidatePointTitle(point) { if (point.candidateMultiCollection && point.candidateShared) return `高频共享：统计期收运 ${point.collectedPeriodCount || 0} 次，最高单日 ${point.maxDailyCollectedCount || 0} 次`; if (point.candidateMultiCollection) return `多次收运：统计期收运 ${point.collectedPeriodCount || 0} 次，最高单日 ${point.maxDailyCollectedCount || 0} 次`; if (point.candidateShared) return `低频共享：统计期收运 ${point.collectedPeriodCount || 0} 次，最高单日 ${point.maxDailyCollectedCount || 0} 次`; return '' }
+function flowCandidatePointTitle(point) { if (point.candidateMultiCollection) return `多次收运：统计期收运 ${point.collectedPeriodCount || 0} 次，最高单日 ${point.maxDailyCollectedCount || 0} 次`; if (point.candidateShared) return `共享低频：统计期收运 ${point.collectedPeriodCount || 0} 次，最高单日 ${point.maxDailyCollectedCount || 0} 次`; return '' }
 function flowTripPointPhase(point, day) {
   if (Number(point.matchType) !== 1 || !point.facilityId) return 'none'
   const samePointEvents = []
