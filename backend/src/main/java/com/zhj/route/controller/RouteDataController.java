@@ -148,9 +148,10 @@ public class RouteDataController {
     @GetMapping("/flow-analysis/vehicles")
     public List<Map<String, Object>> flowAnalysisVehicles(
             @RequestParam String unitId,
+            @RequestParam String routeId,
             @RequestParam(required = false) String startDate,
             @RequestParam(required = false) String endDate) {
-        return flowAnalysisService.vehicles(unitId, startDate, endDate);
+        return flowAnalysisService.vehicles(unitId, routeId, startDate, endDate);
     }
 
     @PostMapping("/flow-analysis/tasks")

@@ -98,18 +98,27 @@
       <section class="flow-analysis-shell">
         <section class="panel flow-analysis-filter-panel">
           <div class="panel-head">
-            <div><h2>车辆流水分析</h2><span class="muted">从实际流水还原趟次，归纳历史岗位分堆</span></div>
-            <div class="panel-actions"><button class="secondary" @click="loadFlowVehicles" :disabled="flowAnalysisLoading">刷新车辆</button><button @click="startFlowAnalysis" :disabled="flowAnalysisRunning || !flowAnalysisCompanyId || !flowAnalysisCarCode">开始分析</button><button class="danger" v-if="flowAnalysisRunning" @click="cancelFlowAnalysis">停止</button></div>
+            <div><h2>岗位流水分析</h2><span class="muted">先确定岗位，再从该岗位的执行车辆中选择流水来源</span></div>
+            <div class="panel-actions"><button class="secondary" @click="loadFlowVehicles" :disabled="flowAnalysisLoading || !flowAnalysisCompanyId || !flowAnalysisRouteId">刷新车辆</button><button @click="startFlowAnalysis" :disabled="flowAnalysisRunning || !flowAnalysisCompanyId || !flowAnalysisRouteId || !flowDateRangeValid || !flowSelectedVehicleCodes.size">开始分析</button><button class="danger" v-if="flowAnalysisRunning" @click="cancelFlowAnalysis">停止</button></div>
           </div>
           <div class="flow-analysis-filters">
-            <label class="flow-company-picker">项目公司<input v-model="flowAnalysisCompanyKeyword" placeholder="输入公司名称或编号模糊查找" /><span v-if="flowAnalysisCompany" class="flow-selected-company">已选：{{ flowAnalysisCompany.depName || flowAnalysisCompany.id }}</span><span v-if="flowAnalysisCompanyKeyword && !flowAnalysisCompany" class="flow-company-results"><button v-for="company in filteredFlowAnalysisCompanies" :key="'flow-company-'+company.id" type="button" @click="selectFlowAnalysisCompany(company)">{{ company.depName || company.id }}</button><em v-if="!filteredFlowAnalysisCompanies.length">没有匹配公司</em></span></label>
-            <label>车辆<select v-model="flowAnalysisCarCode" @change="resetFlowAnalysisResult"><option value="">请选择车辆</option><option v-for="vehicle in flowAnalysisVehicles" :key="'flow-car-'+vehicle.carCode" :value="vehicle.carCode">{{ vehicle.carCode }} · {{ vehicle.recordCount }} 条流水</option></select></label>
-            <label>开始日期<input v-model="flowAnalysisFilters.startDate" type="date" /></label>
-            <label>结束日期<input v-model="flowAnalysisFilters.endDate" type="date" /></label>
-            <label>岗位<select v-model="flowAnalysisRouteId"><option value="">自动按岗位分别分析</option><option v-for="job in flowAnalysisJobs" :key="'flow-job-'+job.routeId" :value="String(job.routeId)">{{ job.routeName || '未绑定岗位' }} · {{ job.recordCount }} 条</option></select></label>
+            <label class="flow-company-picker">项目公司<div class="flow-company-input-row"><input v-model="flowAnalysisCompanyKeyword" :disabled="!!flowAnalysisCompany" placeholder="输入公司名称或编号模糊查找" /><button v-if="flowAnalysisCompany" type="button" class="flow-clear-company" title="清除已选公司" aria-label="清除已选公司" @click="clearFlowAnalysisCompany">×</button></div><span v-if="flowAnalysisCompany" class="flow-selected-company">已选：{{ flowAnalysisCompany.depName || flowAnalysisCompany.id }}</span><span v-if="flowAnalysisCompanyKeyword && !flowAnalysisCompany" class="flow-company-results"><button v-for="company in filteredFlowAnalysisCompanies" :key="'flow-company-'+company.id" type="button" @click="selectFlowAnalysisCompany(company)">{{ company.depName || company.id }}</button><em v-if="!filteredFlowAnalysisCompanies.length">没有匹配公司</em></span></label>
+            <label>岗位<select v-model="flowAnalysisRouteId" @change="loadFlowVehicles"><option value="">请选择岗位</option><option v-for="job in flowAnalysisJobs" :key="'flow-job-'+job.id" :value="String(job.id)">{{ job.routeName || '未命名岗位' }}<template v-if="job.frequencyName"> · {{ job.frequencyName }}</template></option></select></label>
+            <label>开始日期<input v-model="flowAnalysisFilters.startDate" type="date" @change="loadFlowVehicles" /></label>
+            <label>结束日期<input v-model="flowAnalysisFilters.endDate" type="date" @change="loadFlowVehicles" /></label>
+            <label class="flow-vehicle-picker">执行车辆
+              <div class="flow-multi-select">
+                <button type="button" class="flow-multi-select-trigger" :disabled="!flowAnalysisRouteId || !flowAnalysisVehicles.length" @click="flowVehiclePickerOpen = !flowVehiclePickerOpen">{{ flowVehicleSelectionLabel }} <span aria-hidden="true">⌄</span></button>
+                <div v-if="flowVehiclePickerOpen" class="flow-multi-select-menu">
+                  <div class="flow-multi-select-actions"><button type="button" @click.stop="selectAllFlowVehicles">全选</button><button type="button" @click.stop="clearFlowVehicles">清空</button></div>
+                  <label v-for="vehicle in flowAnalysisVehicles" :key="'flow-car-'+vehicle.carCode" class="flow-vehicle-option"><input type="checkbox" :checked="flowSelectedVehicleCodes.has(String(vehicle.carCode))" @change="toggleFlowVehicle(vehicle.carCode)" /><span>{{ vehicle.carCode }}</span><small>{{ vehicle.recordCount }} 条流水 · {{ vehicle.activeDays }} 天</small></label>
+                </div>
+              </div>
+              <small class="flow-filter-hint" v-if="flowAnalysisRouteId && !flowAnalysisVehicles.length">该岗位在当前日期内没有出车流水</small>
+            </label>
             <label>相似度阈值<input v-model.number="flowAnalysisThreshold" type="number" min="0.3" max="0.9" step="0.05" /></label>
           </div>
-          <p class="muted">单日用于查看真实趟次；多日用于归纳稳定分堆。原始流水只读，人工修正只影响本次分析。</p>
+          <p class="muted">岗位是分析主体；车辆只用于筛选该岗位的实际执行流水，默认选择全部车辆。单日用于查看真实趟次，多日用于归纳稳定分堆。</p>
         </section>
 
         <section class="panel flow-progress-panel">
@@ -120,13 +129,13 @@
 
         <template v-if="flowAnalysisResult">
           <section class="flow-summary-grid">
-            <div class="summary-strip"><div><span>有效作业日</span><strong>{{ flowAnalysisResult.activeDays }}</strong></div><div><span>识别趟次</span><strong>{{ flowAnalysisResult.tripCount }}</strong></div><div><span>完整趟次</span><strong>{{ flowAnalysisResult.completeTripCount }}</strong></div><div><span>日均趟次</span><strong>{{ flowAnalysisResult.avgTripsPerActiveDay }}</strong></div><div><span>异常趟次</span><strong>{{ flowAnalysisResult.anomalyTripCount }}</strong></div></div>
+            <div class="summary-strip"><div><span>有效作业日</span><strong>{{ flowAnalysisResult.activeDays }}</strong></div><div><span>识别趟次</span><strong>{{ flowAnalysisResult.tripCount }}</strong></div><div><span>完整趟次</span><strong>{{ flowAnalysisResult.completeTripCount }}</strong></div><div><span>日均趟次</span><strong>{{ flowAnalysisResult.avgTripsPerActiveDay }}</strong></div><div><span>异常趟次</span><strong>{{ flowAnalysisResult.anomalyTripCount }}</strong></div></div><div v-if="flowAnalysisResult.vehicleSummary?.length" class="flow-vehicle-summary"><span v-for="vehicle in flowAnalysisResult.vehicleSummary" :key="'flow-result-car-'+vehicle.carCode">车辆 {{ vehicle.carCode }} · 流水 {{ vehicle.recordCount }} 条 · 趟次 {{ vehicle.tripCount }} · 作业日 {{ vehicle.activeDays }} 天</span></div>
             <div v-if="flowAnalysisResult.tripCountMismatchRecords" class="flow-warning">有 {{ flowAnalysisResult.tripCountMismatchRecords }} 条流水记录的预计趟数与实际切分趟数不一致，请结合时间轴核对场站事件。</div>
                       </section>
           <section class="flow-analysis-results">
             <section class="panel flow-daily-panel">
               <div class="panel-head"><div><h2>实际趟次</h2><span class="muted">按场站事件切分，展开查看点位顺序；同一天的次数按日期汇总</span></div><div class="flow-daily-actions"><button type="button" class="flow-collapse-button" @click="toggleFlowTrips">{{ flowTripsCollapsed ? '展开实际趟次' : '收起实际趟次' }}</button><label class="flow-filter-toggle" :class="{ active: flowShowCollectedOnly }"><input type="checkbox" v-model="flowShowCollectedOnly" /><span class="flow-filter-check" aria-hidden="true">✓</span><span class="flow-filter-copy"><strong>只展示收运点位</strong><small>隐藏纯途经点</small></span></label></div></div>
-<div v-if="!flowTripsCollapsed" class="flow-days-content"><div v-for="day in flowAnalysisResult.dailyTrips" :key="'flow-day-'+day.date" class="flow-day"><div class="flow-day-head"><h3>{{ day.date }} <small>{{ day.tripCount }} 趟</small></h3><button type="button" class="flow-day-toggle" :class="{ expanded: flowExpandedDays.has(day.date) }" :aria-expanded="flowExpandedDays.has(day.date)" @click="toggleFlowDay(day.date)"><span aria-hidden="true">⌄</span>{{ flowExpandedDays.has(day.date) ? '收起趟次' : '展开趟次' }}</button></div><div v-if="day.pointStats?.length" class="flow-day-point-stats"><template v-for="point in day.pointStats" :key="'flow-day-point-'+day.date+'-'+point.facilityId"><span v-if="!flowShowCollectedOnly || Number(point.collectedCount || 0) > 0" :class="flowDailyPointClass(point)">{{ point.facilityName || point.facilityId }} · {{ point.finalMatchLabel }} · 收运 {{ point.collectedCount || 0 }}次 · 途经 {{ point.throughCount || 0 }}次</span></template></div><div v-if="flowExpandedDays.has(day.date)" class="flow-day-trips"><div v-for="(trip, index) in day.trips" :key="'flow-trip-'+trip.recordId+'-'+index" class="flow-trip"><div><strong>{{ trip.date || day.date || '日期未知' }} · 第 {{ index + 1 }} 趟</strong><span>{{ trip.complete ? '已到场' : '未记录终点' }} · {{ trip.pointCount }} 个收集点 · 已收 {{ trip.collectedPointCount || 0 }} · 途经 {{ trip.throughPointCount || 0 }}<button v-if="!trip.complete && trip.points?.length" class="ghost-button" @click="markFlowBoundary(trip)">将末点作为人工边界</button></span></div><div class="flow-sequence"><span v-if="trip.start">{{ trip.start.facilityName }}</span><template v-for="point in trip.points" :key="'flow-point-'+trip.recordId+'-'+point.eventId"><span v-if="!flowShowCollectedOnly || Number(point.matchType) === 0" :class="flowTripPointClass(point, day)" :title="flowPointDisplayLabel(point, day)">{{ point.facilityName || point.facilityId }} <small>{{ flowPointDisplayLabel(point, day) }}{{ flowPointOccurrenceLabel(point) }}</small></span></template><b v-if="trip.end">→ {{ trip.end.facilityName }}</b></div></div></div></div></div>
+<div v-if="!flowTripsCollapsed" class="flow-days-content"><div v-for="day in flowAnalysisResult.dailyTrips" :key="'flow-day-'+day.date" class="flow-day"><div class="flow-day-head"><h3>{{ day.date }} <small>{{ day.tripCount }} 趟</small></h3><button type="button" class="flow-day-toggle" :class="{ expanded: flowExpandedDays.has(day.date) }" :aria-expanded="flowExpandedDays.has(day.date)" @click="toggleFlowDay(day.date)"><span aria-hidden="true">⌄</span>{{ flowExpandedDays.has(day.date) ? '收起趟次' : '展开趟次' }}</button></div><div v-if="day.pointStats?.length" class="flow-day-point-stats"><template v-for="point in day.pointStats" :key="'flow-day-point-'+day.date+'-'+point.facilityId"><span v-if="!flowShowCollectedOnly || Number(point.collectedCount || 0) > 0" :class="flowDailyPointClass(point)">{{ point.facilityName || point.facilityId }} · {{ point.finalMatchLabel }} · 收运 {{ point.collectedCount || 0 }}次 · 途经 {{ point.throughCount || 0 }}次</span></template></div><div v-if="flowExpandedDays.has(day.date)" class="flow-day-trips"><div v-for="(trip, index) in day.trips" :key="'flow-trip-'+trip.recordId+'-'+index" class="flow-trip"><div><strong>{{ trip.date || day.date || '日期未知' }} · 第 {{ index + 1 }} 趟<small v-if="trip.carCode"> · 车辆 {{ trip.carCode }}</small></strong><span>{{ trip.complete ? '已到场' : '未记录终点' }} · {{ trip.pointCount }} 个收集点 · 已收 {{ trip.collectedPointCount || 0 }} · 途经 {{ trip.throughPointCount || 0 }}<button v-if="!trip.complete && trip.points?.length" class="ghost-button" @click="markFlowBoundary(trip)">将末点作为人工边界</button></span></div><div class="flow-sequence"><span v-if="trip.start">{{ trip.start.facilityName }}</span><template v-for="point in trip.points" :key="'flow-point-'+trip.recordId+'-'+point.eventId"><span v-if="!flowShowCollectedOnly || Number(point.matchType) === 0" :class="flowTripPointClass(point, day)" :title="flowPointDisplayLabel(point, day)">{{ point.facilityName || point.facilityId }} <small>{{ flowPointDisplayLabel(point, day) }}{{ flowPointOccurrenceLabel(point) }}</small></span></template><b v-if="trip.end">→ {{ trip.end.facilityName }}</b></div></div></div></div></div>
               <div v-if="flowTripsCollapsed && flowAnalysisResult.dailyTrips?.length" class="flow-collapsed-hint">已收起 {{ flowAnalysisResult.dailyTrips.length }} 天实际趟次，点击“展开实际趟次”查看。</div>
               <div v-if="!flowAnalysisResult.dailyTrips?.length" class="empty">没有找到可分析的流水</div>
             </section>
@@ -1879,10 +1888,12 @@ const loginError = ref('')
 const currentView = ref('score')
 const flowAnalysisCompanyId = ref('')
 const flowAnalysisCompanyKeyword = ref('')
-const flowAnalysisCarCode = ref('')
 const flowAnalysisRouteId = ref('')
+const flowAnalysisJobs = ref([])
 const flowAnalysisVehicles = ref([])
-const flowAnalysisTask = reactive({ taskId: '', status: 'IDLE', phase: 'PREPARE', message: '请选择公司和车辆', percent: 0, totalRecords: 0, loadedEvents: 0, elapsedMs: 0 })
+const flowSelectedVehicleCodes = ref(new Set())
+const flowVehiclePickerOpen = ref(false)
+const flowAnalysisTask = reactive({ taskId: '', status: 'IDLE', phase: 'PREPARE', message: '请选择公司、岗位和执行车辆', percent: 0, totalRecords: 0, loadedEvents: 0, elapsedMs: 0 })
 const flowAnalysisResult = ref(null)
 const flowSelectedGroup = ref(null)
 const flowShowCollectedOnly = ref(false)
@@ -1895,6 +1906,8 @@ const flowAnalysisThreshold = ref(0.6)
 const flowSharedPointThreshold = ref(0.6)
 const flowForcedBoundaryIds = ref(new Set())
 const flowAnalysisFilters = reactive({ startDate: toDateInput(new Date(Date.now() - 29 * 86400000)), endDate: toDateInput(new Date()) })
+
+const flowDateRangeValid = computed(() => Boolean(flowAnalysisFilters.startDate && flowAnalysisFilters.endDate && flowAnalysisFilters.startDate <= flowAnalysisFilters.endDate))
 
 const flowPointCollectionSummary = computed(() => {
   const summary = new Map()
@@ -1969,20 +1982,28 @@ function flowBuildGeneratedGroups(result) {
     if (!entries.length) continue
     const candidateEntries = entries.filter(entry => entry.support >= flowCandidateSupportThreshold)
     const thresholdEntries = candidateEntries.filter(entry => entry.support >= flowSharedPointThreshold.value)
-    const lowEntries = entries.filter(entry => entry.support < flowCandidateSupportThreshold)
-    const includedSlots = new Set(lowEntries.map(entry => entry.index))
-    const lowSlots = new Set(lowEntries.map(entry => entry.index))
-    let sharedSlots = new Set()
     if (thresholdEntries.length >= 2) {
-      thresholdEntries.forEach(entry => includedSlots.add(entry.index))
-      sharedSlots = new Set(thresholdEntries.map(entry => entry.index))
+      allocations.set(facilityId, {
+        includedSlots: new Set(thresholdEntries.map(entry => entry.index)),
+        sharedSlots: new Set(thresholdEntries.map(entry => entry.index)),
+        lowSlots: new Set()
+      })
     } else if (thresholdEntries.length === 1) {
-      includedSlots.add(thresholdEntries[0].index)
+      allocations.set(facilityId, {
+        includedSlots: new Set([thresholdEntries[0].index]),
+        sharedSlots: new Set(),
+        lowSlots: new Set()
+      })
     } else if (candidateEntries.length) {
       candidateEntries.sort((a, b) => b.support - a.support || b.row.collectedCount - a.row.collectedCount || a.index - b.index)
-      includedSlots.add(candidateEntries[0].index)
+      allocations.set(facilityId, { includedSlots: new Set([candidateEntries[0].index]), sharedSlots: new Set(), lowSlots: new Set() })
+    } else {
+      allocations.set(facilityId, {
+        includedSlots: new Set(entries.map(entry => entry.index)),
+        sharedSlots: new Set(),
+        lowSlots: new Set(entries.map(entry => entry.index))
+      })
     }
-    allocations.set(facilityId, { includedSlots, sharedSlots, lowSlots })
   }
 
   return slots.map((slot, slotIndex) => {
@@ -2196,10 +2217,6 @@ const filteredFlowAnalysisCompanies = computed(() => {
   const keyword = flowAnalysisCompanyKeyword.value.trim().toLowerCase()
   if (!keyword) return []
   return companies.value.filter((company) => `${company.depName || ''} ${company.id || ''}`.toLowerCase().includes(keyword)).slice(0, 30)
-})
-const flowAnalysisJobs = computed(() => {
-  const rows = flowAnalysisVehicles.value.filter((row) => String(row.carCode) === String(flowAnalysisCarCode.value))
-  return rows.filter((row, index) => rows.findIndex((item) => String(item.routeId || '') === String(row.routeId || '')) === index)
 })
 const odCacheVisiblePoints = computed(() => {
   const keyword = odCachePointKeyword.value.trim().toLowerCase()
@@ -4760,33 +4777,90 @@ function resetFlowAnalysisResult() {
   flowMultiTripGenerated.value = false
   flowExpandedDays.value = new Set()
   flowForcedBoundaryIds.value = new Set()
-  Object.assign(flowAnalysisTask, { taskId: '', status: 'IDLE', phase: 'PREPARE', message: '请选择公司和车辆', percent: 0, totalRecords: 0, loadedEvents: 0, elapsedMs: 0 })
+  Object.assign(flowAnalysisTask, { taskId: '', status: 'IDLE', phase: 'PREPARE', message: '请选择公司、岗位和执行车辆', percent: 0, totalRecords: 0, loadedEvents: 0, elapsedMs: 0 })
 }
 
 async function loadFlowVehicles() {
-  if (!flowAnalysisCompanyId.value) return
+  flowAnalysisVehicles.value = []
+  flowSelectedVehicleCodes.value = new Set()
+  flowVehiclePickerOpen.value = false
+  resetFlowAnalysisResult()
+  if (!flowAnalysisCompanyId.value || !flowAnalysisRouteId.value || !flowDateRangeValid.value) return
   flowAnalysisLoading.value = true
   try {
-    const params = new URLSearchParams({ unitId: flowAnalysisCompanyId.value, startDate: flowAnalysisFilters.startDate, endDate: flowAnalysisFilters.endDate })
+    const params = new URLSearchParams({ unitId: flowAnalysisCompanyId.value, routeId: flowAnalysisRouteId.value, startDate: flowAnalysisFilters.startDate, endDate: flowAnalysisFilters.endDate })
     flowAnalysisVehicles.value = await api(`/api/flow-analysis/vehicles?${params}`)
-    if (!flowAnalysisVehicles.value.some((item) => String(item.carCode) === String(flowAnalysisCarCode.value))) flowAnalysisCarCode.value = ''
-    resetFlowAnalysisResult()
+    flowSelectedVehicleCodes.value = new Set(flowAnalysisVehicles.value.map((vehicle) => String(vehicle.carCode)))
   } finally {
     flowAnalysisLoading.value = false
   }
 }
 
+async function loadFlowJobs() {
+  flowAnalysisJobs.value = []
+  flowAnalysisRouteId.value = ''
+  flowAnalysisVehicles.value = []
+  flowSelectedVehicleCodes.value = new Set()
+  flowVehiclePickerOpen.value = false
+  resetFlowAnalysisResult()
+  if (!flowAnalysisCompanyId.value) return
+  flowAnalysisLoading.value = true
+  try {
+    flowAnalysisJobs.value = await api(`/api/companies/${flowAnalysisCompanyId.value}/routes?dataType=1`)
+  } finally {
+    flowAnalysisLoading.value = false
+  }
+}
+
+function toggleFlowVehicle(carCode) {
+  const next = new Set(flowSelectedVehicleCodes.value)
+  const key = String(carCode)
+  if (next.has(key)) next.delete(key)
+  else next.add(key)
+  flowSelectedVehicleCodes.value = next
+  resetFlowAnalysisResult()
+}
+
+function selectAllFlowVehicles() {
+  flowSelectedVehicleCodes.value = new Set(flowAnalysisVehicles.value.map((vehicle) => String(vehicle.carCode)))
+  resetFlowAnalysisResult()
+}
+
+function clearFlowVehicles() {
+  flowSelectedVehicleCodes.value = new Set()
+  resetFlowAnalysisResult()
+}
+
+const flowVehicleSelectionLabel = computed(() => {
+  const total = flowAnalysisVehicles.value.length
+  const selected = flowSelectedVehicleCodes.value.size
+  if (!total) return flowAnalysisRouteId.value ? '当前日期暂无车辆' : '请先选择岗位'
+  if (!selected) return '请选择车辆'
+  if (selected === total) return `全部车辆（${total}）`
+  if (selected === 1) return [...flowSelectedVehicleCodes.value][0]
+  return `已选 ${selected}/${total} 辆`
+})
+
+function clearFlowAnalysisCompany() {
+  flowAnalysisCompanyId.value = ''
+  flowAnalysisCompanyKeyword.value = ''
+  flowAnalysisJobs.value = []
+  flowAnalysisRouteId.value = ''
+  flowAnalysisVehicles.value = []
+  flowSelectedVehicleCodes.value = new Set()
+  flowVehiclePickerOpen.value = false
+  resetFlowAnalysisResult()
+}
+
 async function selectFlowAnalysisCompany(company) {
   flowAnalysisCompanyId.value = String(company.id)
   flowAnalysisCompanyKeyword.value = company.depName || String(company.id)
-  flowAnalysisCarCode.value = ''
-  flowAnalysisRouteId.value = ''
-  await loadFlowVehicles()
+  await loadFlowJobs()
 }
 
 function flowAnalysisJobName() {
-  const job = flowAnalysisJobs.value.find((item) => String(item.routeId || '') === String(flowAnalysisRouteId.value || ''))
-  return job?.routeName || '车辆流水归纳'
+  const job = flowAnalysisJobs.value.find((item) => String(item.id || '') === String(flowAnalysisRouteId.value || ''))
+  return job?.routeName || '岗位流水归纳'
 }
 
 function applyFlowAnalysisTask(task) {
@@ -4798,14 +4872,14 @@ function applyFlowAnalysisTask(task) {
 }
 
 async function startFlowAnalysis() {
-  if (!flowAnalysisCompanyId.value || !flowAnalysisCarCode.value) return
+  if (!flowAnalysisCompanyId.value || !flowAnalysisRouteId.value || !flowSelectedVehicleCodes.value.size) return
   if (flowAnalysisPollTimer.value) clearInterval(flowAnalysisPollTimer.value)
   resetFlowAnalysisResult()
   Object.assign(flowAnalysisTask, { status: 'QUEUED', phase: 'PREPARE', message: '正在提交流水分析任务', percent: 0 })
   try {
     const response = await api('/api/flow-analysis/tasks', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ unitId: flowAnalysisCompanyId.value, carCode: flowAnalysisCarCode.value, routeId: flowAnalysisRouteId.value || null, startDate: flowAnalysisFilters.startDate, endDate: flowAnalysisFilters.endDate, jaccardThreshold: flowAnalysisThreshold.value })
+      body: JSON.stringify({ unitId: flowAnalysisCompanyId.value, routeId: flowAnalysisRouteId.value, carCodes: [...flowSelectedVehicleCodes.value], startDate: flowAnalysisFilters.startDate, endDate: flowAnalysisFilters.endDate, jaccardThreshold: flowAnalysisThreshold.value })
     })
     applyFlowAnalysisTask(response)
     flowAnalysisPollTimer.value = setInterval(() => pollFlowAnalysis(response.taskId), 1000)
@@ -4903,7 +4977,7 @@ function openSaveFlowAnalysis() {
   const routes = flowAnalysisResult.value.groups.map((group, index) => ({
     routeNo: index + 1,
     routeName: `${flowAnalysisJobName()} · 流水分堆${index + 1}`,
-    vehicleName: flowAnalysisCarCode.value,
+    vehicleName: [...flowSelectedVehicleCodes.value].join(', '),
     tripNo: index + 1,
     points: flowMapPoints(group),
     distance: null,
@@ -4918,7 +4992,7 @@ function openSaveFlowAnalysis() {
     mode: 'group', groupName: `${flowAnalysisJobName()} · 流水归纳草案`, sourceType: 'FLOW_ANALYSIS', operationType: 'ANALYZE', versionStatus: 'DRAFT',
     unitId: company?.id || flowAnalysisCompanyId.value, unitName: company?.depName, originRouteId: flowAnalysisRouteId.value || null, originRouteName: flowAnalysisJobName(),
     defaultDisplayMode: 'DIRECT', routes, summary: flowAnalysisResult.value,
-    request: { analysisVersion: flowAnalysisResult.value.analysisVersion, unitId: flowAnalysisCompanyId.value, carCode: flowAnalysisCarCode.value, routeId: flowAnalysisRouteId.value || null, startDate: flowAnalysisFilters.startDate, endDate: flowAnalysisFilters.endDate, jaccardThreshold: flowAnalysisThreshold.value }
+    request: { analysisVersion: flowAnalysisResult.value.analysisVersion, unitId: flowAnalysisCompanyId.value, carCodes: [...flowSelectedVehicleCodes.value], routeId: flowAnalysisRouteId.value, startDate: flowAnalysisFilters.startDate, endDate: flowAnalysisFilters.endDate, jaccardThreshold: flowAnalysisThreshold.value }
   })
 }
 

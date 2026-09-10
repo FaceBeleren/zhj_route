@@ -46,21 +46,29 @@ public class FlowAnalysisService {
         this.objectMapper = objectMapper;
     }
 
-    public List<Map<String, Object>> vehicles(String unitId, String startDate, String endDate) {
+    public List<Map<String, Object>> vehicles(String unitId, String routeId, String startDate, String endDate) {
         DateRange range = range(startDate, endDate);
-        String sql = "SELECT car_code AS carCode, route_id AS routeId, route_name AS routeName, "
+        if (blank(routeId)) throw new IllegalArgumentException("岗位不能为空");
+        String sql = "SELECT car_code AS carCode, MAX(route_id) AS routeId, MAX(route_name) AS routeName, "
                 + "COUNT(*) AS recordCount, COUNT(DISTINCT DATE(car_start_time)) AS activeDays "
-                + "FROM ljszy_route_record WHERE been_deleted=0 AND unit_id=? "
+                + "FROM ljszy_route_record WHERE been_deleted=0 AND unit_id=? AND route_id=? "
                 + "AND car_start_time>=? AND car_start_time<? AND car_code IS NOT NULL AND car_code<>'' "
-                + "GROUP BY car_code, route_id, route_name ORDER BY car_code, route_id";
-        return jdbcTemplate.queryForList(sql, unitId, range.start.atStartOfDay(), range.end.plusDays(1).atStartOfDay());
+                + "GROUP BY car_code ORDER BY car_code";
+        return jdbcTemplate.queryForList(sql, unitId, Long.valueOf(routeId), range.start.atStartOfDay(), range.end.plusDays(1).atStartOfDay());
     }
 
     public Map<String, Object> start(final Map<String, Object> request) {
         final String unitId = text(request == null ? null : request.get("unitId"));
-        final String carCode = text(request == null ? null : request.get("carCode"));
-        if (blank(unitId) || blank(carCode)) throw new IllegalArgumentException("公司和车辆不能为空");
+        final String routeId = text(request == null ? null : request.get("routeId"));
+        Set<String> carCodes = stringSet(request == null ? null : request.get("carCodes"));
+        if (carCodes.isEmpty()) {
+            String legacyCarCode = text(request == null ? null : request.get("carCode"));
+            if (!blank(legacyCarCode)) carCodes.add(legacyCarCode);
+        }
+        if (blank(unitId) || blank(routeId)) throw new IllegalArgumentException("公司和岗位不能为空");
+        if (carCodes.isEmpty()) throw new IllegalArgumentException("至少选择一辆执行车辆");
         range(text(request.get("startDate")), text(request.get("endDate")));
+        request.put("carCodes", new ArrayList<String>(carCodes));
         final Task task = new Task(UUID.randomUUID().toString(), request);
         tasks.put(task.id, task);
         task.future = executor.submit(new Runnable() { @Override public void run() { execute(task); } });
@@ -102,7 +110,12 @@ public class FlowAnalysisService {
         try {
             DateRange range = range(text(task.request.get("startDate")), text(task.request.get("endDate")));
             task.update("RUNNING", "LOAD_RECORDS", "正在读取车辆流水");
-            List<Record> records = loadRecords(text(task.request.get("unitId")), text(task.request.get("carCode")), text(task.request.get("routeId")), range);
+            Set<String> carCodes = stringSet(task.request.get("carCodes"));
+            if (carCodes.isEmpty()) {
+                String legacyCarCode = text(task.request.get("carCode"));
+                if (!blank(legacyCarCode)) carCodes.add(legacyCarCode);
+            }
+            List<Record> records = loadRecords(text(task.request.get("unitId")), text(task.request.get("routeId")), carCodes, range);
             task.totalRecords = records.size();
             task.update("RUNNING", "LOAD_EVENTS", "正在读取点位和场站事件");
             Map<Long, List<Event>> events = loadEvents(records, range, task);
@@ -128,14 +141,15 @@ public class FlowAnalysisService {
         }
     }
 
-    private List<Record> loadRecords(String unitId, String carCode, String routeId, DateRange range) {
+    private List<Record> loadRecords(String unitId, String routeId, Set<String> carCodes, DateRange range) {
         List<Object> args = new ArrayList<Object>();
-        args.add(unitId); args.add(carCode); args.add(range.start.atStartOfDay()); args.add(range.end.plusDays(1).atStartOfDay());
+        args.add(unitId); args.add(Long.valueOf(routeId)); args.add(range.start.atStartOfDay()); args.add(range.end.plusDays(1).atStartOfDay());
         String sql = "SELECT id, route_id AS routeId, route_name AS routeName, car_code AS carCode, "
                 + "car_start_time AS carStartTime, car_end_time AS carEndTime, collect_transport_count AS expectedTrips, "
                 + "job_duration AS jobDuration, mileage AS mileage FROM ljszy_route_record "
-                + "WHERE been_deleted=0 AND unit_id=? AND car_code=? AND car_start_time>=? AND car_start_time<?";
-        if (!blank(routeId)) { sql += " AND route_id=?"; args.add(routeId); }
+                + "WHERE been_deleted=0 AND unit_id=? AND route_id=? AND car_start_time>=? AND car_start_time<?";
+        sql += " AND car_code IN (" + placeholders(carCodes.size()) + ")";
+        args.addAll(carCodes);
         sql += " ORDER BY car_start_time, id";
         List<Record> result = new ArrayList<Record>();
         for (Map<String, Object> row : jdbcTemplate.queryForList(sql, args.toArray())) {
@@ -225,6 +239,13 @@ public class FlowAnalysisService {
             }
             if (!buffer.isEmpty()) result.add(makeTrip(record, buffer, null, false, lastStation));
         }
+        Collections.sort(result, new Comparator<Trip>() { public int compare(Trip a, Trip b) {
+            int c = String.valueOf(a.date).compareTo(String.valueOf(b.date));
+            if (c != 0) return c;
+            c = String.valueOf(tripTime(a)).compareTo(String.valueOf(tripTime(b)));
+            if (c != 0) return c;
+            return Long.compare(a.recordId == null ? 0L : a.recordId, b.recordId == null ? 0L : b.recordId);
+        }});
         return result;
     }
 
@@ -247,7 +268,7 @@ public class FlowAnalysisService {
     }
 
     private Trip makeTrip(Record record, List<Event> points, Event station, boolean complete, Event previousStation) {
-        Trip trip = new Trip(); trip.recordId = record.id; trip.date = record.start == null ? null : record.start.toLocalDate();
+        Trip trip = new Trip(); trip.recordId = record.id; trip.carCode = record.carCode; trip.date = record.start == null ? null : record.start.toLocalDate();
         trip.complete = complete; trip.expectedTrips = record.expectedTrips; trip.end = station; trip.start = previousStation;
         trip.points.addAll(points); return trip;
     }
@@ -260,6 +281,8 @@ public class FlowAnalysisService {
         result.put("analysisVersion", "FLOW_V1"); result.put("unitId", request.get("unitId")); result.put("carCode", request.get("carCode"));
         result.put("startDate", range.start.toString()); result.put("endDate", range.end.toString()); result.put("periodDays", ChronoUnit.DAYS.between(range.start, range.end) + 1);
         result.put("recordCount", records.size()); result.put("tripCount", trips.size()); result.put("completeTripCount", complete.size());
+        result.put("selectedCarCodes", stringSet(request.get("carCodes")));
+        result.put("vehicleSummary", vehicleSummary(records, trips));
         int expectedTripCount = 0; int expectedTripRecords = 0; int mismatchRecords = 0;
         List<Map<String, Object>> tripCountChecks = new ArrayList<Map<String, Object>>();
         for (Record record : records) {
@@ -427,7 +450,7 @@ public class FlowAnalysisService {
 
     private Map<String,Object> tripView(Trip t) {
         Map<String,Object> row=new LinkedHashMap<String,Object>();
-        row.put("recordId",t.recordId); row.put("date",t.date==null?null:t.date.toString());
+        row.put("recordId",t.recordId); row.put("carCode",t.carCode); row.put("date",t.date==null?null:t.date.toString());
         row.put("complete",t.complete); row.put("expectedTrips",t.expectedTrips);
         row.put("start",t.start==null?null:eventView(t.start)); row.put("end",t.end==null?null:eventView(t.end));
         List<Map<String,Object>> ps=new ArrayList<Map<String,Object>>(); Set<Long> unique=new HashSet<Long>();
@@ -447,6 +470,28 @@ public class FlowAnalysisService {
         }
         row.put("points",ps); row.put("pointCount",t.points.size()); row.put("uniquePointCount",unique.size());
         row.put("duplicatePointCount",Math.max(0,t.points.size()-unique.size())); row.put("collectedPointCount",exact); row.put("throughPointCount",through); row.put("operationSeconds",operationSeconds); return row;
+    }
+
+    private List<Map<String,Object>> vehicleSummary(List<Record> records, List<Trip> trips) {
+        Map<String, Map<String,Object>> summary = new LinkedHashMap<String, Map<String,Object>>();
+        for (Record record : records) {
+            if (blank(record.carCode)) continue;
+            Map<String,Object> row = summary.get(record.carCode);
+            if (row == null) { row = new LinkedHashMap<String,Object>(); row.put("carCode", record.carCode); row.put("recordCount", 0); row.put("activeDays", new HashSet<LocalDate>()); row.put("tripCount", 0); summary.put(record.carCode, row); }
+            row.put("recordCount", intValue(row.get("recordCount")) + 1);
+            @SuppressWarnings("unchecked") Set<LocalDate> days = (Set<LocalDate>) row.get("activeDays");
+            if (record.start != null) days.add(record.start.toLocalDate());
+        }
+        for (Trip trip : trips) {
+            Map<String,Object> row = summary.get(trip.carCode);
+            if (row != null) row.put("tripCount", intValue(row.get("tripCount")) + 1);
+        }
+        List<Map<String,Object>> out = new ArrayList<Map<String,Object>>();
+        for (Map<String,Object> row : summary.values()) {
+            @SuppressWarnings("unchecked") Set<LocalDate> days = (Set<LocalDate>) row.remove("activeDays");
+            row.put("activeDays", days == null ? 0 : days.size()); out.add(row);
+        }
+        return out;
     }
 
     private Map<String,Object> eventView(Event e){Map<String,Object> row=new LinkedHashMap<String,Object>();row.put("eventId",e.id);row.put("facilityId",e.facilityId);row.put("facilityName",e.name);row.put("facilityWorkType",e.workType);row.put("matchType",e.matchType);row.put("matchLabel",e.matchType!=null&&e.matchType==0?"已收":e.matchType!=null&&e.matchType==1?"途经":"未知");row.put("time",e.time);row.put("leaveTime",e.leaveTime);row.put("longitude",e.longitude);row.put("latitude",e.latitude);row.put("operationLength",e.operationLength);return row;}
@@ -471,6 +516,8 @@ public class FlowAnalysisService {
     private int intValue(Object v){try{return v==null?0:Integer.parseInt(String.valueOf(v));}catch(Exception e){return 0;}}
     private double avg(List<Double>v){if(v==null||v.isEmpty())return 0;double s=0;for(Double x:v)s+=x;return s/v.size();}
     private double round(double n){return Math.round(n*100D)/100D;}
+    private LocalDateTime tripTime(Trip trip) { if (trip == null || trip.points == null || trip.points.isEmpty()) return null; return trip.points.get(0).time; }
+    private Set<String> stringSet(Object value) { Set<String> out = new LinkedHashSet<String>(); if (value instanceof Iterable) for (Object item : (Iterable<?>) value) { String text = text(item); if (!blank(text)) out.add(text); } else { String text = text(value); if (!blank(text)) out.add(text); } return out; }
     private String text(Object v){return v==null?null:String.valueOf(v);}
     private boolean blank(String v){return v==null||v.trim().isEmpty();}
     private Long number(Object v){try{return v==null?null:Long.valueOf(String.valueOf(v));}catch(Exception e){return null;}}
@@ -483,7 +530,7 @@ public class FlowAnalysisService {
     private static class DateRange{final LocalDate start,end;DateRange(LocalDate s,LocalDate e){start=s;end=e;}}
     private static class Record{Long id,routeId,jobDuration,mileage;String routeName,carCode;LocalDateTime start,end;Integer expectedTrips;}
     private static class Event{Long id,recordId,facilityId;String name,mergeSign;Integer workType,matchType;LocalDateTime time,leaveTime;Double operationLength,longitude,latitude;}
-    private static class Trip{Long recordId;LocalDate date;Integer expectedTrips;boolean complete;Event start,end;List<Event>points=new ArrayList<Event>();}
+    private static class Trip{Long recordId;LocalDate date;String carCode;Integer expectedTrips;boolean complete;Event start,end;List<Event>points=new ArrayList<Event>();}
     private static class Cluster{List<Trip>trips=new ArrayList<Trip>();}
     private class Task{final String id;final Map<String,Object>request;volatile String status="QUEUED",phase="PREPARE",message="等待执行";volatile int totalRecords,loadedEvents;volatile long startedAt=System.currentTimeMillis(),finishedAt,elapsedMs;volatile boolean cancelled;volatile Future<?>future;volatile Map<String,Object>result;Task(String i,Map<String,Object>r){id=i;request=r==null?new HashMap<String,Object>():new HashMap<String,Object>(r);}void update(String s,String p,String m){status=s;phase=p;message=m;}Map<String,Object>view(boolean detail){Map<String,Object>m=new LinkedHashMap<String,Object>();m.put("taskId",id);m.put("status",status);m.put("phase",phase);m.put("message",message);m.put("percent",status.equals("DONE")?100:phase.equals("LOAD_EVENTS")?25:phase.equals("SPLIT_TRIPS")?55:phase.equals("CLUSTER")?80:0);m.put("totalRecords",totalRecords);m.put("loadedEvents",loadedEvents);m.put("startedAt",startedAt);m.put("finishedAt",finishedAt);m.put("elapsedMs",elapsedMs);if(detail&&result!=null)m.put("result",result);return m;}}
 }
