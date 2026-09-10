@@ -1988,7 +1988,7 @@ function flowBuildGeneratedGroups(result) {
         throughPeriodCount: summary.throughCount,
         maxDailyCollectedCount: summary.maxDailyCollectedCount,
         candidateShared: Boolean(allocation?.shared?.has(slotIndex)),
-        candidateMultiCollection: Boolean(allocation?.shared?.has(slotIndex) && summary.collectedCount > Number(result?.periodDays || 0)),
+        candidateMultiCollection: Boolean(summary.collectedCount > Number(result?.periodDays || 0)),
         candidateSharedFlexible: Boolean(allocation?.shared?.has(slotIndex) && summary.collectedCount <= Number(result?.periodDays || 0)),
         orderPosition: row.positions.reduce((sum, value) => sum + value, 0) / Math.max(1, row.positions.length)
       }
