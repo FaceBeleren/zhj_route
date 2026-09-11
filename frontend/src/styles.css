@@ -3020,7 +3020,7 @@ tbody tr.active {
 
 .flow-analysis-shell { display: grid; gap: 14px; }
 .flow-analysis-filter-panel, .flow-progress-panel { padding: 16px; }
-.flow-analysis-filters { display: grid; grid-template-columns: minmax(250px, 1.35fr) repeat(5, minmax(130px, 1fr)); align-items: start; gap: 10px; margin: 12px 0 8px; }
+.flow-analysis-filters { display: grid; grid-template-columns: minmax(250px, 1.35fr) repeat(4, minmax(140px, 1fr)); align-items: start; gap: 10px; margin: 12px 0 8px; }
 .flow-analysis-filters label { display: grid; gap: 5px; color: #536274; font-size: 13px; }
 .flow-analysis-filters input, .flow-analysis-filters select { height: 34px; border: 1px solid #c8d3df; border-radius: 6px; padding: 0 8px; background: #fff; min-width: 0; }
 .flow-vehicle-picker { position: relative; }
@@ -3128,5 +3128,61 @@ tbody tr.active {
 .flow-sequence small { font-size: 10px; opacity: .8; }
 /* 途经点统一使用虚线；黄色仅表示已收运的低频点。 */
 .flow-generated-sequence span.flow-point-through, .flow-sequence span.flow-point-through, .flow-sequence span.flow-point-through-before-collected, .flow-sequence span.flow-point-through-after-collected { background: #f1f4f7; color: #71808e; border: 1px dashed #aab7c2; box-shadow: none; }
+.flow-progress-panel { border-left: 4px solid #8ea3b7; }
+.flow-progress-panel.status-querying, .flow-progress-panel.status-analyzing_flow { border-left-color: #2f80c9; }
+.flow-progress-panel.status-routing_current, .flow-progress-panel.status-routing_candidates { border-left-color: #8b5fc6; }
+.flow-progress-panel.status-success { border-left-color: #2a9d68; }
+.flow-progress-panel.status-failed { border-left-color: #c75050; }
+.flow-process-steps { display: grid; grid-template-columns: repeat(5, minmax(110px, 1fr)); gap: 7px; margin: 10px 0; }
+.flow-process-steps span { position: relative; padding: 7px 8px 7px 25px; border: 1px solid #d5e0ea; border-radius: 6px; background: #f7f9fb; color: #76899b; font-size: 12px; }
+.flow-process-steps span::before { position: absolute; left: 8px; top: 50%; width: 9px; height: 9px; border: 2px solid #aebdca; border-radius: 50%; transform: translateY(-50%); content: ''; }
+.flow-process-steps span.active { border-color: #7fb1df; background: #eef7ff; color: #1763a5; font-weight: 600; }
+.flow-process-steps span.active::before { border-color: #176bc1; background: #176bc1; box-shadow: 0 0 0 3px rgba(23, 107, 193, .13); }
+.flow-process-steps span.done { border-color: #a7d7c0; background: #eef9f4; color: #247553; }
+.flow-process-steps span.done::before { border-color: #2a9d68; background: #2a9d68; }
+.flow-process-steps span.failed { border-color: #e4aaaa; background: #fff2f2; color: #a53c3c; }
+.flow-process-steps span.failed::before { border-color: #c75050; background: #c75050; }
+.flow-route-comparison-panel { display: grid; gap: 12px; }
+.flow-route-compare-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+.flow-route-card { min-width: 0; padding: 14px; border: 1px solid #d2dee9; border-top: 4px solid #d48b35; border-radius: 8px; background: #fbfdff; }
+.flow-route-card.optimized { border-top-color: #287bc1; }
+.flow-route-card h3 { margin: 0 0 10px; color: #284b69; font-size: 17px; }
+.flow-route-metrics { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 7px; }
+.flow-route-metrics span { display: grid; gap: 2px; min-width: 0; padding: 7px; border-radius: 6px; background: #f1f6fa; color: #6c8092; font-size: 11px; }
+.flow-route-metrics strong { overflow: hidden; color: #294964; font-size: 13px; text-overflow: ellipsis; white-space: nowrap; }
+.flow-route-sequence { display: flex; align-items: center; gap: 5px; margin-top: 10px; padding: 9px; overflow-x: auto; border: 1px solid #e2e9ef; border-radius: 6px; background: #fff; }
+.flow-route-sequence span { flex: 0 0 auto; padding: 4px 7px; border-radius: 12px; background: #fff0df; color: #805522; font-size: 12px; }
+.flow-route-card.optimized .flow-route-sequence span { background: #e8f3fd; color: #245e90; }
+.flow-route-sequence b { color: #93a3b1; font-weight: normal; }
+.flow-period-points-panel { min-width: 0; }
+.flow-period-point-list { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 7px; max-height: 610px; overflow-y: auto; }
+.flow-period-point { display: grid; gap: 2px; padding: 8px 9px; border: 1px solid #a9d8bf; border-radius: 7px; background: #eff9f4; color: #206f4e; }
+.flow-period-point strong { overflow: hidden; font-size: 13px; text-overflow: ellipsis; white-space: nowrap; }
+.flow-period-point span, .flow-period-point small { font-size: 11px; }
+.flow-period-point small { color: #71889a; }
+.flow-period-point.through { border-style: dashed; border-color: #aab7c2; background: #f3f5f7; color: #687887; }
+.flow-period-point.silent { border-color: #d7dee5; background: #fafbfc; color: #8996a2; }
+.flow-candidate-panel { display: grid; gap: 10px; }
+.flow-multi-trip-card.route-running { border-color: #8bb9e1; box-shadow: 0 0 0 2px rgba(47, 128, 201, .08); }
+.flow-multi-trip-card.route-failed { border-color: #dda0a0; background: #fff7f7; }
+.flow-route-error { margin: 8px 0 0; color: #a43e3e; font-size: 12px; }
+.flow-candidate-metrics { display: flex; flex-wrap: wrap; gap: 6px; margin: 9px 0; }
+.flow-candidate-metrics span { padding: 4px 7px; border-radius: 5px; background: #edf4fa; color: #47647e; font-size: 11px; }
+.flow-generated-sequence span.flow-route-endpoint { background: #e8eef5; color: #3d566d; border: 1px solid #becbd7; }
+.flow-generated-sequence span small.badge-outside { background: #315f8a; }
+/* 状态可叠加：低频白描边优先，多次收运紫色主体，共享点保留黄色标签。 */
+.flow-generated-sequence span.flow-point-low-frequency { border: 2px solid #fff; box-shadow: 0 0 0 1px #9eafbd; }
+.flow-generated-sequence span.flow-point-multi-collection { background: #f2eaff; color: #6741a0; border-color: #fff; box-shadow: 0 0 0 1px #9c80c8; }
+.flow-generated-sequence span.flow-point-shared:not(.flow-point-multi-collection) { background: #fff5d6; color: #8a5a00; border-color: #e4bf63; }
+.flow-generated-sequence span small.badge-multi { background: #8052bd; }
+.flow-generated-sequence span small.badge-shared { background: #d49a18; }
+.flow-generated-sequence span small.badge-low { background: #71889a; }
+.flow-conclusion-panel { border-top: 4px solid #2f80c9; }
+.flow-conclusion-metrics { display: grid; grid-template-columns: repeat(auto-fit, minmax(135px, 1fr)); gap: 8px; }
+.flow-conclusion-metrics span { display: grid; gap: 4px; padding: 10px; border: 1px solid #d7e4ef; border-radius: 7px; background: #f7fbff; }
+.flow-conclusion-metrics small { color: #71869a; }
+.flow-conclusion-metrics strong { color: #214f75; font-size: 16px; }
+.flow-conclusion-panel ul { margin: 12px 0 0; padding-left: 20px; color: #445f76; line-height: 1.7; }
 @media (max-width: 1050px) { .flow-analysis-filters { grid-template-columns: repeat(3, minmax(130px, 1fr)); } .flow-analysis-results { grid-template-columns: 1fr; } .flow-daily-panel, .flow-groups-panel { height: auto; min-height: 0; overflow: visible; } .flow-daily-panel .flow-days-content { max-height: 620px; overflow-y: auto; } }
-@media (max-width: 650px) { .flow-analysis-filters { grid-template-columns: 1fr 1fr; } .flow-company-input-row { align-items: stretch; } }
+@media (max-width: 1050px) { .flow-route-compare-grid { grid-template-columns: 1fr; } .flow-process-steps { grid-template-columns: repeat(3, minmax(110px, 1fr)); } }
+@media (max-width: 650px) { .flow-analysis-filters { grid-template-columns: 1fr; } .flow-company-input-row { align-items: stretch; } .flow-process-steps { grid-template-columns: 1fr; } .flow-route-metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
