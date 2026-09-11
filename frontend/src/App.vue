@@ -163,8 +163,8 @@
           </section>
 
           <section class="panel flow-candidate-panel">
-            <div class="panel-head"><div><h2>候选多趟道路路线</h2><span class="muted">日均趟数四舍五入；30%候选、60%共享，逐趟调用百度道路规划</span></div><span class="flow-generated-status">{{ flowCandidateRoutes.length }} 趟</span></div>
-            <div v-if="flowCandidateRoutes.length" class="flow-multi-trip-grid"><article v-for="route in flowCandidateRoutes" :key="'flow-candidate-'+route.groupNo" class="flow-multi-trip-card" :class="'route-'+route.routingStatus.toLowerCase()"><div class="flow-multi-trip-head"><div><strong>候选第 {{ route.groupNo }} 趟</strong><span>历史样本 {{ route.tripCount }} 趟 · 覆盖 {{ route.activeDays }} 天</span></div><button v-if="route.routingStatus === 'DONE'" type="button" class="secondary" :class="{ active: flowSelectedCandidateRoute?.groupNo === route.groupNo }" @click="flowSelectedCandidateRoute = route">{{ flowSelectedCandidateRoute?.groupNo === route.groupNo ? '当前地图' : '查看地图' }}</button></div><p v-if="route.routingStatus === 'FAILED'" class="flow-route-error">{{ route.error }}</p><p v-else-if="route.routingStatus !== 'DONE'" class="muted">{{ route.routingStatus === 'RUNNING' ? '正在调用百度道路路线...' : '等待规划' }}</p><template v-if="route.routingStatus === 'DONE'"><div class="flow-candidate-metrics"><span>点位 {{ route.optimization.points?.length || 0 }}</span><span>距离 {{ formatDistance(route.optimization.pathDistance) }}</span><span>时间 {{ formatDuration(route.optimization.pathDurationMinutes) }}</span><span>来源 {{ pathSourceSummary(route.optimization.segments) }}</span></div><div class="flow-generated-sequence"><template v-for="(point, index) in route.optimizedPoints" :key="'flow-generated-point-'+route.groupNo+'-'+point.facilityId+'-'+index"><span :class="flowCandidatePointClass(point)" :title="flowCandidatePointTitle(point)">{{ index + 1 }}. {{ point.facilityName || point.facilityId }}<small v-if="point.candidateOutsideConfig" class="badge-outside">流水新增</small><small v-if="point.candidateMultiCollection" class="badge-multi">多次收运</small><small v-if="point.candidateShared" class="badge-shared">共享</small><small v-if="point.candidateLowFrequency" class="badge-low">低频</small></span><b v-if="index < route.optimizedPoints.length - 1">→</b></template></div></template></article></div>
+            <div class="panel-head"><div><h2>候选多趟道路路线</h2><span class="muted">日均趟数四舍五入；出现率按收运和途经统计，30%候选、60%共享，低于30%但实际收运的点位仍纳入白框，多次收运独立标记</span></div><span class="flow-generated-status">{{ flowCandidateRoutes.length }} 趟</span></div>
+            <div v-if="flowCandidateRoutes.length" class="flow-multi-trip-grid"><article v-for="route in flowCandidateRoutes" :key="'flow-candidate-'+route.groupNo" class="flow-multi-trip-card" :class="'route-'+route.routingStatus.toLowerCase()"><div class="flow-multi-trip-head"><div><strong>候选第 {{ route.groupNo }} 趟</strong><span>历史样本 {{ route.tripCount }} 趟 · 覆盖 {{ route.activeDays }} 天</span></div><button v-if="route.routingStatus === 'DONE'" type="button" class="secondary" :class="{ active: flowSelectedCandidateRoute?.groupNo === route.groupNo }" @click="flowSelectedCandidateRoute = route">{{ flowSelectedCandidateRoute?.groupNo === route.groupNo ? '当前地图' : '查看地图' }}</button></div><p v-if="route.routingStatus === 'FAILED'" class="flow-route-error">{{ route.error }}</p><p v-else-if="route.routingStatus !== 'DONE'" class="muted">{{ route.routingStatus === 'RUNNING' ? '正在调用百度道路路线...' : '等待规划' }}</p><template v-if="route.routingStatus === 'DONE'"><div class="flow-candidate-metrics"><span>点位 {{ route.displayPoints?.length || 0 }}</span><span>距离 {{ formatDistance(route.optimization.pathDistance) }}</span><span>时间 {{ formatDuration(route.optimization.pathDurationMinutes) }}</span><span>来源 {{ pathSourceSummary(route.optimization.segments) }}</span></div><div class="flow-generated-sequence"><template v-for="(point, index) in (route.displayPoints || [])" :key="'flow-generated-point-'+route.groupNo+'-'+point.facilityId+'-'+index"><span :class="flowCandidatePointClass(point)" :title="flowCandidatePointTitle(point)">{{ index + 1 }}. {{ point.facilityName || point.facilityId }}<small v-if="point.candidateOutsideConfig" class="badge-outside">流水新增</small><small v-if="point.candidateMultiCollection" class="badge-multi">多次收运</small><small v-if="point.candidateShared" class="badge-shared">共享</small><small v-if="point.candidateLowFrequency" class="badge-low">低频</small></span><b v-if="index < route.displayPoints.length - 1">→</b></template><b v-if="route.typicalEnd">→ {{ route.typicalEnd.facilityName || route.typicalEnd.facilityId }}</b></div></template></article></div>
             <div v-else class="empty">统计期没有可生成的候选趟次</div>
             <div v-if="flowConfiguredExcludedPoints.length" class="flow-configured-excluded"><div class="flow-configured-excluded-head"><div><strong>低频或岗位点位未进入候选</strong><span class="muted">未收运、仅途经或岗位配置但统计期未出现的点位</span></div><span class="flow-generated-status">{{ flowConfiguredExcludedPoints.length }} 个点位</span></div><div class="flow-configured-excluded-list"><span v-for="point in flowConfiguredExcludedPoints" :key="'flow-configured-excluded-'+point.facilityId" :class="['flow-configured-point', 'status-'+point.status]"><strong>{{ point.facilityName || point.facilityId }}</strong><small>{{ point.statusLabel }} · 收运 {{ point.collectedCount }} 次 · 途经 {{ point.throughCount }} 次</small></span></div></div>
           </section>
@@ -1953,18 +1953,24 @@ const flowPointCollectionSummary = computed(() => {
   }
   return summary
 })
-const flowGeneratedTripCount = computed(() => Math.max(0, Math.round(Number(flowAnalysisResult.value?.avgTripsPerActiveDay || 0))))
+const flowGeneratedTripCount = computed(() => Math.max(1, Math.round(Number(flowAnalysisResult.value?.avgTripsPerActiveDay || 0))))
 const flowCandidateSupportThreshold = 0.3
 const flowSharedSupportThreshold = 0.6
 
 function flowBuildGeneratedGroups(result) {
-  const targetCount = Math.max(0, Math.round(Number(result?.avgTripsPerActiveDay || 0)))
-  if (!targetCount) return []
+  const targetCount = Math.max(1, Math.round(Number(result?.avgTripsPerActiveDay || 0)))
   const configuredIds = new Set((result?.configuredPoints || []).map(point => String(point.facilityId)))
+  const useConfiguredScope = configuredIds.size > 0
   const slots = Array.from({ length: targetCount }, (_, index) => ({ groupNo: index + 1, trips: [], dates: new Set() }))
 
   for (const day of (result?.dailyTrips || [])) {
-    const trips = (day.trips || []).filter(trip => trip.complete !== false)
+    const trips = [...(day.trips || [])]
+      .filter(trip => trip.complete !== false)
+      .sort((a, b) => {
+        const at = String(a.points?.[0]?.time || a.date || '')
+        const bt = String(b.points?.[0]?.time || b.date || '')
+        return at.localeCompare(bt) || String(a.carCode || '').localeCompare(String(b.carCode || '')) || Number(a.recordId || 0) - Number(b.recordId || 0)
+      })
     trips.forEach((trip, index) => {
       const slot = slots[Math.min(index, targetCount - 1)]
       slot.trips.push(trip)
@@ -1979,18 +1985,22 @@ function flowBuildGeneratedGroups(result) {
       for (const event of (trip.points || [])) {
         if (event.facilityId == null) continue
         const key = String(event.facilityId)
+        if (useConfiguredScope && !configuredIds.has(key)) continue
         const current = perTrip.get(key)
         if (!current || (Number(event.matchType) === 0 && Number(current.matchType) !== 0)) perTrip.set(key, event)
       }
+      const pointCount = Math.max(1, (trip.points || []).length - 1)
       for (const [key, event] of perTrip) {
         let row = rows.get(key)
         if (!row) {
-          row = { ...event, visits: 0, collectedCount: 0, throughCount: 0 }
+          row = { ...event, visits: 0, collectedCount: 0, throughCount: 0, positions: [] }
           rows.set(key, row)
         }
         row.visits += 1
         if (Number(event.matchType) === 0) row.collectedCount += 1
         else if (Number(event.matchType) === 1) row.throughCount += 1
+        const eventIndex = (trip.points || []).findIndex(item => String(item.facilityId) === key)
+        row.positions.push(eventIndex < 0 ? 0 : eventIndex / pointCount)
       }
     }
     return rows
@@ -2002,34 +2012,35 @@ function flowBuildGeneratedGroups(result) {
     const entries = slotPointRows.map((rows, index) => {
       const row = rows.get(facilityId)
       return row && row.collectedCount > 0
-        ? { index, row, support: row.collectedCount / Math.max(1, slots[index].trips.length) }
+        ? { index, row, support: row.visits / Math.max(1, slots[index].trips.length) }
         : null
     }).filter(Boolean)
     if (!entries.length) continue
-    const candidateEntries = entries.filter(entry => entry.support >= flowCandidateSupportThreshold)
-    const thresholdEntries = candidateEntries.filter(entry => entry.support >= flowSharedSupportThreshold)
-    if (thresholdEntries.length >= 2) {
-      allocations.set(facilityId, {
-        includedSlots: new Set(thresholdEntries.map(entry => entry.index)),
-        sharedSlots: new Set(thresholdEntries.map(entry => entry.index)),
-        lowSlots: new Set()
-      })
-    } else if (thresholdEntries.length === 1) {
-      allocations.set(facilityId, {
-        includedSlots: new Set([thresholdEntries[0].index]),
-        sharedSlots: new Set(),
-        lowSlots: new Set()
-      })
-    } else if (candidateEntries.length) {
-      candidateEntries.sort((a, b) => b.support - a.support || b.row.collectedCount - a.row.collectedCount || a.index - b.index)
-      allocations.set(facilityId, { includedSlots: new Set([candidateEntries[0].index]), sharedSlots: new Set(), lowSlots: new Set() })
+
+    const summary = flowPointCollectionSummary.value.get(String(facilityId)) || { collectedCount: 0, throughCount: 0, maxDailyCollectedCount: 0 }
+    const isMultiCollection = Number(summary.collectedCount || 0) > Number(result?.periodDays || 0)
+    const lowEntries = entries.filter(entry => entry.support < flowCandidateSupportThreshold)
+    const includedSlots = new Set(lowEntries.map(entry => entry.index))
+    const lowSlots = new Set(lowEntries.map(entry => entry.index))
+    let sharedSlots = new Set()
+
+    if (isMultiCollection) {
+      // 多次收运独立标记：每一趟实际收过都保留，但不叠加共享颜色。
+      entries.forEach(entry => includedSlots.add(entry.index))
     } else {
-      allocations.set(facilityId, {
-        includedSlots: new Set(entries.map(entry => entry.index)),
-        sharedSlots: new Set(),
-        lowSlots: new Set(entries.map(entry => entry.index))
-      })
+      const candidateEntries = entries.filter(entry => entry.support >= flowCandidateSupportThreshold)
+      const thresholdEntries = candidateEntries.filter(entry => entry.support >= flowSharedSupportThreshold)
+      if (thresholdEntries.length >= 2) {
+        thresholdEntries.forEach(entry => includedSlots.add(entry.index))
+        sharedSlots = new Set(thresholdEntries.map(entry => entry.index))
+      } else if (thresholdEntries.length === 1) {
+        includedSlots.add(thresholdEntries[0].index)
+      } else if (candidateEntries.length) {
+        candidateEntries.sort((a, b) => b.support - a.support || b.row.collectedCount - a.row.collectedCount || a.index - b.index)
+        includedSlots.add(candidateEntries[0].index)
+      }
     }
+    allocations.set(facilityId, { includedSlots, sharedSlots, lowSlots })
   }
 
   return slots.map((slot, slotIndex) => {
@@ -2041,24 +2052,34 @@ function flowBuildGeneratedGroups(result) {
     }).map(row => {
       const allocation = allocations.get(String(row.facilityId))
       const summary = flowPointCollectionSummary.value.get(String(row.facilityId)) || { collectedCount: 0, throughCount: 0, maxDailyCollectedCount: 0 }
-      const support = row.collectedCount / Math.max(1, slot.trips.length)
+      const support = row.visits / Math.max(1, slot.trips.length)
       return {
         ...row,
         support: Math.round(support * 100) / 100,
-        visitCount: row.collectedCount,
+        visitCount: row.visits,
         finalMatchType: row.collectedCount > 0 ? 0 : 1,
         finalMatchLabel: row.collectedCount > 0 ? '已收运' : '仅途经',
         collectedPeriodCount: summary.collectedCount,
         throughPeriodCount: summary.throughCount,
         maxDailyCollectedCount: summary.maxDailyCollectedCount,
-        candidateOutsideConfig: !configuredIds.has(String(row.facilityId)),
         candidateShared: Boolean(allocation?.sharedSlots.has(slotIndex)),
-        candidateMultiCollection: Number(summary.maxDailyCollectedCount || 0) >= 2,
+        candidateOutsideConfig: !configuredIds.has(String(row.facilityId)),
+        candidateMultiCollection: Boolean(summary.collectedCount > Number(result?.periodDays || 0)),
         candidateLowFrequency: Boolean(allocation?.lowSlots.has(slotIndex)),
-        candidateSharedFlexible: false
+        candidateSharedFlexible: false,
+        orderPosition: row.positions.reduce((sum, value) => sum + value, 0) / Math.max(1, row.positions.length)
       }
-    }).sort((a, b) => String(a.facilityId).localeCompare(String(b.facilityId), 'zh-CN', { numeric: true }))
+    }).sort((a, b) => a.orderPosition - b.orderPosition)
 
+    const endpointCounts = new Map()
+    const endpointRows = new Map()
+    for (const trip of slot.trips) {
+      if (!trip.end?.facilityId) continue
+      const key = String(trip.end.facilityId)
+      endpointCounts.set(key, (endpointCounts.get(key) || 0) + 1)
+      endpointRows.set(key, trip.end)
+    }
+    const typicalEndKey = [...endpointCounts.entries()].sort((a, b) => b[1] - a[1])[0]?.[0]
     return {
       groupNo: slot.groupNo,
       groupName: `候选第${slot.groupNo}趟`,
@@ -2070,6 +2091,7 @@ function flowBuildGeneratedGroups(result) {
       visitsPerWeek: 0,
       points,
       representativePoints: points.map(point => point.facilityId),
+      typicalEnd: typicalEndKey ? endpointRows.get(typicalEndKey) : null,
       trips: slot.trips
     }
   })
@@ -2103,18 +2125,6 @@ const flowConfiguredExcludedPoints = computed(() => {
     if (candidateIds.has(key) || unique.has(key)) continue
     const stat = statsFor(point.facilityId)
     unique.set(key, { ...point, ...stat, ...statusFor(stat) })
-  }
-  for (const point of flowPointCollectionSummary.value.values()) {
-    const key = String(point.facilityId)
-    if (candidateIds.has(key)) continue
-    const stat = statsFor(point.facilityId)
-    if (unique.has(key)) continue
-    unique.set(key, {
-      ...point,
-      ...stat,
-      status: stat.collectedCount > 0 ? 'collected-not-candidate' : stat.throughCount > 0 ? 'through-only' : 'never-seen',
-      statusLabel: stat.collectedCount > 0 ? '仅出现在未完整趟次，未进入候选' : stat.throughCount > 0 ? '统计期只途经未收运' : '统计期未收运'
-    })
   }
   return [...unique.values()]
 })
@@ -5031,14 +5041,14 @@ async function runFlowAnalysisTask(runId, signal) {
 }
 
 function flowCandidateInputPoints(group) {
-  if (flowPlanPoints.value.length < 2) return []
-  const start = flowPlanPoints.value[0]
-  const end = flowPlanPoints.value[flowPlanPoints.value.length - 1]
-  const endpointIds = new Set([String(start.facilityId), String(end.facilityId)])
-  const middle = (group.points || []).filter(point => !endpointIds.has(String(point.facilityId)))
-  const points = [start, ...middle, end]
-  return points.filter((point, index) => points.findIndex(item => String(item.facilityId) === String(point.facilityId)) === index)
-    .map((point, index, all) => ({ ...point, orderNum: index + 1, role: index === 0 ? 'START' : index === all.length - 1 ? 'END' : 'MIDDLE' }))
+  if (flowPlanPoints.value.length < 1) return []
+  const fallbackEnd = flowPlanPoints.value[flowPlanPoints.value.length - 1]
+  const end = group.typicalEnd || fallbackEnd
+  const endId = end?.facilityId == null ? null : String(end.facilityId)
+  const middle = (group.points || []).filter(point => point.facilityId != null && String(point.facilityId) !== endId)
+  const points = [...middle, end].filter(Boolean)
+  const unique = points.filter((point, index, all) => all.findIndex(item => String(item.facilityId) === String(point.facilityId)) === index)
+  return unique.map((point, index, all) => ({ ...point, orderNum: index + 1, role: index === 0 ? 'START' : index === all.length - 1 ? 'END' : 'MIDDLE' }))
 }
 
 function enrichFlowCandidatePoints(points, group) {
@@ -5082,7 +5092,7 @@ async function startFlowFullProcess() {
     assertCurrentFlowRun(runId)
 
     const groups = flowGeneratedGroups.value
-    flowCandidateRoutes.value = groups.map(group => ({ ...group, routingStatus: 'PENDING', optimization: null, optimizedPoints: [], error: '' }))
+    flowCandidateRoutes.value = groups.map(group => ({ ...group, displayPoints: group.points || [], routingStatus: 'PENDING', optimization: null, optimizedPoints: [], error: '' }))
     setFlowPipeline('ROUTING_CANDIDATES', '正在生成分堆路线', groups.length ? `准备规划 ${groups.length} 条候选道路路线` : '统计期没有可生成的候选趟次', 70, { candidateCompleted: 0, candidateTotal: groups.length })
     for (let index = 0; index < flowCandidateRoutes.value.length; index += 1) {
       assertCurrentFlowRun(runId)
