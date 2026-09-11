@@ -162,14 +162,47 @@
             </section>
           </section>
 
+          <section v-if="flowAnalysisResult.groups?.length" class="panel flow-raw-groups-panel">
+            <div class="panel-head">
+              <div><h2>历史岗位分堆</h2><span class="muted">先按历史流水归纳原始分堆，再由下方候选多趟路线进行聚合</span></div>
+              <span class="flow-generated-status">{{ flowAnalysisResult.groups.length }} 堆</span>
+            </div>
+            <div class="flow-raw-groups-grid">
+              <article v-for="group in flowAnalysisResult.groups" :key="'flow-raw-group-'+group.groupNo" class="flow-raw-group-card">
+                <div class="flow-multi-trip-head"><div><strong>分堆 {{ group.groupNo }}</strong><span>{{ group.tripCount }} 趟 · 覆盖 {{ group.activeDays }} 天</span></div><span class="flow-raw-group-stability">{{ group.stable ? '相对稳定' : '样本较少' }}</span></div>
+                <p class="muted">点位 {{ group.points?.length || 0 }} 个 · 稳定度 {{ group.stability ?? '-' }} · 典型终点：{{ group.typicalEnd?.facilityName || '未确定' }}</p>
+                <div class="flow-generated-route-label">分堆原顺序</div>
+                <div class="flow-generated-sequence flow-raw-group-sequence">
+                  <template v-for="(point, index) in (group.points || [])" :key="'flow-raw-point-'+group.groupNo+'-'+point.facilityId+'-'+index">
+                    <span :class="flowPointClass(point)" :title="`${point.finalMatchLabel || '流水出现'}，支持率 ${Math.round(Number(point.support || 0) * 100)}%`">{{ index + 1 }}. {{ point.facilityName || point.facilityId }}<small>{{ Math.round(Number(point.support || 0) * 100) }}%</small></span><b v-if="index < (group.points || []).length - 1">→</b>
+                  </template>
+                  <b v-if="group.typicalEnd">→ {{ group.typicalEnd.facilityName || group.typicalEnd.facilityId }}</b>
+                </div>
+              </article>
+            </div>
+          </section>
+
           <section class="panel flow-candidate-panel">
             <div class="panel-head"><div><h2>候选多趟道路路线</h2><span class="muted">日均趟数四舍五入；出现率按收运和途经统计，30%候选、60%共享，整体低于30%但实际收运的点位纳入白框，多次收运独立标记</span></div><span class="flow-generated-status">{{ flowCandidateRoutes.length }} 趟</span></div>
-            <div v-if="flowCandidateRoutes.length" class="flow-multi-trip-grid"><article v-for="route in flowCandidateRoutes" :key="'flow-candidate-'+route.groupNo" class="flow-multi-trip-card" :class="'route-'+route.routingStatus.toLowerCase()"><div class="flow-multi-trip-head"><div><strong>候选第 {{ route.groupNo }} 趟</strong><span>历史样本 {{ route.tripCount }} 趟 · 覆盖 {{ route.activeDays }} 天</span></div><button v-if="route.routingStatus === 'DONE'" type="button" class="secondary" :class="{ active: flowSelectedCandidateRoute?.groupNo === route.groupNo }" @click="flowSelectedCandidateRoute = route">{{ flowSelectedCandidateRoute?.groupNo === route.groupNo ? '当前地图' : '查看地图' }}</button></div><p v-if="route.routingStatus === 'FAILED'" class="flow-route-error">{{ route.error }}</p><p v-else-if="route.routingStatus !== 'DONE'" class="muted">{{ route.routingStatus === 'RUNNING' ? '正在调用百度道路路线...' : '等待规划' }}</p><template v-if="route.routingStatus === 'DONE'"><div class="flow-candidate-metrics"><span>点位 {{ route.displayPoints?.length || 0 }}</span><span>距离 {{ formatDistance(route.optimization.pathDistance) }}</span><span>时间 {{ formatDuration(route.optimization.pathDurationMinutes) }}</span><span>来源 {{ pathSourceSummary(route.optimization.segments) }}</span></div><div class="flow-generated-sequence"><template v-for="(point, index) in (route.displayPoints || [])" :key="'flow-generated-point-'+route.groupNo+'-'+point.facilityId+'-'+index"><span :class="flowCandidatePointClass(point)" :title="flowCandidatePointTitle(point)">{{ index + 1 }}. {{ point.facilityName || point.facilityId }}<small v-if="point.candidateOutsideConfig" class="badge-outside">流水新增</small><small v-if="point.candidateMultiCollection" class="badge-multi">多次收运</small><small v-if="point.candidateShared" class="badge-shared">共享</small></span><b v-if="index < route.displayPoints.length - 1">→</b></template><b v-if="route.typicalEnd">→ {{ route.typicalEnd.facilityName || route.typicalEnd.facilityId }}</b></div></template></article></div>
+            <div v-if="flowCandidateRoutes.length" class="flow-multi-trip-grid">
+              <article v-for="route in flowCandidateRoutes" :key="'flow-candidate-'+route.groupNo" class="flow-multi-trip-card" :class="'route-'+route.routingStatus.toLowerCase()">
+                <div class="flow-multi-trip-head"><div><strong>候选第 {{ route.groupNo }} 趟</strong><span>历史样本 {{ route.tripCount }} 趟 · 覆盖 {{ route.activeDays }} 天</span></div><button v-if="route.routingStatus === 'DONE'" type="button" class="secondary" :class="{ active: flowSelectedCandidateRoute?.groupNo === route.groupNo }" @click="flowSelectedCandidateRoute = route">{{ flowSelectedCandidateRoute?.groupNo === route.groupNo ? '当前地图' : '查看地图' }}</button></div>
+                <p v-if="route.routingStatus === 'FAILED'" class="flow-route-error">{{ route.error }}</p>
+                <p v-else-if="route.routingStatus !== 'DONE'" class="muted">{{ route.routingStatus === 'RUNNING' ? '正在调用百度道路路线...' : '等待规划' }}</p>
+                <template v-if="route.routingStatus === 'DONE'">
+                  <div class="flow-candidate-metrics"><span>收运点 {{ route.displayPoints?.length || 0 }}</span><span>原序距离 {{ formatDistance(route.optimization.originalPathDistance) }}</span><span>原序时间 {{ formatDuration(route.optimization.originalPathDurationMinutes) }}</span><span>优化距离 {{ formatDistance(route.optimization.pathDistance) }}</span><span>优化时间 {{ formatDuration(route.optimization.pathDurationMinutes) }}</span><span>来源 {{ pathSourceSummary(route.optimization.segments) }}</span></div>
+                  <div class="flow-candidate-sequence-compare">
+                    <div class="flow-candidate-sequence-row"><strong>分堆原顺序</strong><div class="flow-generated-sequence"><template v-for="(point, index) in (route.inputPoints || [])" :key="'flow-original-point-'+route.groupNo+'-'+point.facilityId+'-'+index"><span :class="flowCandidatePointClass(point)" :title="flowCandidatePointTitle(point)">{{ index + 1 }}. {{ point.facilityName || point.facilityId }}<small v-if="point.candidateOutsideConfig" class="badge-outside">流水新增</small><small v-if="point.candidateMultiCollection" class="badge-multi">多次收运</small><small v-if="point.candidateShared" class="badge-shared">共享</small></span><b v-if="index < route.inputPoints.length - 1">→</b></template></div></div>
+                    <div class="flow-candidate-sequence-row optimized"><strong>道路优化后</strong><div class="flow-generated-sequence"><template v-for="(point, index) in (route.optimizedPoints || [])" :key="'flow-optimized-point-'+route.groupNo+'-'+point.facilityId+'-'+index"><span :class="flowCandidatePointClass(point)" :title="flowCandidatePointTitle(point)">{{ index + 1 }}. {{ point.facilityName || point.facilityId }}<small v-if="point.candidateOutsideConfig" class="badge-outside">流水新增</small><small v-if="point.candidateMultiCollection" class="badge-multi">多次收运</small><small v-if="point.candidateShared" class="badge-shared">共享</small></span><b v-if="index < route.optimizedPoints.length - 1">→</b></template></div></div>
+                  </div>
+                </template>
+              </article>
+            </div>
             <div v-else class="empty">统计期没有可生成的候选趟次</div>
             <div v-if="flowConfiguredExcludedPoints.length" class="flow-configured-excluded"><div class="flow-configured-excluded-head"><div><strong>低频或岗位点位未进入候选</strong><span class="muted">未收运、仅途经或岗位配置但统计期未出现的点位</span></div><span class="flow-generated-status">{{ flowConfiguredExcludedPoints.length }} 个点位</span></div><div class="flow-configured-excluded-list"><span v-for="point in flowConfiguredExcludedPoints" :key="'flow-configured-excluded-'+point.facilityId" :class="['flow-configured-point', 'status-'+point.status]"><strong>{{ point.facilityName || point.facilityId }}</strong><small>{{ point.statusLabel }} · 收运 {{ point.collectedCount }} 次 · 途经 {{ point.throughCount }} 次</small></span></div></div>
           </section>
 
-          <RouteMapPanel v-if="flowSelectedCandidateRoute?.routingStatus === 'DONE'" :key="'flow-candidate-map-'+flowSelectedCandidateRoute.groupNo+'-'+flowRunVersion" :original-points="[]" :optimized-points="flowSelectedCandidateRoute.optimization.points || []" :optimized-segments="flowSelectedCandidateRoute.optimization.segments || []" :show-original="false" :optimized-label="`候选第 ${flowSelectedCandidateRoute.groupNo} 趟`" />
+          <RouteMapPanel v-if="flowSelectedCandidateRoute?.routingStatus === 'DONE'" :key="'flow-candidate-map-'+flowSelectedCandidateRoute.groupNo+'-'+flowRunVersion" :original-points="flowSelectedCandidateRoute.inputPoints || []" :optimized-points="flowSelectedCandidateRoute.optimizedPoints || []" :original-segments="flowSelectedCandidateRoute.optimization.originalSegments || []" :optimized-segments="flowSelectedCandidateRoute.optimization.segments || []" :show-original="true" :show-point-semantics="true" :original-label="`候选第 ${flowSelectedCandidateRoute.groupNo} 趟分堆原序`" :optimized-label="`候选第 ${flowSelectedCandidateRoute.groupNo} 趟道路优化后`" />
 
           <section class="panel flow-conclusion-panel"><div class="panel-head"><div><h2>分析结论与路线对比汇总</h2><span class="muted">仅依据本次所选岗位、日期和车辆生成</span></div></div><div class="flow-conclusion-metrics"><span v-for="metric in flowConclusion.metrics" :key="metric.label"><small>{{ metric.label }}</small><strong>{{ metric.value }}</strong></span></div><ul><li v-for="line in flowConclusion.lines" :key="line">{{ line }}</li></ul></section>
         </template>
@@ -5098,7 +5131,7 @@ async function startFlowFullProcess() {
     assertCurrentFlowRun(runId)
 
     const groups = flowGeneratedGroups.value
-    flowCandidateRoutes.value = groups.map(group => ({ ...group, displayPoints: group.points || [], routingStatus: 'PENDING', optimization: null, optimizedPoints: [], error: '' }))
+    flowCandidateRoutes.value = groups.map(group => ({ ...group, displayPoints: group.points || [], inputPoints: [], routingStatus: 'PENDING', optimization: null, optimizedPoints: [], error: '' }))
     setFlowPipeline('ROUTING_CANDIDATES', '正在生成分堆路线', groups.length ? `准备规划 ${groups.length} 条候选道路路线` : '统计期没有可生成的候选趟次', 70, { candidateCompleted: 0, candidateTotal: groups.length })
     for (let index = 0; index < flowCandidateRoutes.value.length; index += 1) {
       assertCurrentFlowRun(runId)
@@ -5106,12 +5139,14 @@ async function startFlowFullProcess() {
       route.routingStatus = 'RUNNING'
       flowPipeline.message = `正在调用百度规划候选第 ${index + 1}/${groups.length} 趟`
       const inputPoints = flowCandidateInputPoints(route)
+      route.inputPoints = enrichFlowCandidatePoints(inputPoints, route)
       try {
         const optimization = await api('/api/optimize/preview', {
           method: 'POST', headers: { 'Content-Type': 'application/json' }, signal: controller.signal,
           body: JSON.stringify({ points: inputPoints, unitId: flowAnalysisCompanyId.value, useRoadPath: true, displayRoadPath: true })
         })
         assertCurrentFlowRun(runId)
+        ensureRoadRoute(inputPoints, optimization.originalSegments, `候选第${route.groupNo}趟分堆原序`)
         ensureRoadRoute(optimization.points, optimization.segments, `候选第${route.groupNo}趟`)
         route.optimization = optimization
         route.optimizedPoints = enrichFlowCandidatePoints(optimization.points, route)
@@ -5400,8 +5435,6 @@ function pathSourceClass(source) {
 }
 
 </script>
-
-
 
 
 

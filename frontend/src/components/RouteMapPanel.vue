@@ -25,6 +25,13 @@
       </div>
     </div>
 
+    <div v-if="props.showPointSemantics" class="route-point-legend" aria-label="候选点位颜色图例">
+      <span><i class="normal"></i>普通收运</span>
+      <span><i class="multi"></i>多次收运</span>
+      <span><i class="shared"></i>共享</span>
+      <span><i class="low"></i>低频</span>
+    </div>
+
     <div class="route-playback-bar">
       <div class="route-playback-main">
         <div class="route-playback-choice" aria-label="选择播放路线">
@@ -90,7 +97,7 @@
             class="plot-vehicle"
           />
           <g v-for="point in routePlot.compare.points" :key="point.key">
-            <circle :cx="point.x" :cy="point.y" r="2.2">
+            <circle :cx="point.x" :cy="point.y" r="2.2" :style="fallbackMarkerStyle(point, '#475569')">
               <title>{{ pointTitle(point) }}</title>
             </circle>
             <text v-if="point.labelAlways || labelsVisible" :x="point.x + 2.8" :y="point.y - 2">
@@ -105,7 +112,7 @@
           <svg viewBox="0 0 100 100" role="img" aria-label="原路线坐标预览">
             <polyline :points="routePlot.original.line" class="plot-line original" />
             <g v-for="point in routePlot.original.points" :key="point.key">
-              <circle :cx="point.x" :cy="point.y" r="2.2" class="plot-point-original">
+              <circle :cx="point.x" :cy="point.y" r="2.2" class="plot-point-original" :style="fallbackMarkerStyle(point, '#dc2626')">
                 <title>{{ pointTitle(point) }}</title>
               </circle>
               <text v-if="point.labelAlways || labelsVisible" :x="point.x + 2.8" :y="point.y - 2">
@@ -119,7 +126,7 @@
           <svg viewBox="0 0 100 100" role="img" aria-label="优化后路线坐标预览">
             <polyline :points="routePlot.optimized.line" class="plot-line optimized" />
             <g v-for="point in routePlot.optimized.points" :key="point.key">
-              <circle :cx="point.x" :cy="point.y" r="2.2" class="plot-point-optimized">
+              <circle :cx="point.x" :cy="point.y" r="2.2" class="plot-point-optimized" :style="fallbackMarkerStyle(point, '#16a34a')">
                 <title>{{ pointTitle(point) }}</title>
               </circle>
               <text v-if="point.labelAlways || labelsVisible" :x="point.x + 2.8" :y="point.y - 2">
@@ -168,6 +175,10 @@ const props = defineProps({
   optimizedLabel: {
     type: String,
     default: '优化后'
+  },
+  showPointSemantics: {
+    type: Boolean,
+    default: false
   }
 })
 
@@ -308,8 +319,10 @@ function drawBaiduMap(BMap) {
   const optimizedMode = showOptimizedLine.value && optimizedAllPoints.value.length && (playbackRoute.value === 'optimized' || !showOriginalLine.value)
   markerPoints.value.forEach((point, index) => {
     const isOptimizedPoint = optimizedMode && (props.optimizedFacilityIds === null || optimizedFacilityIdSet.value.has(String(point.facilityId)))
-    const marker = new BMap.Marker(new BMap.Point(point.longitude, point.latitude), { icon: markerIcon(BMap, isOptimizedPoint ? '#16a34a' : '#dc2626') })
-    marker.setTitle(point.facilityName || String(point.facilityId || index + 1))
+    const appearance = markerAppearance(point, isOptimizedPoint ? '#16a34a' : '#dc2626')
+    const marker = new BMap.Marker(new BMap.Point(point.longitude, point.latitude), { icon: markerIcon(BMap, appearance) })
+    const semanticLabel = pointSemanticLabel(point)
+    marker.setTitle(`${point.facilityName || String(point.facilityId || index + 1)}${semanticLabel ? `（${semanticLabel}）` : ''}`)
     mapInstance.addOverlay(marker)
     if (labelsVisible.value) {
       const label = new BMap.Label(String(index + 1), {
@@ -330,9 +343,32 @@ function drawBaiduMap(BMap) {
   fitMapViewportOnce(BMap)
 }
 
-function markerIcon(BMap, color) {
-  const svg = '<svg xmlns="http://www.w3.org/2000/svg" width="28" height="38" viewBox="0 0 28 38"><path d="M14 1C6.8 1 1 6.8 1 14c0 9.2 13 23 13 23s13-13.8 13-23C27 6.8 21.2 1 14 1z" fill="' + color + '" stroke="#ffffff" stroke-width="2"/><circle cx="14" cy="14" r="5" fill="#ffffff"/></svg>'
+function markerIcon(BMap, appearance) {
+  const svg = '<svg xmlns="http://www.w3.org/2000/svg" width="28" height="38" viewBox="0 0 28 38"><path d="M14 1C6.8 1 1 6.8 1 14c0 9.2 13 23 13 23s13-13.8 13-23C27 6.8 21.2 1 14 1z" fill="' + appearance.fill + '" stroke="' + appearance.stroke + '" stroke-width="' + appearance.strokeWidth + '"/><circle cx="14" cy="14" r="5" fill="' + appearance.center + '"/></svg>'
   return new BMap.Icon('data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svg), new BMap.Size(28, 38), { anchor: new BMap.Size(14, 38), imageSize: new BMap.Size(28, 38) })
+}
+
+function markerAppearance(point, fallbackColor) {
+  if (props.showPointSemantics) {
+    if (point.candidateMultiCollection) return { fill: '#8b5fc6', stroke: '#ffffff', strokeWidth: 2, center: '#ffffff' }
+    if (point.candidateShared) return { fill: '#d49a18', stroke: '#ffffff', strokeWidth: 2, center: '#ffffff' }
+    if (point.candidateLowFrequency) return { fill: '#ffffff', stroke: '#71889a', strokeWidth: 2.4, center: '#71889a' }
+    return { fill: '#16a34a', stroke: '#ffffff', strokeWidth: 2, center: '#ffffff' }
+  }
+  return { fill: fallbackColor, stroke: '#ffffff', strokeWidth: 2, center: '#ffffff' }
+}
+
+function fallbackMarkerStyle(point, fallbackColor) {
+  const appearance = markerAppearance(point, fallbackColor)
+  return { fill: appearance.fill, stroke: appearance.stroke, strokeWidth: appearance.strokeWidth }
+}
+
+function pointSemanticLabel(point) {
+  if (!props.showPointSemantics) return ''
+  if (point.candidateMultiCollection) return '多次收运'
+  if (point.candidateShared) return '共享点'
+  if (point.candidateLowFrequency) return '低频点'
+  return '普通收运点'
 }
 
 function drawPlaybackMarker(BMap) {
@@ -453,7 +489,10 @@ function normalizeRoutePoints(points) {
       facilityName: point.facilityName,
       longitude: Number(point.longitude),
       latitude: Number(point.latitude),
-      label: String(index + 1)
+      label: String(index + 1),
+      candidateMultiCollection: Boolean(point.candidateMultiCollection),
+      candidateShared: Boolean(point.candidateShared),
+      candidateLowFrequency: Boolean(point.candidateLowFrequency)
     }))
     .filter((point) => Number.isFinite(point.longitude) && Number.isFinite(point.latitude))
 }
@@ -687,6 +726,7 @@ function mergeProjectedPoints(original, optimized) {
 }
 
 function pointTitle(point) {
-  return `${point.label}. ${point.facilityName || point.facilityId || '未知点位'}`
+  const semanticLabel = pointSemanticLabel(point)
+  return `${point.label}. ${point.facilityName || point.facilityId || '未知点位'}${semanticLabel ? `（${semanticLabel}）` : ''}`
 }
 </script>
