@@ -163,8 +163,8 @@
           </section>
 
           <section class="panel flow-candidate-panel">
-            <div class="panel-head"><div><h2>候选多趟道路路线</h2><span class="muted">日均趟数四舍五入；出现率按收运和途经统计，30%候选、60%共享，低于30%但实际收运的点位仍纳入白框，多次收运独立标记</span></div><span class="flow-generated-status">{{ flowCandidateRoutes.length }} 趟</span></div>
-            <div v-if="flowCandidateRoutes.length" class="flow-multi-trip-grid"><article v-for="route in flowCandidateRoutes" :key="'flow-candidate-'+route.groupNo" class="flow-multi-trip-card" :class="'route-'+route.routingStatus.toLowerCase()"><div class="flow-multi-trip-head"><div><strong>候选第 {{ route.groupNo }} 趟</strong><span>历史样本 {{ route.tripCount }} 趟 · 覆盖 {{ route.activeDays }} 天</span></div><button v-if="route.routingStatus === 'DONE'" type="button" class="secondary" :class="{ active: flowSelectedCandidateRoute?.groupNo === route.groupNo }" @click="flowSelectedCandidateRoute = route">{{ flowSelectedCandidateRoute?.groupNo === route.groupNo ? '当前地图' : '查看地图' }}</button></div><p v-if="route.routingStatus === 'FAILED'" class="flow-route-error">{{ route.error }}</p><p v-else-if="route.routingStatus !== 'DONE'" class="muted">{{ route.routingStatus === 'RUNNING' ? '正在调用百度道路路线...' : '等待规划' }}</p><template v-if="route.routingStatus === 'DONE'"><div class="flow-candidate-metrics"><span>点位 {{ route.displayPoints?.length || 0 }}</span><span>距离 {{ formatDistance(route.optimization.pathDistance) }}</span><span>时间 {{ formatDuration(route.optimization.pathDurationMinutes) }}</span><span>来源 {{ pathSourceSummary(route.optimization.segments) }}</span></div><div class="flow-generated-sequence"><template v-for="(point, index) in (route.displayPoints || [])" :key="'flow-generated-point-'+route.groupNo+'-'+point.facilityId+'-'+index"><span :class="flowCandidatePointClass(point)" :title="flowCandidatePointTitle(point)">{{ index + 1 }}. {{ point.facilityName || point.facilityId }}<small v-if="point.candidateOutsideConfig" class="badge-outside">流水新增</small><small v-if="point.candidateMultiCollection" class="badge-multi">多次收运</small><small v-if="point.candidateShared" class="badge-shared">共享</small><small v-if="point.candidateLowFrequency" class="badge-low">低频</small></span><b v-if="index < route.displayPoints.length - 1">→</b></template><b v-if="route.typicalEnd">→ {{ route.typicalEnd.facilityName || route.typicalEnd.facilityId }}</b></div></template></article></div>
+            <div class="panel-head"><div><h2>候选多趟道路路线</h2><span class="muted">日均趟数四舍五入；出现率按收运和途经统计，30%候选、60%共享，整体低于30%但实际收运的点位纳入白框，多次收运独立标记</span></div><span class="flow-generated-status">{{ flowCandidateRoutes.length }} 趟</span></div>
+            <div v-if="flowCandidateRoutes.length" class="flow-multi-trip-grid"><article v-for="route in flowCandidateRoutes" :key="'flow-candidate-'+route.groupNo" class="flow-multi-trip-card" :class="'route-'+route.routingStatus.toLowerCase()"><div class="flow-multi-trip-head"><div><strong>候选第 {{ route.groupNo }} 趟</strong><span>历史样本 {{ route.tripCount }} 趟 · 覆盖 {{ route.activeDays }} 天</span></div><button v-if="route.routingStatus === 'DONE'" type="button" class="secondary" :class="{ active: flowSelectedCandidateRoute?.groupNo === route.groupNo }" @click="flowSelectedCandidateRoute = route">{{ flowSelectedCandidateRoute?.groupNo === route.groupNo ? '当前地图' : '查看地图' }}</button></div><p v-if="route.routingStatus === 'FAILED'" class="flow-route-error">{{ route.error }}</p><p v-else-if="route.routingStatus !== 'DONE'" class="muted">{{ route.routingStatus === 'RUNNING' ? '正在调用百度道路路线...' : '等待规划' }}</p><template v-if="route.routingStatus === 'DONE'"><div class="flow-candidate-metrics"><span>点位 {{ route.displayPoints?.length || 0 }}</span><span>距离 {{ formatDistance(route.optimization.pathDistance) }}</span><span>时间 {{ formatDuration(route.optimization.pathDurationMinutes) }}</span><span>来源 {{ pathSourceSummary(route.optimization.segments) }}</span></div><div class="flow-generated-sequence"><template v-for="(point, index) in (route.displayPoints || [])" :key="'flow-generated-point-'+route.groupNo+'-'+point.facilityId+'-'+index"><span :class="flowCandidatePointClass(point)" :title="flowCandidatePointTitle(point)">{{ index + 1 }}. {{ point.facilityName || point.facilityId }}<small v-if="point.candidateOutsideConfig" class="badge-outside">流水新增</small><small v-if="point.candidateMultiCollection" class="badge-multi">多次收运</small><small v-if="point.candidateShared" class="badge-shared">共享</small></span><b v-if="index < route.displayPoints.length - 1">→</b></template><b v-if="route.typicalEnd">→ {{ route.typicalEnd.facilityName || route.typicalEnd.facilityId }}</b></div></template></article></div>
             <div v-else class="empty">统计期没有可生成的候选趟次</div>
             <div v-if="flowConfiguredExcludedPoints.length" class="flow-configured-excluded"><div class="flow-configured-excluded-head"><div><strong>低频或岗位点位未进入候选</strong><span class="muted">未收运、仅途经或岗位配置但统计期未出现的点位</span></div><span class="flow-generated-status">{{ flowConfiguredExcludedPoints.length }} 个点位</span></div><div class="flow-configured-excluded-list"><span v-for="point in flowConfiguredExcludedPoints" :key="'flow-configured-excluded-'+point.facilityId" :class="['flow-configured-point', 'status-'+point.status]"><strong>{{ point.facilityName || point.facilityId }}</strong><small>{{ point.statusLabel }} · 收运 {{ point.collectedCount }} 次 · 途经 {{ point.throughCount }} 次</small></span></div></div>
           </section>
@@ -2019,23 +2019,29 @@ function flowBuildGeneratedGroups(result) {
 
     const summary = flowPointCollectionSummary.value.get(String(facilityId)) || { collectedCount: 0, throughCount: 0, maxDailyCollectedCount: 0 }
     const isMultiCollection = Number(summary.collectedCount || 0) > Number(result?.periodDays || 0)
+    const candidateEntries = entries.filter(entry => entry.support >= flowCandidateSupportThreshold)
     const lowEntries = entries.filter(entry => entry.support < flowCandidateSupportThreshold)
-    const includedSlots = new Set(lowEntries.map(entry => entry.index))
-    const lowSlots = new Set(lowEntries.map(entry => entry.index))
+    const includedSlots = new Set()
+    const lowSlots = new Set()
     let sharedSlots = new Set()
 
     if (isMultiCollection) {
       // 多次收运独立标记：每一趟实际收过都保留，但不叠加共享颜色。
       entries.forEach(entry => includedSlots.add(entry.index))
+    } else if (!candidateEntries.length) {
+      // 只有整体没有任何一趟达到30%时，才把实际收运过的点作为低频白框保留。
+      lowEntries.forEach(entry => {
+        includedSlots.add(entry.index)
+        lowSlots.add(entry.index)
+      })
     } else {
-      const candidateEntries = entries.filter(entry => entry.support >= flowCandidateSupportThreshold)
       const thresholdEntries = candidateEntries.filter(entry => entry.support >= flowSharedSupportThreshold)
       if (thresholdEntries.length >= 2) {
         thresholdEntries.forEach(entry => includedSlots.add(entry.index))
         sharedSlots = new Set(thresholdEntries.map(entry => entry.index))
       } else if (thresholdEntries.length === 1) {
         includedSlots.add(thresholdEntries[0].index)
-      } else if (candidateEntries.length) {
+      } else {
         candidateEntries.sort((a, b) => b.support - a.support || b.row.collectedCount - a.row.collectedCount || a.index - b.index)
         includedSlots.add(candidateEntries[0].index)
       }

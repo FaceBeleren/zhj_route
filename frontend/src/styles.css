@@ -3170,8 +3170,8 @@ tbody tr.active {
 .flow-candidate-metrics span { padding: 4px 7px; border-radius: 5px; background: #edf4fa; color: #47647e; font-size: 11px; }
 .flow-generated-sequence span.flow-route-endpoint { background: #e8eef5; color: #3d566d; border: 1px solid #becbd7; }
 .flow-generated-sequence span small.badge-outside { background: #315f8a; }
-/* 状态可叠加：低频白描边优先，多次收运紫色主体，共享点保留黄色标签。 */
-.flow-generated-sequence span.flow-point-low-frequency { border: 2px solid #fff; box-shadow: 0 0 0 1px #9eafbd; }
+/* 状态可叠加：低频使用透明背景，保留边框和文字区分，不覆盖其它状态底色。 */
+.flow-generated-sequence span.flow-point-low-frequency { background: transparent; color: #526779; border: 1px solid #8fa2b3; box-shadow: none; }
 .flow-generated-sequence span.flow-point-multi-collection { background: #f2eaff; color: #6741a0; border-color: #fff; box-shadow: 0 0 0 1px #9c80c8; }
 .flow-generated-sequence span.flow-point-shared:not(.flow-point-multi-collection) { background: #fff5d6; color: #8a5a00; border-color: #e4bf63; }
 .flow-generated-sequence span small.badge-multi { background: #8052bd; }
