@@ -158,8 +158,8 @@
             </section>
 
             <section class="panel flow-period-points-panel">
-              <div class="panel-head"><div><h2>统计期点位汇总</h2><span class="muted">岗位配置点与实际流水点并集</span></div><span class="flow-generated-status">{{ flowPeriodPointRows.length }} 个点位</span></div>
-              <div class="flow-period-point-list"><div v-for="point in flowPeriodPointRows" :key="'flow-period-'+point.facilityId" :class="['flow-period-point', { through: point.collectedCount === 0 && point.throughCount > 0, silent: point.collectedCount === 0 && point.throughCount === 0, 'daily-high': point.averageDailyCollected > 1, 'daily-low': point.averageDailyCollected < 0.5 }]"><strong>{{ point.facilityName || point.facilityId }}</strong><span>收运 {{ point.collectedCount }} 次 · 途经 {{ point.throughCount }} 次 · 日均收运 {{ point.averageDailyCollected.toFixed(2) }} 次</span><small>{{ point.sourceLabel }}</small></div></div>
+              <div class="panel-head"><div><h2>统计期点位汇总</h2><span class="muted">岗位配置点与实际流水点并集 · 按完整趟次首次到达的平均序位排列</span></div><span class="flow-generated-status">{{ flowPeriodPointRows.length }} 个点位</span></div>
+              <div class="flow-period-point-list"><div v-for="point in flowPeriodPointRows" :key="'flow-period-'+point.facilityId" :class="['flow-period-point', { through: point.collectedCount === 0 && point.throughCount > 0, silent: point.collectedCount === 0 && point.throughCount === 0, 'daily-high': point.averageDailyCollected > 1, 'daily-low': point.averageDailyCollected < 0.5 }]"><strong>{{ point.facilityName || point.facilityId }}</strong><span>收运 {{ point.collectedCount }} 次 · 途经 {{ point.throughCount }} 次 · 日均收运 {{ point.averageDailyCollected.toFixed(2) }} 次</span><span>平均到达顺序 {{ point.averageArrivalOrder == null ? '无到达样本' : `第 ${point.averageArrivalOrder.toFixed(2)} 位（${point.arrivalSampleTrips} 趟）` }}</span><small>{{ point.sourceLabel }}</small></div></div>
             </section>
           </section>
 
@@ -2002,6 +2002,28 @@ const flowPointCollectionSummary = computed(() => {
   }
   return summary
 })
+const flowPointArrivalSummary = computed(() => {
+  const summary = new Map()
+  for (const day of (flowAnalysisResult.value?.dailyTrips || [])) {
+    for (const trip of (day.trips || [])) {
+      if (trip.complete === false) continue
+      const seen = new Set()
+      let arrivalOrder = 0
+      for (const point of (trip.points || [])) {
+        if (point.facilityId == null) continue
+        const key = String(point.facilityId)
+        if (seen.has(key)) continue
+        seen.add(key)
+        arrivalOrder += 1
+        const current = summary.get(key) || { orderTotal: 0, sampleTrips: 0 }
+        current.orderTotal += arrivalOrder
+        current.sampleTrips += 1
+        summary.set(key, current)
+      }
+    }
+  }
+  return summary
+})
 const flowGeneratedTripCount = computed(() => Math.max(1, Math.round(Number(flowAnalysisResult.value?.avgTripsPerActiveDay || 0))))
 const flowCandidateSupportThreshold = 0.3
 const flowSharedSupportThreshold = 0.6
@@ -2170,6 +2192,7 @@ const flowPeriodPointRows = computed(() => {
   return [...keys].map(key => {
     const point = configured.get(key) || flowPointCollectionSummary.value.get(key) || {}
     const stat = flowPointCollectionSummary.value.get(key) || { collectedCount: 0, throughCount: 0 }
+    const arrival = flowPointArrivalSummary.value.get(key) || { orderTotal: 0, sampleTrips: 0 }
     const collectedCount = Number(stat.collectedCount || 0)
     const configuredPoint = configured.has(key)
     const actualPoint = stat.collectedCount > 0 || stat.throughCount > 0
@@ -2177,10 +2200,16 @@ const flowPeriodPointRows = computed(() => {
       ...point,
       collectedCount,
       averageDailyCollected: collectedCount / periodDays,
+      averageArrivalOrder: arrival.sampleTrips > 0 ? arrival.orderTotal / arrival.sampleTrips : null,
+      arrivalSampleTrips: arrival.sampleTrips,
       throughCount: Number(stat.throughCount || 0),
       sourceLabel: configuredPoint && actualPoint ? '岗位配置 · 流水出现' : configuredPoint ? '仅岗位配置' : '流水新增点'
     }
-  }).sort((a, b) => Number(b.collectedCount) - Number(a.collectedCount) || String(a.facilityName || a.facilityId).localeCompare(String(b.facilityName || b.facilityId), 'zh-CN'))
+  }).sort((a, b) => {
+    const aOrder = a.averageArrivalOrder == null ? Number.POSITIVE_INFINITY : a.averageArrivalOrder
+    const bOrder = b.averageArrivalOrder == null ? Number.POSITIVE_INFINITY : b.averageArrivalOrder
+    return aOrder - bOrder || Number(b.collectedCount) - Number(a.collectedCount) || String(a.facilityName || a.facilityId).localeCompare(String(b.facilityName || b.facilityId), 'zh-CN')
+  })
 })
 const flowConfiguredExcludedPoints = computed(() => {
   const candidateIds = new Set()
@@ -5550,4 +5579,3 @@ function pathSourceClass(source) {
 }
 
 </script>
-

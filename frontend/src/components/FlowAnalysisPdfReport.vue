@@ -68,8 +68,8 @@
       <section class="pdf-section pdf-explicit-page-break">
         <div class="pdf-section-title"><span>03</span><div><h2>统计期点位汇总</h2><p>岗位配置点与实际流水点并集</p></div></div>
         <table class="pdf-point-table">
-          <thead><tr><th>序号</th><th>点位</th><th>收运次数</th><th>途经次数</th><th>来源</th></tr></thead>
-          <tbody><tr v-for="(point, index) in periodPoints" :key="point.facilityId"><td>{{ index + 1 }}</td><td>{{ pointName(point) }}</td><td>{{ point.collectedCount || 0 }}</td><td>{{ point.throughCount || 0 }}</td><td>{{ point.sourceLabel || '-' }}</td></tr></tbody>
+          <thead><tr><th>序号</th><th>点位</th><th>平均到达顺序</th><th>收运次数</th><th>途经次数</th><th>来源</th></tr></thead>
+          <tbody><tr v-for="(point, index) in periodPoints" :key="point.facilityId"><td>{{ index + 1 }}</td><td>{{ pointName(point) }}</td><td>{{ point.averageArrivalOrder == null ? '-' : `第 ${point.averageArrivalOrder.toFixed(2)} 位` }}</td><td>{{ point.collectedCount || 0 }}</td><td>{{ point.throughCount || 0 }}</td><td>{{ point.sourceLabel || '-' }}</td></tr></tbody>
         </table>
       </section>
 
