@@ -159,7 +159,7 @@
 
             <section class="panel flow-period-points-panel">
               <div class="panel-head"><div><h2>统计期点位汇总</h2><span class="muted">岗位配置点与实际流水点并集</span></div><span class="flow-generated-status">{{ flowPeriodPointRows.length }} 个点位</span></div>
-              <div class="flow-period-point-list"><div v-for="point in flowPeriodPointRows" :key="'flow-period-'+point.facilityId" :class="['flow-period-point', { through: point.collectedCount === 0 && point.throughCount > 0, silent: point.collectedCount === 0 && point.throughCount === 0 }]"><strong>{{ point.facilityName || point.facilityId }}</strong><span>收运 {{ point.collectedCount }} 次 · 途经 {{ point.throughCount }} 次</span><small>{{ point.sourceLabel }}</small></div></div>
+              <div class="flow-period-point-list"><div v-for="point in flowPeriodPointRows" :key="'flow-period-'+point.facilityId" :class="['flow-period-point', { through: point.collectedCount === 0 && point.throughCount > 0, silent: point.collectedCount === 0 && point.throughCount === 0, 'daily-high': point.averageDailyCollected > 1, 'daily-low': point.averageDailyCollected < 0.5 }]"><strong>{{ point.facilityName || point.facilityId }}</strong><span>收运 {{ point.collectedCount }} 次 · 途经 {{ point.throughCount }} 次 · 日均收运 {{ point.averageDailyCollected.toFixed(2) }} 次</span><small>{{ point.sourceLabel }}</small></div></div>
             </section>
           </section>
 
@@ -200,6 +200,7 @@
                   <div class="flow-candidate-metrics"><span>收运点 {{ route.displayPoints?.length || 0 }}</span><span>原序距离 {{ formatDistance(route.optimization.originalPathDistance) }}</span><span>原序时间 {{ formatDuration(route.optimization.originalPathDurationMinutes) }}</span><span>优化距离 {{ formatDistance(route.optimization.pathDistance) }}</span><span>优化时间 {{ formatDuration(route.optimization.pathDurationMinutes) }}</span><span :class="['flow-candidate-distance-change', flowDistanceComparisonClass(route.optimization.originalPathDistance, route.optimization.pathDistance)]">{{ flowDistanceComparisonText(route.optimization.originalPathDistance, route.optimization.pathDistance) }}</span><span>来源 {{ pathSourceSummary(route.optimization.segments) }}</span></div>
                   <div class="flow-candidate-sequence-compare">
                     <div class="flow-candidate-sequence-row"><strong>分堆原顺序</strong><div class="flow-generated-sequence"><template v-for="(point, index) in (route.inputPoints || [])" :key="'flow-original-point-'+route.groupNo+'-'+point.facilityId+'-'+index"><span :class="flowCandidatePointClass(point)" :title="flowCandidatePointTitle(point)">{{ index + 1 }}. {{ point.facilityName || point.facilityId }}<small v-if="point.candidateOutsideConfig" class="badge-outside">流水新增</small><small v-if="point.candidateMultiCollection" class="badge-multi">多次收运</small><small v-if="point.candidateShared" class="badge-shared">共享</small></span><b v-if="index < route.inputPoints.length - 1">→</b></template></div></div>
+                    <div class="flow-candidate-sequence-row frequency"><strong>配置频次顺序</strong><div class="flow-generated-sequence"><template v-for="(point, index) in (route.inputPoints || [])" :key="'flow-frequency-point-'+route.groupNo+'-'+point.facilityId+'-'+index"><span :class="flowConfiguredFrequencyPointClass(point)" :title="flowConfiguredFrequencyPointTitle(point)">{{ index + 1 }}. {{ point.facilityName || point.facilityId }}<small v-if="point.role !== 'END'" class="badge-frequency">{{ flowConfiguredFrequencyLabel(point) }}</small></span><b v-if="index < route.inputPoints.length - 1">→</b></template></div></div>
                     <div class="flow-candidate-sequence-row optimized"><strong>道路优化后</strong><div class="flow-generated-sequence"><template v-for="(point, index) in (route.optimizedPoints || [])" :key="'flow-optimized-point-'+route.groupNo+'-'+point.facilityId+'-'+index"><span :class="flowCandidatePointClass(point)" :title="flowCandidatePointTitle(point)">{{ index + 1 }}. {{ point.facilityName || point.facilityId }}<small v-if="point.candidateOutsideConfig" class="badge-outside">流水新增</small><small v-if="point.candidateMultiCollection" class="badge-multi">多次收运</small><small v-if="point.candidateShared" class="badge-shared">共享</small></span><b v-if="index < route.optimizedPoints.length - 1">→</b></template></div></div>
                   </div>
                 </template>
@@ -2152,17 +2153,30 @@ function flowBuildGeneratedGroups(result) {
 }
 
 const flowGeneratedGroups = computed(() => flowBuildGeneratedGroups(flowAnalysisResult.value).filter(group => group.tripCount > 0 && group.points.length > 0))
+const flowConfiguredFrequencyByFacility = computed(() => {
+  const result = new Map()
+  for (const point of (flowAnalysisResult.value?.configuredPoints || [])) {
+    const period = Number(point.frequencyPeriod)
+    const collectCount = Number(point.frequencyCollectCount)
+    if (point.facilityId == null || !Number.isFinite(period) || period <= 0 || !Number.isFinite(collectCount) || collectCount < 0) continue
+    result.set(String(point.facilityId), { period, collectCount, daily: collectCount / period, configChanged: Boolean(point.frequencyConfigChanged) })
+  }
+  return result
+})
 const flowPeriodPointRows = computed(() => {
   const configured = new Map((flowAnalysisResult.value?.configuredPoints || []).map(point => [String(point.facilityId), point]))
   const keys = new Set([...configured.keys(), ...flowPointCollectionSummary.value.keys()])
+  const periodDays = Math.max(1, Number(flowAnalysisResult.value?.periodDays || 1))
   return [...keys].map(key => {
     const point = configured.get(key) || flowPointCollectionSummary.value.get(key) || {}
     const stat = flowPointCollectionSummary.value.get(key) || { collectedCount: 0, throughCount: 0 }
+    const collectedCount = Number(stat.collectedCount || 0)
     const configuredPoint = configured.has(key)
     const actualPoint = stat.collectedCount > 0 || stat.throughCount > 0
     return {
       ...point,
-      collectedCount: Number(stat.collectedCount || 0),
+      collectedCount,
+      averageDailyCollected: collectedCount / periodDays,
       throughCount: Number(stat.throughCount || 0),
       sourceLabel: configuredPoint && actualPoint ? '岗位配置 · 流水出现' : configuredPoint ? '仅岗位配置' : '流水新增点'
     }
@@ -5255,6 +5269,27 @@ function formatFlowTime(value) { if (!value) return '-'; const text = String(val
 function flowPointClass(point) { const type = point.finalMatchType === null || point.finalMatchType === undefined ? Number(point.matchType) : Number(point.finalMatchType); return { 'flow-point-collected': type === 0, 'flow-point-through': type === 1, 'flow-point-repeat-2': Number(point.visitCount || point.totalCount || 0) === 2, 'flow-point-repeat-3': Number(point.visitCount || point.totalCount || 0) >= 3 } }
 function flowCandidatePointTitle(point) { const labels = []; if (point.candidateOutsideConfig) labels.push('流水新增点'); if (point.candidateMultiCollection) labels.push(`多次收运：统计期 ${point.collectedPeriodCount || 0} 次，最高单日 ${point.maxDailyCollectedCount || 0} 次`); if (point.candidateShared) labels.push(`共享点：本候选支持率 ${Math.round(Number(point.support || 0) * 100)}%`); if (point.candidateLowFrequency) labels.push(`低频点：本候选支持率 ${Math.round(Number(point.support || 0) * 100)}%`); return labels.join('；') }
 function flowCandidatePointClass(point) { return { 'flow-route-endpoint': point.role === 'START' || point.role === 'END', 'flow-point-collected': point.role !== 'START' && point.role !== 'END', 'flow-point-shared': point.candidateShared, 'flow-point-multi-collection': point.candidateMultiCollection, 'flow-point-low-frequency': point.candidateLowFrequency, 'flow-point-outside-config': point.candidateOutsideConfig } }
+function flowConfiguredFrequency(point) { return flowConfiguredFrequencyByFacility.value.get(String(point?.facilityId)) || null }
+function flowConfiguredFrequencyLabel(point) { const frequency = flowConfiguredFrequency(point); return frequency ? `${frequency.period}天/${frequency.collectCount}次` : '未配置' }
+function flowConfiguredFrequencyPointClass(point) {
+  const frequency = flowConfiguredFrequency(point)
+  if (point?.role === 'END') return { 'flow-route-endpoint': true }
+  return {
+    'flow-point-config-frequency': true,
+    'frequency-high': Boolean(frequency && frequency.daily > 1),
+    'frequency-normal': Boolean(frequency && frequency.daily > 0.5 && frequency.daily <= 1),
+    'frequency-low': Boolean(frequency && frequency.daily <= 0.5),
+    'frequency-very-low': Boolean(frequency && frequency.daily < 0.5),
+    'frequency-missing': !frequency
+  }
+}
+function flowConfiguredFrequencyPointTitle(point) {
+  if (point?.role === 'END') return '路线终点，不参与收运频次配置'
+  const frequency = flowConfiguredFrequency(point)
+  if (!frequency) return '没有查到该点位的排班频次配置'
+  const changed = frequency.configChanged ? '；统计期内关联过多个排班周期，当前展示使用次数最多且最近的周期配置' : ''
+  return `排班配置：${frequency.period}天收运${frequency.collectCount}次，折合每天${frequency.daily.toFixed(2)}次${changed}`
+}
 function flowTripPointPhase(point, day) {
   if (Number(point.matchType) !== 1 || !point.facilityId) return 'none'
   const samePointEvents = []
@@ -5515,6 +5550,4 @@ function pathSourceClass(source) {
 }
 
 </script>
-
-
 

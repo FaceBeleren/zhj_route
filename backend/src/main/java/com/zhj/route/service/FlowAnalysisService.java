@@ -144,7 +144,7 @@ public class FlowAnalysisService {
     private List<Record> loadRecords(String unitId, String routeId, Set<String> carCodes, DateRange range) {
         List<Object> args = new ArrayList<Object>();
         args.add(unitId); args.add(Long.valueOf(routeId)); args.add(range.start.atStartOfDay()); args.add(range.end.plusDays(1).atStartOfDay());
-        String sql = "SELECT id, route_id AS routeId, route_name AS routeName, car_code AS carCode, "
+        String sql = "SELECT id, route_id AS routeId, period_id AS periodId, route_name AS routeName, car_code AS carCode, "
                 + "car_start_time AS carStartTime, car_end_time AS carEndTime, collect_transport_count AS expectedTrips, "
                 + "job_duration AS jobDuration, mileage AS mileage FROM ljszy_route_record "
                 + "WHERE been_deleted=0 AND unit_id=? AND route_id=? AND car_start_time>=? AND car_start_time<?";
@@ -154,7 +154,7 @@ public class FlowAnalysisService {
         List<Record> result = new ArrayList<Record>();
         for (Map<String, Object> row : jdbcTemplate.queryForList(sql, args.toArray())) {
             Record r = new Record();
-            r.id = number(row.get("id")); r.routeId = number(row.get("routeId")); r.routeName = text(row.get("routeName"));
+            r.id = number(row.get("id")); r.routeId = number(row.get("routeId")); r.periodId = number(row.get("periodId")); r.routeName = text(row.get("routeName"));
             r.carCode = text(row.get("carCode")); r.start = dateTime(row.get("carStartTime")); r.end = dateTime(row.get("carEndTime"));
             r.expectedTrips = integer(row.get("expectedTrips")); r.jobDuration = number(row.get("jobDuration")); r.mileage = number(row.get("mileage"));
             result.add(r);
@@ -313,6 +313,23 @@ public class FlowAnalysisService {
         if (requestedRouteId != null) routeIds.add(requestedRouteId);
         else for (Record record : records) if (record.routeId != null) routeIds.add(record.routeId);
         if (routeIds.isEmpty()) return new ArrayList<Map<String, Object>>();
+        Long frequencyPeriodId = representativePeriodId(records);
+        Set<Long> recordPeriodIds = new LinkedHashSet<Long>();
+        for (Record record : records) if (record.periodId != null) recordPeriodIds.add(record.periodId);
+        boolean frequencyConfigChanged = recordPeriodIds.size() > 1;
+        Map<String, Map<String, Object>> frequencyByPoint = new HashMap<String, Map<String, Object>>();
+        if (frequencyPeriodId != null && tableExists("ljszy_schedule_period_fac_banding")) {
+            List<Object> frequencyArgs = new ArrayList<Object>();
+            frequencyArgs.add(frequencyPeriodId); frequencyArgs.addAll(routeIds);
+            String frequencySql = "SELECT route_id AS routeId, fac_id AS facilityId, period AS frequencyPeriod, "
+                    + "collect_count AS frequencyCollectCount FROM ljszy_schedule_period_fac_banding "
+                    + "WHERE been_deleted=0 AND period_id=? AND route_id IN (" + placeholders(routeIds.size()) + ") "
+                    + "ORDER BY id DESC";
+            for (Map<String, Object> row : jdbcTemplate.queryForList(frequencySql, frequencyArgs.toArray())) {
+                String key = frequencyPointKey(row.get("routeId"), row.get("facilityId"));
+                if (!frequencyByPoint.containsKey(key)) frequencyByPoint.put(key, row);
+            }
+        }
         String sql = "SELECT b.route_id AS routeId, b.fac_id AS facilityId, b.order_num AS orderNum, "
                 + "f.name AS facilityName, f.facility_type_name AS facilityTypeName, "
                 + "f.longitude_done AS longitude, f.latitude_done AS latitude "
@@ -326,9 +343,43 @@ public class FlowAnalysisService {
             point.put("routeId", row.get("routeId")); point.put("facilityId", row.get("facilityId"));
             point.put("orderNum", row.get("orderNum")); point.put("facilityName", row.get("facilityName"));
             point.put("facilityTypeName", row.get("facilityTypeName")); point.put("longitude", row.get("longitude"));
-            point.put("latitude", row.get("latitude")); rows.add(point);
+            point.put("latitude", row.get("latitude"));
+            Map<String, Object> frequency = frequencyByPoint.get(frequencyPointKey(row.get("routeId"), row.get("facilityId")));
+            if (frequency != null) {
+                point.put("frequencyPeriod", frequency.get("frequencyPeriod"));
+                point.put("frequencyCollectCount", frequency.get("frequencyCollectCount"));
+                point.put("frequencyPeriodId", frequencyPeriodId);
+                point.put("frequencyConfigChanged", frequencyConfigChanged);
+            }
+            rows.add(point);
         }
         return rows;
+    }
+
+    private Long representativePeriodId(List<Record> records) {
+        Map<Long, Integer> counts = new LinkedHashMap<Long, Integer>();
+        Map<Long, LocalDateTime> latest = new HashMap<Long, LocalDateTime>();
+        for (Record record : records) {
+            if (record.periodId == null) continue;
+            counts.put(record.periodId, value(counts.get(record.periodId)) + 1);
+            LocalDateTime currentLatest = latest.get(record.periodId);
+            if (record.start != null && (currentLatest == null || record.start.isAfter(currentLatest))) latest.put(record.periodId, record.start);
+        }
+        Long selected = null;
+        for (Long periodId : counts.keySet()) {
+            if (selected == null || counts.get(periodId) > counts.get(selected)) selected = periodId;
+            else if (counts.get(periodId).equals(counts.get(selected))) {
+                LocalDateTime candidateTime = latest.get(periodId);
+                LocalDateTime selectedTime = latest.get(selected);
+                if (candidateTime != null && (selectedTime == null || candidateTime.isAfter(selectedTime))) selected = periodId;
+                else if ((candidateTime == null && selectedTime == null || candidateTime != null && candidateTime.equals(selectedTime)) && periodId > selected) selected = periodId;
+            }
+        }
+        return selected;
+    }
+
+    private String frequencyPointKey(Object routeId, Object facilityId) {
+        return String.valueOf(routeId) + ":" + String.valueOf(facilityId);
     }
     private List<Cluster> cluster(List<Trip> trips, double threshold) {
         List<Cluster> clusters = new ArrayList<Cluster>(); for (Trip t : trips) { Cluster c = new Cluster(); c.trips.add(t); clusters.add(c); }
@@ -528,7 +579,7 @@ public class FlowAnalysisService {
     private Map<String,Object> missing(String id){Map<String,Object>m=new HashMap<String,Object>();m.put("taskId",id);m.put("status","NOT_FOUND");m.put("message","任务不存在或服务已重启");return m;}
 
     private static class DateRange{final LocalDate start,end;DateRange(LocalDate s,LocalDate e){start=s;end=e;}}
-    private static class Record{Long id,routeId,jobDuration,mileage;String routeName,carCode;LocalDateTime start,end;Integer expectedTrips;}
+    private static class Record{Long id,routeId,periodId,jobDuration,mileage;String routeName,carCode;LocalDateTime start,end;Integer expectedTrips;}
     private static class Event{Long id,recordId,facilityId;String name,mergeSign;Integer workType,matchType;LocalDateTime time,leaveTime;Double operationLength,longitude,latitude;}
     private static class Trip{Long recordId;LocalDate date;String carCode;Integer expectedTrips;boolean complete;Event start,end;List<Event>points=new ArrayList<Event>();}
     private static class Cluster{List<Trip>trips=new ArrayList<Trip>();}
