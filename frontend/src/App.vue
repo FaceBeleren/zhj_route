@@ -101,6 +101,7 @@
             <div><h2>岗位全流程分析</h2><span class="muted">当前岗位路线、道路优化、历史流水与候选多趟一次完成</span></div>
             <div class="panel-actions">
               <button @click="startFlowFullProcess" :disabled="flowPipelineRunning || !flowConditionsReady">开始岗位全流程分析</button>
+              <button class="secondary" @click="exportFlowAnalysisPdf" :disabled="!flowPdfReady || flowPdfExporting">{{ flowPdfExporting ? '正在生成PDF...' : '导出岗位分析PDF' }}</button>
               <button v-if="flowPipelineRunning" class="danger" @click="cancelFlowAnalysis">停止</button>
             </div>
           </div>
@@ -184,13 +185,19 @@
 
           <section class="panel flow-candidate-panel">
             <div class="panel-head"><div><h2>候选多趟道路路线</h2><span class="muted">日均趟数四舍五入；出现率按收运和途经统计，30%候选、60%共享，整体低于30%但实际收运的点位纳入白框，多次收运独立标记</span></div><span class="flow-generated-status">{{ flowCandidateRoutes.length }} 趟</span></div>
+            <div v-if="flowCandidateDistanceSummary.count" class="flow-candidate-total-comparison">
+              <span><small>分堆原序总距离</small><strong>{{ formatDistance(flowCandidateDistanceSummary.originalDistance) }}</strong></span>
+              <b aria-hidden="true">→</b>
+              <span><small>道路优化后总距离</small><strong>{{ formatDistance(flowCandidateDistanceSummary.optimizedDistance) }}</strong></span>
+              <em :class="'change-' + flowCandidateDistanceSummary.direction">{{ flowCandidateDistanceSummary.label }}</em>
+            </div>
             <div v-if="flowCandidateRoutes.length" class="flow-multi-trip-grid">
               <article v-for="route in flowCandidateRoutes" :key="'flow-candidate-'+route.groupNo" class="flow-multi-trip-card" :class="'route-'+route.routingStatus.toLowerCase()">
                 <div class="flow-multi-trip-head"><div><strong>候选第 {{ route.groupNo }} 趟</strong><span>历史样本 {{ route.tripCount }} 趟 · 覆盖 {{ route.activeDays }} 天</span></div><button v-if="route.routingStatus === 'DONE'" type="button" class="secondary" :class="{ active: flowSelectedCandidateRoute?.groupNo === route.groupNo }" @click="flowSelectedCandidateRoute = route">{{ flowSelectedCandidateRoute?.groupNo === route.groupNo ? '当前地图' : '查看地图' }}</button></div>
                 <p v-if="route.routingStatus === 'FAILED'" class="flow-route-error">{{ route.error }}</p>
                 <p v-else-if="route.routingStatus !== 'DONE'" class="muted">{{ route.routingStatus === 'RUNNING' ? '正在调用百度道路路线...' : '等待规划' }}</p>
                 <template v-if="route.routingStatus === 'DONE'">
-                  <div class="flow-candidate-metrics"><span>收运点 {{ route.displayPoints?.length || 0 }}</span><span>原序距离 {{ formatDistance(route.optimization.originalPathDistance) }}</span><span>原序时间 {{ formatDuration(route.optimization.originalPathDurationMinutes) }}</span><span>优化距离 {{ formatDistance(route.optimization.pathDistance) }}</span><span>优化时间 {{ formatDuration(route.optimization.pathDurationMinutes) }}</span><span>来源 {{ pathSourceSummary(route.optimization.segments) }}</span></div>
+                  <div class="flow-candidate-metrics"><span>收运点 {{ route.displayPoints?.length || 0 }}</span><span>原序距离 {{ formatDistance(route.optimization.originalPathDistance) }}</span><span>原序时间 {{ formatDuration(route.optimization.originalPathDurationMinutes) }}</span><span>优化距离 {{ formatDistance(route.optimization.pathDistance) }}</span><span>优化时间 {{ formatDuration(route.optimization.pathDurationMinutes) }}</span><span :class="['flow-candidate-distance-change', flowDistanceComparisonClass(route.optimization.originalPathDistance, route.optimization.pathDistance)]">{{ flowDistanceComparisonText(route.optimization.originalPathDistance, route.optimization.pathDistance) }}</span><span>来源 {{ pathSourceSummary(route.optimization.segments) }}</span></div>
                   <div class="flow-candidate-sequence-compare">
                     <div class="flow-candidate-sequence-row"><strong>分堆原顺序</strong><div class="flow-generated-sequence"><template v-for="(point, index) in (route.inputPoints || [])" :key="'flow-original-point-'+route.groupNo+'-'+point.facilityId+'-'+index"><span :class="flowCandidatePointClass(point)" :title="flowCandidatePointTitle(point)">{{ index + 1 }}. {{ point.facilityName || point.facilityId }}<small v-if="point.candidateOutsideConfig" class="badge-outside">流水新增</small><small v-if="point.candidateMultiCollection" class="badge-multi">多次收运</small><small v-if="point.candidateShared" class="badge-shared">共享</small></span><b v-if="index < route.inputPoints.length - 1">→</b></template></div></div>
                     <div class="flow-candidate-sequence-row optimized"><strong>道路优化后</strong><div class="flow-generated-sequence"><template v-for="(point, index) in (route.optimizedPoints || [])" :key="'flow-optimized-point-'+route.groupNo+'-'+point.facilityId+'-'+index"><span :class="flowCandidatePointClass(point)" :title="flowCandidatePointTitle(point)">{{ index + 1 }}. {{ point.facilityName || point.facilityId }}<small v-if="point.candidateOutsideConfig" class="badge-outside">流水新增</small><small v-if="point.candidateMultiCollection" class="badge-multi">多次收运</small><small v-if="point.candidateShared" class="badge-shared">共享</small></span><b v-if="index < route.optimizedPoints.length - 1">→</b></template></div></div>
@@ -205,6 +212,8 @@
           <RouteMapPanel v-if="flowSelectedCandidateRoute?.routingStatus === 'DONE'" :key="'flow-candidate-map-'+flowSelectedCandidateRoute.groupNo+'-'+flowRunVersion" :original-points="flowSelectedCandidateRoute.inputPoints || []" :optimized-points="flowSelectedCandidateRoute.optimizedPoints || []" :original-segments="flowSelectedCandidateRoute.optimization.originalSegments || []" :optimized-segments="flowSelectedCandidateRoute.optimization.segments || []" :show-original="true" :show-point-semantics="true" :original-label="`候选第 ${flowSelectedCandidateRoute.groupNo} 趟分堆原序`" :optimized-label="`候选第 ${flowSelectedCandidateRoute.groupNo} 趟道路优化后`" />
 
           <section class="panel flow-conclusion-panel"><div class="panel-head"><div><h2>分析结论与路线对比汇总</h2><span class="muted">仅依据本次所选岗位、日期和车辆生成</span></div></div><div class="flow-conclusion-metrics"><span v-for="metric in flowConclusion.metrics" :key="metric.label"><small>{{ metric.label }}</small><strong>{{ metric.value }}</strong></span></div><ul><li v-for="line in flowConclusion.lines" :key="line">{{ line }}</li></ul></section>
+
+          <FlowAnalysisPdfReport ref="flowPdfReportRef" :company-name="flowPdfCompanyName" :job-name="flowJobName" :start-date="flowAnalysisFilters.startDate" :end-date="flowAnalysisFilters.endDate" :generated-at="flowPdfGeneratedAt" :vehicle-codes="[...flowSelectedVehicleCodes]" :current-points="flowPlanPoints" :route-comparison="flowRouteComparison" :analysis="flowAnalysisResult" :period-points="flowPeriodPointRows" :candidate-routes="flowCandidateRoutes" :excluded-points="flowConfiguredExcludedPoints" :conclusion="flowConclusion" />
         </template>
       </section>
     </template>
@@ -1920,9 +1929,10 @@
 </template>
 
 <script setup>
-import { computed, onMounted, reactive, ref } from 'vue'
+import { computed, nextTick, onMounted, reactive, ref } from 'vue'
 import RouteMapPanel from './components/RouteMapPanel.vue'
 import ClusterMapPanel from './components/ClusterMapPanel.vue'
+import FlowAnalysisPdfReport from './components/FlowAnalysisPdfReport.vue'
 
 const LOGIN_USERNAME = 'admin'
 const LOGIN_PASSWORD = 'zhj521%@!'
@@ -1955,6 +1965,9 @@ const flowExpandedDays = ref(new Set())
 const flowAnalysisLoading = ref(false)
 const flowRunVersion = ref(0)
 const flowRunAbortController = ref(null)
+const flowPdfReportRef = ref(null)
+const flowPdfExporting = ref(false)
+const flowPdfGeneratedAt = ref('')
 const flowPipeline = reactive({ code: 'IDLE', failedStep: '', label: '未选择条件', message: '请选择项目公司、岗位、日期和执行车辆', percent: 0, candidateCompleted: 0, candidateTotal: 0 })
 const flowProcessSteps = [
   { code: 'QUERYING', label: '查询岗位数据' },
@@ -1969,6 +1982,8 @@ const flowDateRangeValid = computed(() => Boolean(flowAnalysisFilters.startDate 
 const flowConditionsReady = computed(() => Boolean(flowAnalysisCompanyId.value && flowAnalysisRouteId.value && flowDateRangeValid.value && flowSelectedVehicleCodes.value.size))
 const flowPipelineRunning = computed(() => ['QUERYING', 'ROUTING_CURRENT', 'ANALYZING_FLOW', 'ROUTING_CANDIDATES'].includes(flowPipeline.code))
 const flowJobName = computed(() => flowAnalysisJobs.value.find(item => String(item.id) === String(flowAnalysisRouteId.value))?.routeName || '当前岗位')
+const flowPdfCompanyName = computed(() => flowAnalysisCompany.value?.depName || String(flowAnalysisCompanyId.value || '未命名项目公司'))
+const flowPdfReady = computed(() => flowPipeline.code === 'SUCCESS' && Boolean(flowAnalysisResult.value && flowRouteComparison.value))
 
 const flowPointCollectionSummary = computed(() => {
   const summary = new Map()
@@ -2167,10 +2182,18 @@ const flowConfiguredExcludedPoints = computed(() => {
   }
   return [...unique.values()]
 })
+const flowCandidateDistanceSummary = computed(() => {
+  const completed = flowCandidateRoutes.value.filter(route => route.routingStatus === 'DONE')
+  const originalDistance = completed.reduce((sum, route) => sum + Number(route.optimization?.originalPathDistance || 0), 0)
+  const optimizedDistance = completed.reduce((sum, route) => sum + Number(route.optimization?.pathDistance || 0), 0)
+  const comparison = flowDistanceComparison(originalDistance, optimizedDistance)
+  return { count: completed.length, originalDistance, optimizedDistance, ...comparison }
+})
 const flowConclusion = computed(() => {
   const comparison = flowRouteComparison.value
   const completed = flowCandidateRoutes.value.filter(route => route.routingStatus === 'DONE')
-  const candidateDistance = completed.reduce((sum, route) => sum + Number(route.optimization?.pathDistance || 0), 0)
+  const candidateOriginalDistance = flowCandidateDistanceSummary.value.originalDistance
+  const candidateDistance = flowCandidateDistanceSummary.value.optimizedDistance
   const candidateDuration = completed.reduce((sum, route) => sum + Number(route.optimization?.pathDurationMinutes || 0), 0)
   const uniquePointIds = new Set(flowGeneratedGroups.value.flatMap(group => (group.points || []).map(point => String(point.facilityId))))
   const sharedPointIds = new Set(flowGeneratedGroups.value.flatMap(group => (group.points || []).filter(point => point.candidateShared).map(point => String(point.facilityId))))
@@ -2181,13 +2204,15 @@ const flowConclusion = computed(() => {
   if (comparison) lines.push(`岗位单路线优化后预计${distanceDelta >= 0 ? '减少' : '增加'} ${formatDistance(Math.abs(distanceDelta))}，行驶时间预计${durationDelta >= 0 ? '减少' : '增加'} ${formatDuration(Math.abs(durationDelta))}。`)
   if (flowAnalysisResult.value?.tripCount) lines.push(`统计期实际作业 ${flowAnalysisResult.value.activeDays} 天、${flowAnalysisResult.value.tripCount} 趟，日均 ${flowAnalysisResult.value.avgTripsPerActiveDay} 趟，四舍五入生成 ${flowGeneratedTripCount.value} 个候选趟。`)
   else lines.push('统计期没有可用于候选分堆的实际趟次，仅保留当前岗位路线对比。')
-  if (completed.length) lines.push(`${completed.length} 条候选路线道路规划合计 ${formatDistance(candidateDistance)}、预计 ${formatDuration(candidateDuration)}；该合计用于页面比较，不代表已发布调度方案。`)
+  if (completed.length) lines.push(`${completed.length} 条候选路线分堆原序合计 ${formatDistance(candidateOriginalDistance)}，道路优化后合计 ${formatDistance(candidateDistance)}，${flowCandidateDistanceSummary.value.label}，预计行驶 ${formatDuration(candidateDuration)}；该合计用于页面比较，不代表已发布调度方案。`)
   if (flowConfiguredExcludedPoints.value.length) lines.push(`另有 ${flowConfiguredExcludedPoints.value.length} 个未收运、仅途经或岗位配置未出现点位，未进入候选路线。`)
   return {
     metrics: [
       { label: '当前路线', value: comparison ? formatDistance(comparison.originalPathDistance) : '-' },
       { label: '优化路线', value: comparison ? formatDistance(comparison.pathDistance) : '-' },
-      { label: '候选路线合计', value: completed.length ? formatDistance(candidateDistance) : '-' },
+      { label: '分堆原序合计', value: completed.length ? formatDistance(candidateOriginalDistance) : '-' },
+      { label: '分堆优化合计', value: completed.length ? formatDistance(candidateDistance) : '-' },
+      { label: '分堆距离变化', value: completed.length ? flowCandidateDistanceSummary.value.label : '-' },
       { label: '候选覆盖点', value: `${uniquePointIds.size} 个` },
       { label: '共享点', value: `${sharedPointIds.size} 个` },
       { label: '低频点', value: `${lowPointIds.size} 个` },
@@ -4892,6 +4917,7 @@ function resetFlowAnalysisResult(options = {}) {
   flowRouteComparison.value = null
   flowCandidateRoutes.value = []
   flowSelectedCandidateRoute.value = null
+  flowPdfGeneratedAt.value = ''
   flowShowCollectedOnly.value = false
   flowTripsCollapsed.value = false
   flowExpandedDays.value = new Set()
@@ -5181,6 +5207,47 @@ async function cancelFlowAnalysis() {
   setFlowPipeline('FAILED', '失败', '岗位全流程分析已由用户停止', flowPipeline.percent)
 }
 
+async function exportFlowAnalysisPdf() {
+  if (!flowPdfReady.value || flowPdfExporting.value) return
+  flowPdfExporting.value = true
+  error.value = ''
+  let element = null
+  try {
+    const now = new Date()
+    flowPdfGeneratedAt.value = now.toLocaleString('zh-CN', { hour12: false })
+    await nextTick()
+    element = flowPdfReportRef.value?.getElement?.()
+    if (!element) throw new Error('PDF报告内容尚未就绪，请稍后重试')
+    element.classList.add('flow-pdf-capturing')
+    const module = await import('html2pdf.js')
+    const html2pdf = module.default || module
+    const safeName = `${flowPdfCompanyName.value}_${flowJobName.value}_${flowAnalysisFilters.startDate}-${flowAnalysisFilters.endDate}`.replace(/[\\/:*?"<>|]/g, '_')
+    const worker = html2pdf().set({
+      margin: [9, 8, 11, 8],
+      filename: `岗位全流程分析_${safeName}.pdf`,
+      image: { type: 'jpeg', quality: 0.94 },
+      html2canvas: { scale: 2, useCORS: true, backgroundColor: '#ffffff', logging: false, scrollX: 0, scrollY: 0, windowWidth: 794 },
+      jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait', compress: true },
+      pagebreak: { mode: ['css', 'legacy'], avoid: ['.pdf-keep-together', 'tr'] }
+    }).from(element).toPdf()
+    await worker.get('pdf').then((pdf) => {
+      const pageCount = pdf.internal.getNumberOfPages()
+      for (let page = 1; page <= pageCount; page += 1) {
+        pdf.setPage(page)
+        pdf.setFontSize(8)
+        pdf.setTextColor(132, 145, 155)
+        pdf.text(`${page} / ${pageCount}`, 199, 291, { align: 'right' })
+      }
+    })
+    await worker.save()
+  } catch (exportError) {
+    error.value = exportError?.message || '岗位分析PDF生成失败'
+  } finally {
+    element?.classList.remove('flow-pdf-capturing')
+    flowPdfExporting.value = false
+  }
+}
+
 function toggleFlowDay(date) { const next = new Set(flowExpandedDays.value); if (next.has(date)) next.delete(date); else next.add(date); flowExpandedDays.value = next }
 function toggleFlowTrips() { flowTripsCollapsed.value = !flowTripsCollapsed.value }
 
@@ -5369,6 +5436,19 @@ function formatDuration(value) {
   return `${n.toFixed(0)} min`
 }
 
+function flowDistanceComparison(before, after) {
+  const original = Number(before || 0)
+  const optimized = Number(after || 0)
+  const delta = original - optimized
+  const rate = original > 0 ? Math.abs(delta) / original * 100 : 0
+  const direction = Math.abs(delta) < 0.5 ? 'same' : delta > 0 ? 'saving' : 'increase'
+  const label = direction === 'same' ? '距离基本持平' : `距离${direction === 'saving' ? '减少' : '增加'} ${formatDistance(Math.abs(delta))}（${rate.toFixed(1)}%）`
+  return { delta, rate, direction, label }
+}
+
+function flowDistanceComparisonText(before, after) { return flowDistanceComparison(before, after).label }
+function flowDistanceComparisonClass(before, after) { return `change-${flowDistanceComparison(before, after).direction}` }
+
 function formatWeight(value) {
   const n = Number(value || 0)
   if (!n) return '0 kg'
@@ -5435,10 +5515,6 @@ function pathSourceClass(source) {
 }
 
 </script>
-
-
-
-
 
 
 

@@ -3196,6 +3196,16 @@ tbody tr.active {
 .flow-raw-group-sequence span small { margin-left: 3px; color: currentColor; font-size: 10px; opacity: .75; }
 .flow-candidate-metrics { display: flex; flex-wrap: wrap; gap: 6px; margin: 9px 0; }
 .flow-candidate-metrics span { padding: 4px 7px; border-radius: 5px; background: #edf4fa; color: #47647e; font-size: 11px; }
+.flow-candidate-total-comparison { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; padding: 12px 14px; border: 1px solid #c8dceb; border-radius: 8px; background: #f7fbfe; }
+.flow-candidate-total-comparison span { display: grid; gap: 2px; min-width: 150px; }
+.flow-candidate-total-comparison small { color: #71879a; font-size: 11px; }
+.flow-candidate-total-comparison strong { color: #244f6e; font-size: 17px; }
+.flow-candidate-total-comparison b { color: #7e96a9; font-size: 20px; }
+.flow-candidate-total-comparison em, .flow-candidate-distance-change { font-style: normal; font-weight: 700; }
+.flow-candidate-total-comparison .change-saving, .flow-candidate-distance-change.change-saving { color: #247551; background: #e6f6ee; }
+.flow-candidate-total-comparison .change-increase, .flow-candidate-distance-change.change-increase { color: #a44b42; background: #fff0ed; }
+.flow-candidate-total-comparison .change-same, .flow-candidate-distance-change.change-same { color: #607586; background: #eef2f5; }
+.flow-candidate-total-comparison em { padding: 6px 9px; border-radius: 6px; }
 .flow-candidate-sequence-compare { display: grid; gap: 8px; }
 .flow-candidate-sequence-row { display: grid; gap: 5px; padding: 7px; border: 1px solid #f0d0cc; border-radius: 7px; background: #fffafa; }
 .flow-candidate-sequence-row.optimized { border-color: #c8dff3; background: #f7fbff; }
