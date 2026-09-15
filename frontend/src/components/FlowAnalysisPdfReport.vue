@@ -66,14 +66,16 @@
       </section>
 
       <section class="pdf-section pdf-explicit-page-break">
-        <div class="pdf-section-title"><span>03</span><div><h2>统计期点位汇总</h2><p>岗位配置点与实际流水点并集</p></div></div>
+        <div class="pdf-section-title"><span>03</span><div><h2>统计期点位汇总</h2><p>岗位配置点与实际流水点并集，按完整趟次实际收运的平均序位排列</p></div></div>
+        <div class="pdf-point-frequency-legend"><strong>实际日均标记</strong><span class="high">高于 1 次/天</span><span class="normal">0.5 至 1 次/天</span><span class="low">低于 0.5 次/天</span></div>
         <table class="pdf-point-table">
-          <thead><tr><th>序号</th><th>点位</th><th>平均到达顺序</th><th>收运次数</th><th>途经次数</th><th>来源</th></tr></thead>
-          <tbody><tr v-for="(point, index) in periodPoints" :key="point.facilityId"><td>{{ index + 1 }}</td><td>{{ pointName(point) }}</td><td>{{ point.averageArrivalOrder == null ? '-' : `第 ${point.averageArrivalOrder.toFixed(2)} 位` }}</td><td>{{ point.collectedCount || 0 }}</td><td>{{ point.throughCount || 0 }}</td><td>{{ point.sourceLabel || '-' }}</td></tr></tbody>
+          <thead><tr><th>序号</th><th>点位</th><th>收运/途经</th><th>日均收运</th><th>平均收运顺序</th><th>岗位配置频次</th><th>来源</th></tr></thead>
+          <tbody><tr v-for="(point, index) in periodPoints" :key="point.facilityId" :class="periodPointClass(point)"><td>{{ index + 1 }}</td><td>{{ pointName(point) }}</td><td>{{ point.collectedCount || 0 }} / {{ point.throughCount || 0 }}</td><td>{{ formatDailyCollection(point.averageDailyCollected) }}</td><td>{{ averageCollectionOrder(point) }}<small v-if="point.arrivalSampleTrips">{{ point.arrivalSampleTrips }} 趟样本</small></td><td>{{ configuredFrequencyLabel(point) }}</td><td>{{ point.sourceLabel || '-' }}</td></tr></tbody>
         </table>
+        <div class="pdf-method-note compact"><strong>计算口径</strong><p>日均收运次数按统计期自然日计算，大于 1 次/天标紫、低于 0.5 次/天标白。平均收运顺序仅统计完整趟次中的实际收运事件，同一趟同一点重复收运只取第一次；途经事件不参与平均顺序。岗位配置频次带 * 时，表示统计期涉及多个排班周期，采用出现次数最多且最近的代表周期。</p></div>
       </section>
 
-      <section class="pdf-section pdf-page-break-before">
+      <section class="pdf-section pdf-explicit-page-break">
         <div class="pdf-section-title"><span>04</span><div><h2>每日实际趟次</h2><p>历史点位顺序仅用于实际执行过程展示</p></div></div>
         <article v-for="day in (analysis.dailyTrips || [])" :key="day.date" class="pdf-day-card pdf-keep-together">
           <header><h3>{{ day.date }}</h3><span>{{ day.tripCount || day.trips?.length || 0 }} 趟</span></header>
@@ -89,7 +91,7 @@
         <p v-if="!analysis.dailyTrips?.length" class="pdf-empty">统计期没有找到可展示的实际趟次。</p>
       </section>
 
-      <section v-if="analysis.groups?.length" class="pdf-section pdf-page-break-before">
+      <section v-if="analysis.groups?.length" class="pdf-section pdf-explicit-page-break">
         <div class="pdf-section-title"><span>05</span><div><h2>历史岗位分堆</h2><p>根据历史流水归纳的原始分堆结果</p></div></div>
         <article v-for="group in analysis.groups" :key="group.groupNo" class="pdf-group-card pdf-keep-together">
           <header><h3>分堆 {{ group.groupNo }}</h3><span>{{ group.tripCount || 0 }} 趟 · 覆盖 {{ group.activeDays || 0 }} 天 · {{ group.stable ? '相对稳定' : '样本较少' }}</span></header>
@@ -99,14 +101,17 @@
       </section>
 
       <section class="pdf-section pdf-explicit-page-break">
-        <div class="pdf-section-title"><span>06</span><div><h2>候选多趟道路路线</h2><p>分堆原顺序与道路优化后顺序对比</p></div></div>
+        <div class="pdf-section-title"><span>06</span><div><h2>候选多趟道路路线</h2><p>分堆原顺序、岗位配置频次与道路优化后顺序对比</p></div></div>
         <div class="pdf-legend"><span class="normal">普通收运</span><span class="shared">共享</span><span class="multi">多次收运</span><span class="low">低频</span></div>
+        <div class="pdf-frequency-legend"><strong>岗位配置频次</strong><span class="high">高于1次/天</span><span class="normal">高于0.5至1次/天</span><span class="low">2天/1次</span><span class="very-low">低于0.5次/天</span></div>
         <article v-for="route in candidateRoutes" :key="route.groupNo" class="pdf-candidate-card pdf-keep-together">
           <header><div><h3>候选第 {{ route.groupNo }} 趟</h3><p>历史样本 {{ route.tripCount || 0 }} 趟 · 覆盖 {{ route.activeDays || 0 }} 天</p></div><span :class="['pdf-status', route.routingStatus === 'DONE' ? 'done' : 'failed']">{{ route.routingStatus === 'DONE' ? '道路规划完成' : '道路规划未完成' }}</span></header>
           <template v-if="route.routingStatus === 'DONE'">
             <div class="pdf-candidate-metrics"><span>收运点 {{ route.displayPoints?.length || 0 }}</span><span>原序 {{ formatDistance(route.optimization?.originalPathDistance) }} / {{ formatDuration(route.optimization?.originalPathDurationMinutes) }}</span><span>优化 {{ formatDistance(route.optimization?.pathDistance) }} / {{ formatDuration(route.optimization?.pathDurationMinutes) }}</span><span :class="['distance-change', distanceChangeClass(route.optimization?.originalPathDistance, route.optimization?.pathDistance)]">{{ distanceChangeText(route.optimization?.originalPathDistance, route.optimization?.pathDistance) }}</span></div>
             <h4>分堆原顺序</h4>
             <div class="pdf-sequence"><span v-for="(point, index) in (route.inputPoints || [])" :key="'candidate-original-'+route.groupNo+'-'+index" :class="candidatePointClass(point)">{{ index + 1 }}. {{ pointName(point) }}<small v-if="candidatePointLabels(point).length">{{ candidatePointLabels(point).join(' / ') }}</small></span></div>
+            <h4>岗位配置频次（沿用分堆原顺序）</h4>
+            <div class="pdf-sequence pdf-frequency-sequence"><span v-for="(point, index) in (route.inputPoints || [])" :key="'candidate-frequency-'+route.groupNo+'-'+index" :class="configuredFrequencyPointClass(point)">{{ index + 1 }}. {{ pointName(point) }}<small>{{ point.role === 'END' ? '路线终点' : configuredFrequencyLabel(point) }}</small></span></div>
             <h4>道路优化后</h4>
             <div class="pdf-sequence"><span v-for="(point, index) in (route.optimizedPoints || [])" :key="'candidate-optimized-'+route.groupNo+'-'+index" :class="candidatePointClass(point)">{{ index + 1 }}. {{ pointName(point) }}<small v-if="candidatePointLabels(point).length">{{ candidatePointLabels(point).join(' / ') }}</small></span></div>
           </template>
@@ -123,7 +128,7 @@
         </table>
       </section>
 
-      <section class="pdf-section pdf-conclusion pdf-page-break-before">
+      <section class="pdf-section pdf-conclusion pdf-explicit-page-break">
         <div class="pdf-section-title"><span>08</span><div><h2>分析结论与路线对比汇总</h2><p>仅依据本次所选岗位、日期和车辆生成</p></div></div>
         <div class="pdf-conclusion-grid"><div v-for="metric in conclusion.metrics" :key="metric.label"><small>{{ metric.label }}</small><strong>{{ metric.value }}</strong></div></div>
         <ul><li v-for="line in conclusion.lines" :key="line">{{ line }}</li></ul>
@@ -134,9 +139,9 @@
 </template>
 
 <script setup>
-import { ref } from 'vue'
+import { computed, ref } from 'vue'
 
-defineProps({
+const props = defineProps({
   companyName: { type: String, default: '未命名项目公司' },
   jobName: { type: String, default: '未命名岗位' },
   startDate: { type: String, default: '-' },
@@ -155,6 +160,17 @@ defineProps({
 const reportRoot = ref(null)
 defineExpose({ getElement: () => reportRoot.value })
 
+const configuredFrequencyByFacility = computed(() => {
+  const result = new Map()
+  for (const point of (props.analysis?.configuredPoints || [])) {
+    const period = Number(point.frequencyPeriod)
+    const collectCount = Number(point.frequencyCollectCount)
+    if (point.facilityId == null || !Number.isFinite(period) || period <= 0 || !Number.isFinite(collectCount) || collectCount < 0) continue
+    result.set(String(point.facilityId), { period, collectCount, daily: collectCount / period, configChanged: Boolean(point.frequencyConfigChanged) })
+  }
+  return result
+})
+
 function pointName(point) { return point?.facilityName || point?.facilityId || '-' }
 function percent(value) { return `${Math.round(Number(value || 0) * 100)}%` }
 function formatDistance(value) { const number = Number(value || 0); return number >= 1000 ? `${(number / 1000).toFixed(2)} km` : `${number.toFixed(0)} m` }
@@ -164,6 +180,27 @@ function distanceChangeText(before, after) { return distanceChange(before, after
 function distanceChangeClass(before, after) { return distanceChange(before, after).direction }
 function candidatePointClass(point) { return { endpoint: point.role === 'START' || point.role === 'END', multi: point.candidateMultiCollection, shared: point.candidateShared && !point.candidateMultiCollection, low: point.candidateLowFrequency } }
 function candidatePointLabels(point) { const labels = []; if (point.candidateMultiCollection) labels.push('多次收运'); if (point.candidateShared) labels.push('共享'); if (point.candidateLowFrequency) labels.push('低频'); if (point.candidateOutsideConfig) labels.push('流水新增'); return labels }
+function formatDailyCollection(value) { return `${Number(value || 0).toFixed(2)} 次/天` }
+function averageCollectionOrder(point) { return point?.averageArrivalOrder == null ? '-' : `第 ${Number(point.averageArrivalOrder).toFixed(2)} 位` }
+function periodPointClass(point) { const daily = Number(point?.averageDailyCollected || 0); return { 'point-daily-high': daily > 1, 'point-daily-low': daily < 0.5 } }
+function configuredFrequency(point) {
+  const period = Number(point?.frequencyPeriod)
+  const collectCount = Number(point?.frequencyCollectCount)
+  if (Number.isFinite(period) && period > 0 && Number.isFinite(collectCount) && collectCount >= 0) return { period, collectCount, daily: collectCount / period, configChanged: Boolean(point.frequencyConfigChanged) }
+  return configuredFrequencyByFacility.value.get(String(point?.facilityId)) || null
+}
+function configuredFrequencyLabel(point) { const frequency = configuredFrequency(point); return frequency ? `${frequency.period}天/${frequency.collectCount}次${frequency.configChanged ? '*' : ''}` : '未配置' }
+function configuredFrequencyPointClass(point) {
+  if (point?.role === 'END') return { endpoint: true }
+  const frequency = configuredFrequency(point)
+  return {
+    'frequency-high': Boolean(frequency && frequency.daily > 1),
+    'frequency-normal': Boolean(frequency && frequency.daily > 0.5 && frequency.daily <= 1),
+    'frequency-low': Boolean(frequency && frequency.daily <= 0.5),
+    'frequency-very-low': Boolean(frequency && frequency.daily < 0.5),
+    'frequency-missing': !frequency
+  }
+}
 </script>
 
 <style scoped>
@@ -198,6 +235,24 @@ table { width: 100%; border-collapse: collapse; }
 th, td { padding: 7px 8px; border: 1px solid #dce5eb; text-align: left; vertical-align: top; }
 th { color: #365b74; background: #eef5fa; font-weight: 600; }
 tbody tr:nth-child(even) { background: #fafcfd; }
+.pdf-point-frequency-legend { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; margin: -5px 0 10px; color: #718493; font-size: 8px; }
+.pdf-point-frequency-legend strong { color: #4d687b; }
+.pdf-point-frequency-legend span { padding: 2px 6px; border: 1px solid #a9d8bf; border-radius: 8px; color: #176b45; background: #e9f7ef; }
+.pdf-point-frequency-legend span.high { border-color: #9b79d0; color: #6741a0; background: #f2eaff; }
+.pdf-point-frequency-legend span.low { border-color: #d1d9e0; color: #71808d; background: #fff; }
+.pdf-point-table { table-layout: fixed; font-size: 9px; }
+.pdf-point-table th, .pdf-point-table td { padding: 6px 5px; overflow-wrap: anywhere; }
+.pdf-point-table th:nth-child(1) { width: 6%; }
+.pdf-point-table th:nth-child(2) { width: 20%; }
+.pdf-point-table th:nth-child(3) { width: 11%; }
+.pdf-point-table th:nth-child(4) { width: 12%; }
+.pdf-point-table th:nth-child(5) { width: 15%; }
+.pdf-point-table th:nth-child(6) { width: 14%; }
+.pdf-point-table th:nth-child(7) { width: 22%; }
+.pdf-point-table td small { display: block; color: #7a8d9c; font-size: 8px; }
+.pdf-point-table tbody tr td { border-color: #b8ddc8; color: #256a4b; background: #eef8f3; }
+.pdf-point-table tr.point-daily-high td { border-color: #cbb9e4; color: #654291; background: #f5effc; }
+.pdf-point-table tr.point-daily-low td { border-color: #d1d9e0; color: #71808d; background: #fff; }
 .pdf-route-grid { display: grid; gap: 14px; }
 .pdf-route-card { padding: 14px; border: 1px solid #d5e1e9; border-left: 5px solid #d48b35; border-radius: 8px; background: #fffdf9; break-inside: avoid; page-break-inside: avoid; }
 .pdf-route-card.optimized { border-left-color: #2f80c9; background: #f8fbfe; }
@@ -215,6 +270,11 @@ tbody tr:nth-child(even) { background: #fafcfd; }
 .pdf-sequence > span.multi { border-color: #9272bd; color: #644092; background: #f1e9fc; }
 .pdf-sequence > span.shared { border-color: #d7aa3e; color: #845a07; background: #fff4d4; }
 .pdf-sequence > span.low { border: 2px solid #879aaa; color: #526779; background: #fff; }
+.pdf-frequency-sequence > span.frequency-normal { border-color: #a9d8bf; color: #176b45; background: #e9f7ef; }
+.pdf-frequency-sequence > span.frequency-high { border-color: #9b79d0; color: #6741a0; background: #f2eaff; }
+.pdf-frequency-sequence > span.frequency-low { border-color: #aebbc6; color: #657686; background: #f9fafb; }
+.pdf-frequency-sequence > span.frequency-very-low { border-color: #d5dce2; color: #8795a1; background: #fff; }
+.pdf-frequency-sequence > span.frequency-missing { border-style: dashed; border-color: #aab7c2; color: #71808e; background: #f3f5f7; }
 .pdf-sequence small { display: block; margin-top: 1px; font-size: 8px; opacity: .8; }
 .pdf-day-card, .pdf-group-card, .pdf-candidate-card { margin: 0 0 12px; padding: 12px; border: 1px solid #d5e1e9; border-radius: 7px; background: #fbfdfe; }
 .pdf-day-card > header, .pdf-group-card > header, .pdf-candidate-card > header { display: flex; align-items: flex-start; justify-content: space-between; gap: 15px; padding-bottom: 7px; border-bottom: 1px solid #e3eaf0; }
@@ -230,6 +290,12 @@ tbody tr:nth-child(even) { background: #fafcfd; }
 .pdf-legend .shared { border-color: #d7aa3e; color: #845a07; background: #fff4d4; }
 .pdf-legend .multi { border-color: #9272bd; color: #644092; background: #f1e9fc; }
 .pdf-legend .low { border: 2px solid #879aaa; color: #526779; background: #fff; }
+.pdf-frequency-legend { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; margin: -6px 0 13px; color: #718493; font-size: 8px; }
+.pdf-frequency-legend strong { color: #4d687b; }
+.pdf-frequency-legend span { padding: 2px 6px; border: 1px solid #a9d8bf; border-radius: 8px; color: #176b45; background: #e9f7ef; }
+.pdf-frequency-legend span.high { border-color: #9b79d0; color: #6741a0; background: #f2eaff; }
+.pdf-frequency-legend span.low { border-color: #aebbc6; color: #657686; background: #f9fafb; }
+.pdf-frequency-legend span.very-low { border-color: #d5dce2; color: #8795a1; background: #fff; }
 .pdf-candidate-card header p { margin: 2px 0 0; color: #73899a; font-size: 10px; }
 .pdf-status { padding: 3px 7px; border-radius: 9px; font-size: 9px; }
 .pdf-status.done { color: #267151; background: #e6f5ed; }
@@ -247,6 +313,7 @@ tbody tr:nth-child(even) { background: #fafcfd; }
 .pdf-method-note { margin-top: 20px; padding: 12px 14px; border-left: 4px solid #88a8bf; color: #657b8c; background: #f4f7f9; }
 .pdf-method-note strong { color: #3b6078; }
 .pdf-method-note p { margin: 4px 0 0; }
+.pdf-method-note.compact { margin-top: 10px; padding: 8px 10px; font-size: 9px; }
 .pdf-page-break-before { break-before: auto; page-break-before: auto; }
 .pdf-explicit-page-break { break-before: page; page-break-before: always; }
 .pdf-page-break-after { break-after: page; page-break-after: always; }

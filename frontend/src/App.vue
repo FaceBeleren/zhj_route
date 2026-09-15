@@ -158,8 +158,8 @@
             </section>
 
             <section class="panel flow-period-points-panel">
-              <div class="panel-head"><div><h2>统计期点位汇总</h2><span class="muted">岗位配置点与实际流水点并集 · 按完整趟次首次到达的平均序位排列</span></div><span class="flow-generated-status">{{ flowPeriodPointRows.length }} 个点位</span></div>
-              <div class="flow-period-point-list"><div v-for="point in flowPeriodPointRows" :key="'flow-period-'+point.facilityId" :class="['flow-period-point', { through: point.collectedCount === 0 && point.throughCount > 0, silent: point.collectedCount === 0 && point.throughCount === 0, 'daily-high': point.averageDailyCollected > 1, 'daily-low': point.averageDailyCollected < 0.5 }]"><strong>{{ point.facilityName || point.facilityId }}</strong><span>收运 {{ point.collectedCount }} 次 · 途经 {{ point.throughCount }} 次 · 日均收运 {{ point.averageDailyCollected.toFixed(2) }} 次</span><span>平均到达顺序 {{ point.averageArrivalOrder == null ? '无到达样本' : `第 ${point.averageArrivalOrder.toFixed(2)} 位（${point.arrivalSampleTrips} 趟）` }}</span><small>{{ point.sourceLabel }}</small></div></div>
+              <div class="panel-head"><div><h2>统计期点位汇总</h2><span class="muted">岗位配置点与实际流水点并集 · 按完整趟次首次实际收运的平均序位排列</span></div><span class="flow-generated-status">{{ flowPeriodPointRows.length }} 个点位</span></div>
+              <div class="flow-period-point-list"><div v-for="point in flowPeriodPointRows" :key="'flow-period-'+point.facilityId" :class="['flow-period-point', { through: point.collectedCount === 0 && point.throughCount > 0, silent: point.collectedCount === 0 && point.throughCount === 0, 'daily-high': point.averageDailyCollected > 1, 'daily-low': point.averageDailyCollected < 0.5 }]"><strong>{{ point.facilityName || point.facilityId }}</strong><span>收运 {{ point.collectedCount }} 次 · 途经 {{ point.throughCount }} 次 · 日均收运 {{ point.averageDailyCollected.toFixed(2) }} 次</span><span>平均收运顺序 {{ point.averageArrivalOrder == null ? '无收运样本' : `第 ${point.averageArrivalOrder.toFixed(2)} 位（${point.arrivalSampleTrips} 趟）` }}</span><small>{{ point.sourceLabel }}</small></div></div>
             </section>
           </section>
 
@@ -2010,7 +2010,7 @@ const flowPointArrivalSummary = computed(() => {
       const seen = new Set()
       let arrivalOrder = 0
       for (const point of (trip.points || [])) {
-        if (point.facilityId == null) continue
+        if (point.facilityId == null || Number(point.matchType) !== 0) continue
         const key = String(point.facilityId)
         if (seen.has(key)) continue
         seen.add(key)
@@ -2053,14 +2053,16 @@ function flowBuildGeneratedGroups(result) {
     const rows = new Map()
     for (const trip of slot.trips) {
       const perTrip = new Map()
+      const collectedPositions = new Map()
       for (const event of (trip.points || [])) {
         if (event.facilityId == null) continue
         const key = String(event.facilityId)
         if (useConfiguredScope && !configuredIds.has(key)) continue
+        if (Number(event.matchType) === 0 && !collectedPositions.has(key)) collectedPositions.set(key, collectedPositions.size)
         const current = perTrip.get(key)
         if (!current || (Number(event.matchType) === 0 && Number(current.matchType) !== 0)) perTrip.set(key, event)
       }
-      const pointCount = Math.max(1, (trip.points || []).length - 1)
+      const collectedPointCount = Math.max(1, collectedPositions.size - 1)
       for (const [key, event] of perTrip) {
         let row = rows.get(key)
         if (!row) {
@@ -2068,10 +2070,11 @@ function flowBuildGeneratedGroups(result) {
           rows.set(key, row)
         }
         row.visits += 1
-        if (Number(event.matchType) === 0) row.collectedCount += 1
-        else if (Number(event.matchType) === 1) row.throughCount += 1
-        const eventIndex = (trip.points || []).findIndex(item => String(item.facilityId) === key)
-        row.positions.push(eventIndex < 0 ? 0 : eventIndex / pointCount)
+        if (Number(event.matchType) === 0) {
+          row.collectedCount += 1
+          const collectedIndex = collectedPositions.get(key)
+          if (collectedIndex != null) row.positions.push(collectedIndex / collectedPointCount)
+        } else if (Number(event.matchType) === 1) row.throughCount += 1
       }
     }
     return rows
