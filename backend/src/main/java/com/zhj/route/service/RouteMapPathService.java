@@ -29,6 +29,7 @@ public class RouteMapPathService {
     private static final Logger log = LoggerFactory.getLogger(RouteMapPathService.class);
     private static final String BAIDU_DRIVING_URL = "http://api.map.baidu.com/directionlite/v1/driving";
     private static final String BAIDU_DRIVING_PATH = "/directionlite/v1/driving?";
+    private static final int CACHE_KEY_BATCH_SIZE = 100;
 
     private final JdbcTemplate jdbcTemplate;
     private final ObjectMapper objectMapper;
@@ -38,6 +39,7 @@ public class RouteMapPathService {
     private final String baiduSk;
     private final int connectTimeoutMs;
     private final int readTimeoutMs;
+    private final Object[] cacheWriteLocks = new Object[256];
 
     public RouteMapPathService(JdbcTemplate jdbcTemplate,
                                ObjectMapper objectMapper,
@@ -57,6 +59,9 @@ public class RouteMapPathService {
         requestFactory.setConnectTimeout(connectTimeoutMs);
         requestFactory.setReadTimeout(readTimeoutMs);
         this.restTemplate = new RestTemplate(requestFactory);
+        for (int i = 0; i < cacheWriteLocks.length; i++) {
+            cacheWriteLocks[i] = new Object();
+        }
     }
 
     public ResolvedPath resolve(RoutePoint from, RoutePoint to) {
@@ -93,25 +98,26 @@ public class RouteMapPathService {
         if (facilityIds.size() < 2) {
             return cachedKeys;
         }
-        String placeholders = placeholders(facilityIds.size());
-        String sql = "SELECT start_code, end_code " +
-                "FROM ljszy_odpair_pool " +
-                "WHERE been_deleted = 0 AND msg_full IS NOT NULL " +
-                "AND start_code IN (" + placeholders + ") " +
-                "AND end_code IN (" + placeholders + ")";
-        List<Object> args = new ArrayList<Object>();
-        args.addAll(facilityIds);
-        args.addAll(facilityIds);
         try {
             log.info("OD preload key query starting: cacheablePoints={}", facilityIds.size());
-            List<Map<String, Object>> rows = jdbcTemplate.queryForList(sql, args.toArray());
-            for (Map<String, Object> row : rows) {
-                String startCode = String.valueOf(row.get("start_code"));
-                String endCode = String.valueOf(row.get("end_code"));
-                cachedKeys.add(pathKey(startCode, endCode));
+            int rowCount = 0;
+            for (int offset = 0; offset < facilityIds.size(); offset += CACHE_KEY_BATCH_SIZE) {
+                List<String> starts = facilityIds.subList(offset, Math.min(offset + CACHE_KEY_BATCH_SIZE, facilityIds.size()));
+                String sql = "SELECT start_code, end_code FROM ljszy_odpair_pool " +
+                        "WHERE been_deleted = 0 AND msg_full IS NOT NULL " +
+                        "AND start_code IN (" + placeholders(starts.size()) + ") " +
+                        "AND end_code IN (" + placeholders(facilityIds.size()) + ")";
+                List<Object> args = new ArrayList<Object>(starts.size() + facilityIds.size());
+                args.addAll(starts);
+                args.addAll(facilityIds);
+                List<Map<String, Object>> rows = jdbcTemplate.queryForList(sql, args.toArray());
+                rowCount += rows.size();
+                for (Map<String, Object> row : rows) {
+                    cachedKeys.add(pathKey(String.valueOf(row.get("start_code")), String.valueOf(row.get("end_code"))));
+                }
             }
             log.info("OD preload key query finished: cacheablePoints={}, rows={}, cachedPairs={}, elapsed={}ms",
-                    facilityIds.size(), rows.size(), cachedKeys.size(), System.currentTimeMillis() - startedAt);
+                    facilityIds.size(), rowCount, cachedKeys.size(), System.currentTimeMillis() - startedAt);
             return cachedKeys;
         } catch (RuntimeException e) {
             log.warn("OD preload key query failed: cacheablePoints={}, elapsed={}ms, {}",
@@ -231,8 +237,8 @@ public class RouteMapPathService {
         try {
             List<Map<String, Object>> rows = jdbcTemplate.queryForList(
                     sql,
-                    String.valueOf(from.getFacilityId()),
-                    String.valueOf(to.getFacilityId()));
+                    pointCode(from),
+                    pointCode(to));
             if (rows.isEmpty()) {
                 log.debug("OD cache miss: {} -> {}", pointLabel(from), pointLabel(to));
                 return null;
@@ -250,6 +256,71 @@ public class RouteMapPathService {
         } catch (RuntimeException e) {
             log.warn("OD cache query failed: {} -> {}, {}", pointLabel(from), pointLabel(to), e.getMessage());
             return null;
+        }
+    }
+
+    /** Load only matrix costs; route geometry is fetched for the final chosen segments. */
+    public Map<String, ResolvedPath> preloadCachedDistances(List<RoutePoint> points) {
+        Map<String, ResolvedPath> cached = new HashMap<String, ResolvedPath>();
+        List<String> facilityIds = cacheableFacilityIds(points);
+        if (facilityIds.size() < 2) {
+            return cached;
+        }
+        long startedAt = System.currentTimeMillis();
+        try {
+            for (int offset = 0; offset < facilityIds.size(); offset += CACHE_KEY_BATCH_SIZE) {
+                List<String> starts = facilityIds.subList(offset, Math.min(offset + CACHE_KEY_BATCH_SIZE, facilityIds.size()));
+                String sql = "SELECT start_code, end_code, distance, time_duration FROM ljszy_odpair_pool " +
+                        "WHERE been_deleted = 0 AND msg_full IS NOT NULL " +
+                        "AND start_code IN (" + placeholders(starts.size()) + ") " +
+                        "AND end_code IN (" + placeholders(facilityIds.size()) + ") " +
+                        "ORDER BY create_time DESC";
+                List<Object> args = new ArrayList<Object>(starts.size() + facilityIds.size());
+                args.addAll(starts);
+                args.addAll(facilityIds);
+                for (Map<String, Object> row : jdbcTemplate.queryForList(sql, args.toArray())) {
+                    String key = pathKey(String.valueOf(row.get("start_code")), String.valueOf(row.get("end_code")));
+                    if (cached.containsKey(key)) {
+                        continue;
+                    }
+                    Double distance = toDouble(row.get("distance"));
+                    if (distance == null || distance < 0D) {
+                        throw new IllegalStateException("道路 OD 缓存距离无效: " + key);
+                    }
+                    cached.put(key, new ResolvedPath(new ArrayList<Map<String, Object>>(), distance,
+                            toDouble(row.get("time_duration")), "OD_PRELOAD_DISTANCE"));
+                }
+            }
+            log.info("OD distance preload finished: cacheablePoints={}, cachedPairs={}, elapsed={}ms",
+                    facilityIds.size(), cached.size(), System.currentTimeMillis() - startedAt);
+            return cached;
+        } catch (RuntimeException e) {
+            throw new IllegalStateException("道路 OD 缓存距离查询失败，未开始在线补算: " + e.getMessage(), e);
+        }
+    }
+
+    /** A lightweight preload reported this pair as cached; never turn a read failure into an online miss. */
+    public ResolvedPath cachedPathStrict(RoutePoint from, RoutePoint to) {
+        if (!isCacheableFacility(from) || !isCacheableFacility(to)) {
+            throw new IllegalStateException("道路 OD 缓存点对缺少有效编号");
+        }
+        String sql = "SELECT distance, time_duration, msg_full FROM ljszy_odpair_pool " +
+                "WHERE been_deleted = 0 AND start_code = ? AND end_code = ? AND msg_full IS NOT NULL " +
+                "ORDER BY create_time DESC LIMIT 1";
+        try {
+            List<Map<String, Object>> rows = jdbcTemplate.queryForList(sql,
+                    pointCode(from), pointCode(to));
+            if (rows.isEmpty()) {
+                throw new IllegalStateException("道路 OD 缓存键已存在但记录未找到: " + pointLabel(from) + " -> " + pointLabel(to));
+            }
+            Map<String, Object> row = rows.get(0);
+            List<Map<String, Object>> path = withEndpoints(parseBaiduPath(String.valueOf(row.get("msg_full"))), from, to);
+            if (path.size() < 2) {
+                throw new IllegalStateException("道路 OD 缓存轨迹无效: " + pointLabel(from) + " -> " + pointLabel(to));
+            }
+            return new ResolvedPath(path, toDouble(row.get("distance")), toDouble(row.get("time_duration")), "OD_CACHE");
+        } catch (RuntimeException e) {
+            throw new IllegalStateException("道路 OD 缓存读取失败，已停止在线补算: " + pointLabel(from) + " -> " + pointLabel(to), e);
         }
     }
 
@@ -352,21 +423,31 @@ public class RouteMapPathService {
                 "been_deleted, create_time, update_time, company_id, distance, end_code, " +
                 "latitude_end, latitude_start, longitude_end, longitude_start, start_code, time_duration, msg_full" +
                 ") VALUES (0, NOW(), NOW(), NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
-        try {
-            int updated = jdbcTemplate.update(sql,
-                    response.distanceMeters,
-                    String.valueOf(to.getFacilityId()),
-                    to.getLatitude(),
-                    from.getLatitude(),
-                    to.getLongitude(),
-                    from.getLongitude(),
-                    String.valueOf(from.getFacilityId()),
-                    response.durationSeconds,
-                    response.rawJson);
-            log.info("OD cache write: {} -> {}, rows={}, distance={}m, duration={}s",
-                    pointLabel(from), pointLabel(to), updated, response.distanceMeters, response.durationSeconds);
-        } catch (RuntimeException e) {
-            log.warn("OD cache write failed: {} -> {}, {}", pointLabel(from), pointLabel(to), e.getMessage());
+        String key = pathKey(from, to);
+        synchronized (cacheWriteLocks[(key.hashCode() & Integer.MAX_VALUE) % cacheWriteLocks.length]) {
+            try {
+                List<Map<String, Object>> existing = jdbcTemplate.queryForList(
+                        "SELECT 1 FROM ljszy_odpair_pool WHERE been_deleted = 0 AND start_code = ? AND end_code = ? AND msg_full IS NOT NULL LIMIT 1",
+                        pointCode(from), pointCode(to));
+                if (!existing.isEmpty()) {
+                    log.info("OD cache write skipped: pair already exists, {} -> {}", pointLabel(from), pointLabel(to));
+                    return;
+                }
+                int updated = jdbcTemplate.update(sql,
+                        response.distanceMeters,
+                        pointCode(to),
+                        to.getLatitude(),
+                        from.getLatitude(),
+                        to.getLongitude(),
+                        from.getLongitude(),
+                        pointCode(from),
+                        response.durationSeconds,
+                        response.rawJson);
+                log.info("OD cache write: {} -> {}, rows={}, distance={}m, duration={}s",
+                        pointLabel(from), pointLabel(to), updated, response.distanceMeters, response.durationSeconds);
+            } catch (RuntimeException e) {
+                log.warn("OD cache write failed: {} -> {}, {}", pointLabel(from), pointLabel(to), e.getMessage());
+            }
         }
     }
 
