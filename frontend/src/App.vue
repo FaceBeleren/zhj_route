@@ -4769,9 +4769,15 @@ function buildMultiGroupSavePayload(sourceType) {
     planningStrategy: multiOptimization.value?.planningStrategy || optimizeOptions.multiRouteStrategy,
     defaultDisplayMode: 'DIRECT',
     routes: [...inheritedRoutes, ...generatedRoutes],
-    summary: multiOptimization.value,
+    // 路线已经单独保存在 routes 中；summary 只保留统计信息，避免将道路折线再提交一遍。
+    summary: multiGroupSummaryForSave(),
     request: buildCurrentRouteRequestSnapshot()
   }
+}
+
+function multiGroupSummaryForSave() {
+  const { routes, ...summary } = multiOptimization.value || {}
+  return summary
 }
 
 function buildSingleMultiRouteSavePayload(sourceType) {
