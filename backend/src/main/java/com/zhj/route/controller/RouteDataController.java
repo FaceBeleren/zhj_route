@@ -154,6 +154,15 @@ public class RouteDataController {
         return flowAnalysisService.vehicles(unitId, routeId, startDate, endDate);
     }
 
+    @GetMapping("/flow-analysis/configured-points")
+    public List<Map<String, Object>> flowAnalysisConfiguredPoints(
+            @RequestParam String unitId,
+            @RequestParam String routeId,
+            @RequestParam(required = false) String startDate,
+            @RequestParam(required = false) String endDate) {
+        return flowAnalysisService.configuredPointsForRoute(unitId, routeId, startDate, endDate);
+    }
+
     @PostMapping("/flow-analysis/tasks")
     public Map<String, Object> startFlowAnalysis(@RequestBody Map<String, Object> request) {
         return flowAnalysisService.start(request);

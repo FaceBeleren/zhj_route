@@ -57,6 +57,22 @@ public class FlowAnalysisService {
         return jdbcTemplate.queryForList(sql, unitId, Long.valueOf(routeId), range.start.atStartOfDay(), range.end.plusDays(1).atStartOfDay());
     }
 
+    public List<Map<String, Object>> configuredPointsForRoute(String unitId, String routeId, String startDate, String endDate) {
+        if (blank(unitId) || blank(routeId)) throw new IllegalArgumentException("公司和岗位不能为空");
+        DateRange dateRange = range(startDate, endDate);
+        Set<String> carCodes = new LinkedHashSet<String>();
+        for (Map<String, Object> vehicle : vehicles(unitId, routeId, startDate, endDate)) {
+            String carCode = text(vehicle.get("carCode"));
+            if (!blank(carCode)) carCodes.add(carCode);
+        }
+        List<Record> records = carCodes.isEmpty()
+                ? new ArrayList<Record>()
+                : loadRecords(unitId, routeId, carCodes, dateRange);
+        Map<String, Object> request = new HashMap<String, Object>();
+        request.put("routeId", routeId);
+        return configuredPoints(request, records);
+    }
+
     public Map<String, Object> start(final Map<String, Object> request) {
         final String unitId = text(request == null ? null : request.get("unitId"));
         final String routeId = text(request == null ? null : request.get("routeId"));

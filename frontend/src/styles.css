@@ -671,6 +671,52 @@ button:disabled {
   color: #718096;
 }
 
+.assignment-point-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.assignment-point-actions button {
+  padding: 4px 8px;
+  font-size: 12px;
+}
+
+.assignment-point-option {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  cursor: pointer;
+}
+
+.assignment-point-option input {
+  flex: none;
+  margin-top: 4px;
+}
+
+.assignment-point-option span {
+  min-width: 0;
+}
+
+.assignment-point-option small {
+  display: block;
+}
+
+.assignment-frequency {
+  margin-left: 4px;
+  color: #2563eb;
+  font-size: 12px;
+  font-style: normal;
+  white-space: nowrap;
+}
+
+.assignment-frequency-note {
+  margin: 6px 14px 0;
+  color: #b45309;
+  font-size: 12px;
+}
+
 
 .cluster-filter-note {
   margin: -2px 0 10px;
