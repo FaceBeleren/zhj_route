@@ -717,6 +717,168 @@ button:disabled {
   font-size: 12px;
 }
 
+.assignment-version-panel {
+  margin-top: 12px;
+  padding: 12px;
+  border-top: 1px solid #e3e9ef;
+}
+
+.assignment-frequency-overview {
+  margin-bottom: 14px;
+  padding: 10px 12px;
+  border: 1px solid #d8e4ef;
+  border-radius: 8px;
+  background: #f8fafc;
+}
+
+.assignment-frequency-overview-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.assignment-frequency-overview-head small,
+.assignment-frequency-overview p {
+  color: #66758a;
+  font-size: 12px;
+}
+
+.assignment-frequency-groups {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.assignment-frequency-groups span {
+  padding: 4px 7px;
+  border-radius: 5px;
+  background: #e8f0fb;
+  color: #234c7a;
+  font-size: 12px;
+}
+
+.assignment-frequency-overview p {
+  margin: 8px 0 0;
+}
+
+.assignment-version-head,
+.assignment-version-list,
+.assignment-version-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.assignment-version-head {
+  justify-content: space-between;
+  margin-bottom: 10px;
+  flex-wrap: wrap;
+}
+
+.assignment-version-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.assignment-version-actions label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: #66758a;
+}
+
+.assignment-version-actions select {
+  width: auto;
+  padding: 5px 7px;
+}
+
+.assignment-version-list {
+  flex-wrap: wrap;
+}
+
+.assignment-version-item {
+  padding: 3px;
+  border: 1px solid #d8e4ef;
+  border-radius: 8px;
+  background: #f8fafc;
+}
+
+.assignment-version-item.active {
+  border-color: #2563eb;
+  background: #eff6ff;
+}
+
+.assignment-version-select {
+  display: grid;
+  gap: 3px;
+  text-align: left;
+}
+
+.assignment-version-select small,
+.assignment-version-hint {
+  color: #66758a;
+  font-size: 12px;
+}
+
+.assignment-version-remove {
+  padding: 2px 7px;
+}
+
+.assignment-version-hint {
+  margin: 8px 0 0;
+}
+
+.assignment-result-summary {
+  display: grid;
+  gap: 6px;
+  margin: 12px;
+}
+
+.assignment-result-version {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 9px;
+  border: 1px solid #d8e4ef;
+  border-radius: 6px;
+  background: #fff;
+  text-align: left;
+  width: 100%;
+  cursor: pointer;
+}
+
+.assignment-result-version.active {
+  border-color: #2563eb;
+  background: #eff6ff;
+}
+
+.assignment-result-version:disabled {
+  cursor: not-allowed;
+}
+
+.assignment-result-summary small {
+  color: #66758a;
+}
+
+.assignment-save-scope {
+  margin: 0 12px 10px;
+  color: #66758a;
+  font-size: 12px;
+}
+
+.assignment-applicable-dates {
+  margin: 4px 12px 8px;
+  color: #47647f;
+  font-size: 12px;
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+}
+
 
 .cluster-filter-note {
   margin: -2px 0 10px;

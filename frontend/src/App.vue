@@ -1008,8 +1008,8 @@
                 <span class="muted">把一条已有路线或岗位的规划点位拆成多趟实际收运路线</span>
               </div>
               <div class="panel-actions">
-                <button @click="generateSplitRoutes" :disabled="!selectedSplitRoute || assignmentSelectedPoints.length === 0 || loading">拆分生成</button>
-                <button v-if="routeProgress.visible && !routeProgress.done && !routeProgress.failed" class="secondary" @click="stopRouteGeneration">停止</button>
+                <button @click="generateAssignmentVersions" :disabled="!selectedSplitRoute || !assignmentVersions.length || assignmentVersions.some(version => version.selectedIndices.size < 3) || assignmentBatchRunning || loading">生成全部方案</button>
+                <button v-if="assignmentBatchRunning" class="secondary" @click="stopAssignmentVersionGeneration">停止</button>
               </div>
             </div>
             <div class="optimizer-controls">
@@ -1048,6 +1048,25 @@
               <div><span>已选预计重量</span><strong>{{ formatWeight(assignmentSelectedWeight) }}</strong></div>
               <div><span>已选预计体积</span><strong>{{ formatVolume(assignmentSelectedVolume) }}</strong></div>
             </div>
+            <div v-if="selectedSplitRoute" class="assignment-version-panel">
+              <div v-if="!splitFromSavedRoute" class="assignment-frequency-overview">
+                <div class="assignment-frequency-overview-head"><strong>点位频次分析</strong><small v-if="assignmentFrequencyLoading">读取中...</small><small v-else-if="assignmentFrequencyError">读取失败</small><small v-else>原路线 {{ assignmentFrequencyAnalysis.totalCount }} 点</small></div>
+                <template v-if="!assignmentFrequencyLoading && !assignmentFrequencyError">
+                  <div class="assignment-frequency-groups"><span v-for="group in assignmentFrequencyAnalysis.groups" :key="group.key">{{ group.period }}天/{{ group.collectCount }}次 · {{ group.count }}点</span><span v-if="assignmentFrequencyAnalysis.missingCount">未配置 · {{ assignmentFrequencyAnalysis.missingCount }}点</span><span v-if="assignmentFrequencyAnalysis.invalidCount">配置异常 · {{ assignmentFrequencyAnalysis.invalidCount }}点</span></div>
+                  <p v-if="assignmentFrequencyAnalysis.cycleDays">按当前起算方式，共同周期{{ assignmentFrequencyAnalysis.cycleDays > 366 ? '超过 366 天' : ` ${assignmentFrequencyAnalysis.cycleDays} 天` }}<template v-if="assignmentFrequencyAnalysis.distinctSetCount != null">，其中 {{ assignmentFrequencyAnalysis.distinctSetCount }} 种不同点位组合</template>。频次取自统计期的代表性排班配置。</p>
+                </template>
+              </div>
+              <div class="assignment-version-head"><strong>路线点位扩展</strong><div class="assignment-version-actions"><label>生成方式<select v-model="assignmentFrequencyGenerationMode" :disabled="assignmentBatchRunning || loading"><option value="MERGE">相同点位套合并</option><option value="DAILY">每天单独一套</option></select></label><button type="button" class="secondary" :disabled="assignmentBatchRunning || loading || assignmentFrequencyLoading || !!assignmentFrequencyError || splitFromSavedRoute" @click="generateAssignmentVersionsByFrequency">按频次生成</button><button type="button" class="secondary" :disabled="assignmentBatchRunning || loading" @click="addAssignmentVersion">新增一套点位</button></div></div>
+              <div class="assignment-version-list">
+                <div v-for="version in assignmentVersions" :key="version.id" class="assignment-version-item" :class="{ active: assignmentActiveVersionId === version.id }">
+                  <button type="button" class="assignment-version-select" :disabled="assignmentBatchRunning" :title="assignmentApplicableDaysLabel(version)" @click="selectAssignmentVersion(version.id)"><strong>{{ version.name }}<template v-if="version.applicableDays?.length > 1"> · 适用{{ version.applicableDays.length }}天</template><template v-else-if="version.cycleDay"> · 第{{ version.cycleDay }}天</template></strong><small>已选 {{ version.selectedIndices.size }} 点 · {{ assignmentVersionStatusLabel(version) }}</small></button>
+                  <button type="button" class="assignment-version-remove" :disabled="assignmentBatchRunning || assignmentVersions.length === 1" :aria-label="'删除' + version.name" @click="removeAssignmentVersion(version.id)">×</button>
+                </div>
+              </div>
+              <p v-if="assignmentFrequencyGenerationMessage" class="assignment-version-hint">{{ assignmentFrequencyGenerationMessage }}</p>
+              <p v-if="assignmentBatchRunning" class="assignment-version-hint">正在逐套优化，已完成的方案会保留各自结果。</p>
+              <p v-else-if="assignmentVersions.some(version => version.selectedIndices.size < 3)" class="assignment-version-hint">请为每一套至少选择 3 个点位，再生成全部方案。</p>
+            </div>
           </section>
 
           <section v-if="selectedSplitRoute" class="panel split-panel multi-layout">
@@ -1059,33 +1078,10 @@
               </ol>
             </div>
             <div>
-              <div class="panel-head compact"><h2>拆分结果</h2><div class="panel-actions"><button @click="openSaveSplitCurrentRoute" :disabled="!selectedMultiRoute || loading">另存当前路线</button><button @click="openSaveSplitGroup" :disabled="!multiOptimization || loading">{{ splitFromSavedRoute ? '保存为新版本' : '另存整组方案' }}</button><button @click="exportCompanyRoutes" :disabled="!multiOptimization || loading">导出Excel</button></div></div>
-              <div v-if="routeProgress.visible" class="planning-progress">
-                <div class="planning-progress-head">
-                  <div>
-                    <strong>路线规划进度</strong>
-                    <small>{{ routeProgress.message }}</small>
-                    <small v-if="routeProgressDetail">{{ routeProgressDetail }}</small>
-                  </div>
-                  <span>{{ routeProgressPercent }}%</span>
-                </div>
-                <div class="planning-progress-bar">
-                  <i :style="{ width: routeProgressPercent + '%' }"></i>
-                </div>
-                <ol>
-                  <li
-                    v-for="(step, index) in routeProgress.steps"
-                    :key="step.key"
-                    :class="progressStepClass(index)"
-                  >
-                    <span>{{ progressStepMark(index) }}</span>
-                    <div>
-                      <strong>{{ step.title }}</strong>
-                      <small>{{ step.detail }}</small>
-                    </div>
-                  </li>
-                </ol>
-              </div>
+              <div class="panel-head compact"><h2>拆分结果<small v-if="assignmentActiveVersion"> · 当前{{ assignmentActiveVersion.name }}</small></h2><div class="panel-actions"><button @click="openSaveSplitCurrentRoute" :disabled="!selectedMultiRoute || loading">另存当前路线</button><button @click="openSaveSplitGroup" :disabled="!multiOptimization || loading">{{ splitFromSavedRoute ? '保存为新版本' : '另存当前方案整组' }}</button><button @click="exportCompanyRoutes" :disabled="!multiOptimization || loading">导出Excel</button></div></div>
+              <p v-if="assignmentActiveVersion?.applicableDays?.length" class="assignment-applicable-dates">{{ assignmentActiveVersion.name }}适用：{{ assignmentApplicableDaysLabel(assignmentActiveVersion) }}<template v-if="assignmentActiveVersion.applicableDays.length > 1">。修改这套点位会影响所有适用天数。</template></p>
+              <div v-if="assignmentVersions.some(version => version.status !== 'IDLE')" class="assignment-result-summary"><button v-for="version in assignmentVersions" :key="'result-'+version.id" type="button" class="assignment-result-version" :class="{ active: assignmentActiveVersionId === version.id }" :aria-pressed="assignmentActiveVersionId === version.id" :disabled="assignmentBatchRunning" @click="selectAssignmentVersion(version.id)"><strong>{{ version.name }}<template v-if="version.applicableDays?.length > 1"> · 适用{{ version.applicableDays.length }}天</template><template v-else-if="version.cycleDay"> · 第{{ version.cycleDay }}天</template></strong><span>{{ assignmentVersionStatusLabel(version) }}</span><small v-if="version.error">{{ version.error }}</small><small v-else-if="version.status === 'RUNNING'">{{ version.message }}<template v-if="version.percent"> · {{ version.percent }}%</template></small><small v-else-if="version.result">{{ version.result.routeCount || 0 }} 趟 · 已分配 {{ version.result.assignedPointCount || 0 }} 点</small></button></div>
+              <p v-if="assignmentVersions.some(version => version.result)" class="assignment-save-scope">点击上方方案切换结果；这里的“当前路线”和“当前方案整组”仅保存所选方案，不包含其他方案。</p>
               <div v-if="multiOptimization" class="optimization-box">
                 <strong>{{ multiOptimization.status }}</strong>
                 <p>{{ multiOptimization.message }}</p>
@@ -1103,7 +1099,7 @@
                 </div>
                 <RouteMapPanel v-if="selectedMultiRoute" :original-points="[]" :optimized-points="selectedMultiRoute.points || []" :optimized-segments="selectedMultiRouteDisplaySegments" :show-original="false" optimized-label="拆分路线" />
               </div>
-              <div v-else class="empty">点击“拆分生成”后，将把该路线点位拆成多趟路线。</div>
+              <div v-else class="empty">点击“生成全部方案”后，可切换查看每套点位的优化结果。</div>
             </div>
           </section>
         </section>
@@ -2469,13 +2465,56 @@ const splitRoutes = ref([])
 const records = ref([])
 const planPoints = ref([])
 const splitPlanPoints = ref([])
-const assignmentSelectedPointIndices = ref(new Set())
+const assignmentVersions = ref([])
+const assignmentActiveVersionId = ref(null)
+const assignmentBatchRunning = ref(false)
+const assignmentBatchCurrentTaskId = ref('')
+let assignmentVersionSerial = 0
+let assignmentBatchRunId = 0
+let assignmentBatchStopRequested = false
+let assignmentBatchAbortController = null
+const assignmentActiveVersion = computed(() => assignmentVersions.value.find(version => version.id === assignmentActiveVersionId.value) || null)
+const assignmentSelectedPointIndices = computed(() => assignmentActiveVersion.value?.selectedIndices || new Set())
 const assignmentFrequencyByFacility = ref(new Map())
 const assignmentFrequencyLoading = ref(false)
 const assignmentFrequencyError = ref('')
+const assignmentFrequencyGenerationMode = ref('MERGE')
+const assignmentFrequencyGenerationMessage = ref('')
+const assignmentFrequencyAnalysis = computed(() => {
+  const groups = new Map()
+  const scheduledPoints = []
+  let missingCount = 0
+  let invalidCount = 0
+  let changedCount = 0
+  for (const [index, point] of splitPlanPoints.value.entries()) {
+    const frequency = assignmentFrequencyByFacility.value.get(String(point.facilityId))
+    if (!frequency) { missingCount += 1; continue }
+    const { period, collectCount } = frequency
+    if (!Number.isInteger(period) || !Number.isInteger(collectCount) || period < 1 || collectCount < 0 || collectCount > period) {
+      invalidCount += 1
+      continue
+    }
+    const key = `${period}/${collectCount}`
+    const group = groups.get(key) || { key, period, collectCount, count: 0 }
+    group.count += 1
+    groups.set(key, group)
+    if (frequency.configChanged) changedCount += 1
+    if (collectCount === 0) continue
+    scheduledPoints.push({ index, period, dueOffsets: new Set(Array.from({ length: collectCount }, (_, occurrence) => Math.ceil(occurrence * period / collectCount))) })
+  }
+  let cycleDays = scheduledPoints.length ? 1 : 0
+  for (const point of scheduledPoints) {
+    cycleDays = cycleDays / assignmentGcd(cycleDays, point.period) * point.period
+    if (cycleDays > 366) { cycleDays = 367; break }
+  }
+  const distinctSetCount = cycleDays > 0 && cycleDays <= 366
+    ? new Set(Array.from({ length: cycleDays }, (_, dayIndex) => scheduledPoints.filter(point => point.dueOffsets.has(dayIndex % point.period)).map(point => point.index).join(','))).size
+    : null
+  return { totalCount: splitPlanPoints.value.length, groups: [...groups.values()].sort((a, b) => a.period - b.period || b.collectCount - a.collectCount), scheduledPoints, missingCount, invalidCount, changedCount, cycleDays, distinctSetCount }
+})
 let assignmentFrequencyRequestId = 0
 watch(splitPlanPoints, (points) => {
-  assignmentSelectedPointIndices.value = new Set(points.map((_, index) => index))
+  resetAssignmentVersions(points)
 }, { flush: 'sync' })
 const recordPoints = ref([])
 const companyPoints = ref([])
@@ -2671,6 +2710,24 @@ const filters = reactive({
 })
 watch([currentView, selectedSplitCompany, selectedSplitRoute, splitFromSavedRoute, () => filters.startDate, () => filters.endDate], () => {
   loadAssignmentPointFrequencies()
+})
+let assignmentPreviousOptimization = null
+let assignmentPreviousRouteNo = null
+let assignmentPreviousDisplayModes = {}
+watch(currentView, (view, previousView) => {
+  if (view === 'position-assignment') {
+    assignmentPreviousOptimization = multiOptimization.value
+    assignmentPreviousRouteNo = selectedMultiRouteNo.value
+    assignmentPreviousDisplayModes = multiRouteDisplayModes.value
+    const result = assignmentActiveVersion.value?.result || null
+    multiOptimization.value = result
+    selectedMultiRouteNo.value = result?.routes?.[0]?.routeNo || null
+    multiRouteDisplayModes.value = {}
+  } else if (previousView === 'position-assignment') {
+    multiOptimization.value = assignmentPreviousOptimization
+    selectedMultiRouteNo.value = assignmentPreviousRouteNo
+    multiRouteDisplayModes.value = assignmentPreviousDisplayModes
+  }
 })
 const optimizeOptions = reactive({
   ratedCapacityKg: 5000,
@@ -3160,10 +3217,120 @@ const assignmentSelectedWeight = computed(() =>
 const assignmentSelectedVolume = computed(() =>
   assignmentSelectedPoints.value.reduce((sum, point) => sum + Number(point.estimatedVolumeLiter || 0), 0)
 )
-const assignmentSelectionLocked = computed(() => routeProgress.visible && !routeProgress.done && !routeProgress.failed)
+const assignmentSelectionLocked = computed(() => assignmentBatchRunning.value)
+
+function createAssignmentVersion(points, selectAll = false) {
+  const id = ++assignmentVersionSerial
+  return { id, name: `方案${assignmentVersions.value.length + 1}`, selectedIndices: new Set(selectAll ? points.map((_, index) => index) : []), result: null, status: 'IDLE', error: '', taskId: '', message: '', percent: 0 }
+}
+
+function resetAssignmentVersions(points) {
+  assignmentBatchRunId += 1
+  if (assignmentBatchRunning.value) {
+    stopAssignmentVersionGeneration()
+    assignmentBatchRunning.value = false
+  }
+  assignmentVersionSerial = 0
+  const first = createAssignmentVersion(points, true)
+  first.name = '方案1'
+  assignmentVersions.value = [first]
+  assignmentActiveVersionId.value = first.id
+  assignmentFrequencyGenerationMessage.value = ''
+}
+
+function selectAssignmentVersion(id) {
+  if (assignmentBatchRunning.value) return
+  const version = assignmentVersions.value.find(item => item.id === id)
+  if (!version) return
+  assignmentActiveVersionId.value = id
+  multiOptimization.value = version.result
+  selectedMultiRouteNo.value = version.result?.routes?.[0]?.routeNo || null
+  multiRouteDisplayModes.value = {}
+}
+
+function addAssignmentVersion() {
+  if (assignmentBatchRunning.value) return
+  const version = createAssignmentVersion(splitPlanPoints.value)
+  assignmentVersions.value = [...assignmentVersions.value, version]
+  selectAssignmentVersion(version.id)
+}
+
+function assignmentGcd(a, b) {
+  while (b) [a, b] = [b, a % b]
+  return a
+}
+
+function assignmentApplicableDaysLabel(version) {
+  return (version?.applicableDays || []).map(day => `第${day}天`).join('、')
+}
+
+function generateAssignmentVersionsByFrequency() {
+  if (!selectedSplitRoute.value || assignmentBatchRunning.value || assignmentFrequencyLoading.value || assignmentFrequencyError.value || splitFromSavedRoute.value) return
+  const { scheduledPoints, missingCount, invalidCount, changedCount, cycleDays } = assignmentFrequencyAnalysis.value
+  if (!scheduledPoints.length) {
+    assignmentFrequencyGenerationMessage.value = '没有可用于生成的有效点位频次；未配置或配置异常的点位请手动选择。'
+    return
+  }
+  if (cycleDays > 366) {
+    assignmentFrequencyGenerationMessage.value = '频次的最小公倍数超过 366 天，暂不自动生成；请缩小参与点位范围或手动建套。'
+    return
+  }
+  if (assignmentVersions.value.length > 1 || assignmentVersions.value.some(version => version.result || version.selectedIndices.size !== splitPlanPoints.value.length)) {
+    if (!window.confirm('按频次生成会替换当前所有点位方案，确定继续吗？')) return
+  }
+  const dayPlans = Array.from({ length: cycleDays }, (_, dayIndex) => {
+    const indices = scheduledPoints.filter(point => point.dueOffsets.has(dayIndex % point.period)).map(point => point.index)
+    return { day: dayIndex + 1, indices, key: indices.join(',') }
+  })
+  const versions = []
+  const byPointSet = new Map()
+  for (const day of dayPlans) {
+    let version = assignmentFrequencyGenerationMode.value === 'MERGE' ? byPointSet.get(day.key) : null
+    if (!version) {
+      version = createAssignmentVersion(splitPlanPoints.value)
+      version.name = `方案${versions.length + 1}`
+      version.selectedIndices = new Set(day.indices)
+      version.cycleDays = cycleDays
+      version.cycleDay = day.day
+      version.applicableDays = []
+      versions.push(version)
+      if (assignmentFrequencyGenerationMode.value === 'MERGE') byPointSet.set(day.key, version)
+    }
+    version.applicableDays.push(day.day)
+  }
+  assignmentVersions.value = versions
+  selectAssignmentVersion(versions[0].id)
+  const notices = [`已按 ${cycleDays} 天共同周期生成 ${versions.length} 套待定方案，覆盖第 1 至 ${cycleDays} 天；碰撞点位保留在同一天。`]
+  if (missingCount) notices.push(`${missingCount} 个未配置频次的点位未参与。`)
+  if (invalidCount) notices.push(`${invalidCount} 个频次配置异常的点位未参与。`)
+  if (changedCount) notices.push(`${changedCount} 个点位在统计期内配置曾变化，请核对。`)
+  assignmentFrequencyGenerationMessage.value = notices.join(' ')
+}
+
+function removeAssignmentVersion(id) {
+  if (assignmentBatchRunning.value || assignmentVersions.value.length < 2) return
+  assignmentVersions.value = assignmentVersions.value.filter(version => version.id !== id).map((version, index) => ({ ...version, name: `方案${index + 1}` }))
+  if (assignmentActiveVersionId.value === id) selectAssignmentVersion(assignmentVersions.value[0].id)
+}
+
+function assignmentVersionStatusLabel(version) {
+  if (version.status === 'RUNNING') return '优化中'
+  if (version.status === 'DONE') return '已完成'
+  if (version.status === 'FAILED') return '失败'
+  if (version.status === 'CANCELLED') return '已停止'
+  return '待优化'
+}
 
 function updateAssignmentSelection(indices) {
-  assignmentSelectedPointIndices.value = indices
+  const version = assignmentActiveVersion.value
+  if (!version || assignmentBatchRunning.value) return
+  version.selectedIndices = indices
+  version.result = null
+  version.status = 'IDLE'
+  version.error = ''
+  version.taskId = ''
+  version.message = ''
+  version.percent = 0
   clearMultiOptimization()
 }
 
@@ -4135,6 +4302,106 @@ async function generateSplitRoutes() {
   })
 }
 
+async function generateAssignmentVersions() {
+  if (!selectedSplitRoute.value || !selectedSplitCompany.value || assignmentBatchRunning.value) return
+  if (!assignmentVersions.value.length || assignmentVersions.value.some(version => version.selectedIndices.size < 3)) return
+  const versions = assignmentVersions.value.map(version => ({
+    version,
+    points: splitPlanPoints.value.filter((_, index) => version.selectedIndices.has(index))
+  }))
+  const baseRequest = {
+    unitId: selectedSplitCompany.value.id,
+    dispatchMode: dispatchEnabled.value ? dispatchMode.value : 'USER_ORDER',
+    vehicles: normalizedDispatchVehicles(),
+    endSelectionMode: endAnchorMode.value,
+    endCandidates: normalizedEndCandidates(),
+    ...optimizeOptions,
+    displayRoadPath: false,
+    useRoadPath: optimizeOptions.multiRouteStrategy === 'ROAD_GLOBAL'
+  }
+  if (splitFromSavedRoute.value) {
+    baseRequest.sourceType = 'SAVED_PLAN_ROUTE'
+    baseRequest.sourceRouteName = selectedSplitRoute.value.routeName
+  } else {
+    baseRequest.routeId = selectedSplitRoute.value.id
+  }
+  const runId = ++assignmentBatchRunId
+  assignmentBatchStopRequested = false
+  assignmentBatchRunning.value = true
+  assignmentBatchAbortController = new AbortController()
+  assignmentBatchCurrentTaskId.value = ''
+  multiOptimization.value = null
+  selectedMultiRouteNo.value = null
+  for (const { version } of versions) {
+    version.result = null
+    version.status = 'IDLE'
+    version.error = ''
+    version.taskId = ''
+    version.message = ''
+    version.percent = 0
+  }
+  for (const { version, points } of versions) {
+    if (assignmentBatchStopRequested || runId !== assignmentBatchRunId) break
+    version.status = 'RUNNING'
+    try {
+      let task = await api('/api/optimize/multi-preview/tasks', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        signal: assignmentBatchAbortController.signal,
+        body: JSON.stringify({ ...baseRequest, points })
+      })
+      if (assignmentBatchStopRequested || runId !== assignmentBatchRunId) break
+      version.taskId = task.taskId
+      assignmentBatchCurrentTaskId.value = task.taskId
+      version.message = task.message || '正在规划路线'
+      version.percent = Number(task.percent || 0)
+      while (!['DONE', 'FAILED', 'CANCELLED', 'NOT_FOUND'].includes(task.status)) {
+        if (assignmentBatchStopRequested || runId !== assignmentBatchRunId) break
+        await new Promise(resolve => window.setTimeout(resolve, 1000))
+        if (assignmentBatchStopRequested || runId !== assignmentBatchRunId) break
+        task = await api(`/api/optimize/multi-preview/tasks/${task.taskId}`, { signal: assignmentBatchAbortController.signal })
+        version.message = task.message || '正在规划路线'
+        version.percent = Number(task.percent || 0)
+      }
+      if (assignmentBatchStopRequested || runId !== assignmentBatchRunId || task.status === 'CANCELLED') {
+        version.status = 'CANCELLED'
+      } else if (task.status === 'DONE' && task.result) {
+        version.result = task.result
+        version.status = 'DONE'
+        if (assignmentActiveVersionId.value === version.id && currentView.value === 'position-assignment') {
+          multiOptimization.value = task.result
+          selectedMultiRouteNo.value = task.result.routes?.[0]?.routeNo || null
+        }
+      } else {
+        version.status = 'FAILED'
+        version.error = task.message || '未返回优化结果'
+      }
+    } catch (err) {
+      version.status = assignmentBatchStopRequested || err?.name === 'AbortError' ? 'CANCELLED' : 'FAILED'
+      if (version.status === 'FAILED') version.error = err.message || String(err)
+    } finally {
+      if (runId === assignmentBatchRunId) assignmentBatchCurrentTaskId.value = ''
+    }
+  }
+  if (runId === assignmentBatchRunId) {
+    assignmentBatchRunning.value = false
+    assignmentBatchAbortController = null
+  }
+}
+
+async function stopAssignmentVersionGeneration() {
+  assignmentBatchStopRequested = true
+  assignmentBatchAbortController?.abort()
+  const taskId = assignmentBatchCurrentTaskId.value
+  if (taskId) {
+    try {
+      await api(`/api/optimize/multi-preview/tasks/${taskId}/cancel`, { method: 'POST' })
+    } catch (err) {
+      error.value = err.message || String(err)
+    }
+  }
+}
+
 function openSavedRouteEdit(route) {
   if (!route?.points?.length) return
   selectedSavedRouteId.value = route.id
@@ -5086,7 +5353,9 @@ function buildCurrentRouteRequestSnapshot() {
     vehicles: normalizedDispatchVehicles(),
     endSelectionMode: endAnchorMode.value,
     endCandidates: normalizedEndCandidates(),
-    selectedFacilityIds: currentOptimizationFacilityIds.value
+    selectedFacilityIds: currentView.value === 'position-assignment'
+      ? assignmentSelectedPoints.value.map(point => point.facilityId)
+      : currentOptimizationFacilityIds.value
   }
 }
 
