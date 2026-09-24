@@ -50,10 +50,14 @@ public class FlowAnalysisService {
         DateRange range = range(startDate, endDate);
         if (blank(routeId)) throw new IllegalArgumentException("岗位不能为空");
         String sql = "SELECT car_code AS carCode, MAX(route_id) AS routeId, MAX(route_name) AS routeName, "
-                + "COUNT(*) AS recordCount, COUNT(DISTINCT DATE(car_start_time)) AS activeDays "
+                + "SUBSTRING_INDEX(GROUP_CONCAT(NULLIF(car_id, '') ORDER BY car_start_time DESC SEPARATOR ','), ',', 1) AS vehicleId, "
+                + "SUBSTRING_INDEX(GROUP_CONCAT(NULLIF(car_type_name, '') ORDER BY car_start_time DESC SEPARATOR ','), ',', 1) AS vehicleType, "
+                + "CAST(SUBSTRING_INDEX(GROUP_CONCAT(CASE WHEN car_tonnage REGEXP '^[0-9]+(\\.[0-9]+)?$' "
+                + "AND CAST(car_tonnage AS DECIMAL(12,2))>0 THEN car_tonnage END ORDER BY car_start_time DESC SEPARATOR ','), ',', 1) AS DECIMAL(12,2)) AS ratedCapacityKg, "
+                + "COUNT(*) AS recordCount, COUNT(DISTINCT DATE(car_start_time)) AS activeDays, MAX(car_start_time) AS lastStartTime "
                 + "FROM ljszy_route_record WHERE been_deleted=0 AND unit_id=? AND route_id=? "
                 + "AND car_start_time>=? AND car_start_time<? AND car_code IS NOT NULL AND car_code<>'' "
-                + "GROUP BY car_code ORDER BY car_code";
+                + "GROUP BY car_code ORDER BY recordCount DESC, activeDays DESC, lastStartTime DESC, carCode";
         return jdbcTemplate.queryForList(sql, unitId, Long.valueOf(routeId), range.start.atStartOfDay(), range.end.plusDays(1).atStartOfDay());
     }
 

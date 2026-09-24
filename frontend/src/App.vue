@@ -1039,7 +1039,15 @@
               </div>
             </div>
             <div class="optimizer-controls">
-              <label>额定载重 kg<input v-model.number="optimizeOptions.ratedCapacityKg" type="number" min="1" step="100" /></label>
+              <label>执行车辆
+                <select v-model="assignmentVehicleCode" :disabled="assignmentVehicleLoading || !assignmentVehicles.length" @change="applyAssignmentVehicleCapacity">
+                  <option value="">{{ assignmentVehicleLoading ? '正在读取岗位车辆' : (assignmentVehicles.length ? '请选择车辆' : '统计期暂无出车车辆') }}</option>
+                  <option v-for="vehicle in assignmentVehicles" :key="vehicle.carCode" :value="String(vehicle.carCode)">{{ assignmentVehicleOptionLabel(vehicle) }}</option>
+                </select>
+                <small v-if="assignmentSelectedVehicle" class="assignment-vehicle-hint">{{ assignmentSelectedVehicleHint }}</small>
+                <small v-else-if="assignmentVehicleError" class="assignment-vehicle-hint error-text">{{ assignmentVehicleError }}</small>
+              </label>
+              <label>额定载重 kg<input v-model.number="optimizeOptions.ratedCapacityKg" type="number" min="1" step="100" /><small class="assignment-vehicle-hint">可按车辆自动回填，也可手工修改</small></label>
               <label>目标装载率<input v-model.number="optimizeOptions.targetLoadRate" type="number" min="0.1" max="1" step="0.05" /></label>
               <label>最大趟数<input v-model.number="optimizeOptions.maxRoutes" type="number" min="1" step="1" /></label>
               <label>标准工时 h<input v-model.number="optimizeOptions.workHours" type="number" min="1" max="24" step="0.5" /></label>
@@ -2537,12 +2545,24 @@ const assignmentVersions = ref([])
 const assignmentActiveVersionId = ref(null)
 const assignmentBatchRunning = ref(false)
 const assignmentBatchCurrentTaskId = ref('')
+const assignmentVehicles = ref([])
+const assignmentVehicleCode = ref('')
+const assignmentVehicleLoading = ref(false)
+const assignmentVehicleError = ref('')
+let assignmentVehicleRequestId = 0
 let assignmentVersionSerial = 0
 let assignmentBatchRunId = 0
 let assignmentBatchStopRequested = false
 let assignmentBatchAbortController = null
 const assignmentActiveVersion = computed(() => assignmentVersions.value.find(version => version.id === assignmentActiveVersionId.value) || null)
 const assignmentSelectedPointIndices = computed(() => assignmentActiveVersion.value?.selectedIndices || new Set())
+const assignmentSelectedVehicle = computed(() => assignmentVehicles.value.find(vehicle => String(vehicle.carCode) === assignmentVehicleCode.value) || null)
+const assignmentSelectedVehicleHint = computed(() => {
+  const vehicle = assignmentSelectedVehicle.value
+  if (!vehicle) return ''
+  const usage = `统计期出车 ${Number(vehicle.recordCount || 0)} 趟、活跃 ${Number(vehicle.activeDays || 0)} 天`
+  return Number(vehicle.ratedCapacityKg) > 0 ? `${usage}；已回填核定载质量 ${formatNumber(vehicle.ratedCapacityKg, 0)} kg` : `${usage}；流水未带核定载质量，保留手工载重`
+})
 const assignmentFrequencyByFacility = ref(new Map())
 const assignmentFrequencyLoading = ref(false)
 const assignmentFrequencyError = ref('')
@@ -2784,6 +2804,7 @@ const filters = reactive({
 })
 watch([currentView, selectedSplitCompany, selectedSplitRoute, splitFromSavedRoute, () => filters.startDate, () => filters.endDate], () => {
   loadAssignmentPointFrequencies()
+  loadAssignmentVehicles()
 })
 let assignmentPreviousOptimization = null
 let assignmentPreviousRouteNo = null
@@ -3494,6 +3515,62 @@ function invertAssignmentPoints() {
   updateAssignmentSelection(new Set(splitPlanPoints.value.map((_, index) => index).filter(index => !assignmentSelectedPointIndices.value.has(index))))
 }
 
+function assignmentVehicleOptionLabel(vehicle) {
+  const capacity = Number(vehicle?.ratedCapacityKg)
+  const usage = `${Number(vehicle?.recordCount || 0)}趟/${Number(vehicle?.activeDays || 0)}天`
+  return `${vehicle?.carCode || '未知车辆'} · ${usage}${capacity > 0 ? ` · ${formatNumber(capacity, 0)}kg` : ' · 载重未维护'}`
+}
+
+function applyAssignmentVehicleCapacity() {
+  const vehicle = assignmentSelectedVehicle.value
+  const capacity = Number(vehicle?.ratedCapacityKg)
+  if (capacity > 0) optimizeOptions.ratedCapacityKg = capacity
+  clearMultiOptimization()
+}
+
+async function loadAssignmentVehicles() {
+  const requestId = ++assignmentVehicleRequestId
+  assignmentVehicles.value = []
+  assignmentVehicleCode.value = ''
+  assignmentVehicleError.value = ''
+  assignmentVehicleLoading.value = false
+  if (currentView.value !== 'position-assignment' || splitFromSavedRoute.value || !selectedSplitCompany.value?.id || !selectedSplitRoute.value?.id) return
+  const params = new URLSearchParams({ unitId: String(selectedSplitCompany.value.id), routeId: String(selectedSplitRoute.value.id), startDate: filters.startDate, endDate: filters.endDate })
+  assignmentVehicleLoading.value = true
+  try {
+    const rows = await api(`/api/flow-analysis/vehicles?${params}`)
+    if (requestId !== assignmentVehicleRequestId) return
+    assignmentVehicles.value = rows || []
+    if (assignmentVehicles.value.length) {
+      assignmentVehicleCode.value = String(assignmentVehicles.value[0].carCode)
+      applyAssignmentVehicleCapacity()
+    }
+  } catch (err) {
+    if (requestId === assignmentVehicleRequestId) assignmentVehicleError.value = err.message || String(err)
+  } finally {
+    if (requestId === assignmentVehicleRequestId) assignmentVehicleLoading.value = false
+  }
+}
+
+function normalizedAssignmentVehicles() {
+  const vehicle = assignmentSelectedVehicle.value
+  if (!vehicle) return []
+  const rated = Math.max(1, Number(optimizeOptions.ratedCapacityKg || vehicle.ratedCapacityKg || 5000))
+  return [{
+    vehicleId: vehicle.vehicleId || vehicle.carCode,
+    vehicleName: vehicle.carCode,
+    vehicleType: vehicle.vehicleType || '',
+    ratedCapacityKg: rated,
+    maxCapacityKg: rated,
+    tripCount: Math.max(1, Number(optimizeOptions.maxRoutes || 1)),
+    startLongitude: optimizeOptions.startLongitude,
+    startLatitude: optimizeOptions.startLatitude,
+    startFacilityName: optimizeOptions.startFacilityName,
+    endLongitude: optimizeOptions.endLongitude,
+    endLatitude: optimizeOptions.endLatitude,
+    endFacilityName: optimizeOptions.endFacilityName
+  }]
+}
 async function loadAssignmentPointFrequencies() {
   const requestId = ++assignmentFrequencyRequestId
   assignmentFrequencyByFacility.value = new Map()
@@ -4420,8 +4497,8 @@ async function generateSplitRoutes() {
     try {
       const request = {
         unitId: selectedSplitCompany.value.id,
-        dispatchMode: dispatchEnabled.value ? dispatchMode.value : 'USER_ORDER',
-        vehicles: normalizedDispatchVehicles(),
+        dispatchMode: assignmentMode ? 'USER_ORDER' : (dispatchEnabled.value ? dispatchMode.value : 'USER_ORDER'),
+        vehicles: assignmentMode ? normalizedAssignmentVehicles() : normalizedDispatchVehicles(),
         endSelectionMode: endAnchorMode.value,
         endCandidates: normalizedEndCandidates(),
         ...optimizeOptions,
@@ -4466,8 +4543,8 @@ async function generateAssignmentVersions() {
   }))
   const baseRequest = {
     unitId: selectedSplitCompany.value.id,
-    dispatchMode: dispatchEnabled.value ? dispatchMode.value : 'USER_ORDER',
-    vehicles: normalizedDispatchVehicles(),
+    dispatchMode: 'USER_ORDER',
+    vehicles: normalizedAssignmentVehicles(),
     endSelectionMode: endAnchorMode.value,
     endCandidates: normalizedEndCandidates(),
     ...optimizeOptions,
