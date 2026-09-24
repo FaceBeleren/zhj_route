@@ -711,6 +711,14 @@ button:disabled {
   white-space: nowrap;
 }
 
+.assignment-phase {
+  margin-left: 5px;
+  color: #0f766e;
+  font-size: 12px;
+  font-style: normal;
+  white-space: nowrap;
+}
+
 .assignment-frequency-note {
   margin: 6px 14px 0;
   color: #b45309;

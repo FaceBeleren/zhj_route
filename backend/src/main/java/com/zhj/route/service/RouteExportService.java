@@ -32,6 +32,21 @@ public class RouteExportService {
     }
 
 
+    public byte[] exportAssignmentVersions(Map<String, Object> request) {
+        try (Workbook workbook = new XSSFWorkbook(); ByteArrayOutputStream out = new ByteArrayOutputStream()) {
+            CellStyle headerStyle = headerStyle(workbook);
+            List<Map<String, Object>> schemes = maps(request.get("schemes"));
+            writeAssignmentSummary(workbook, headerStyle, schemes);
+            writeAssignmentRoutes(workbook, headerStyle, schemes);
+            writeAssignmentPoints(workbook, headerStyle, schemes);
+            writeAssignmentSegments(workbook, headerStyle, schemes);
+            workbook.write(out);
+            return out.toByteArray();
+        } catch (IOException e) {
+            throw new IllegalStateException("导出全部方案Excel失败", e);
+        }
+    }
+
     public byte[] exportClusterPreview(Map<String, Object> result) {
         try (Workbook workbook = new XSSFWorkbook(); ByteArrayOutputStream out = new ByteArrayOutputStream()) {
             CellStyle headerStyle = headerStyle(workbook);
@@ -115,6 +130,166 @@ public class RouteExportService {
         autosize(sheet, 14);
     }
 
+
+    private void writeAssignmentSummary(Workbook workbook, CellStyle headerStyle, List<Map<String, Object>> schemes) {
+        Sheet sheet = workbook.createSheet("方案总览");
+        writeHeader(sheet, headerStyle, "方案", "适用日", "状态", "说明", "趟次数", "已分配点位", "未分配点位", "预计重量kg", "未分配重量kg", "总距离m", "总时间min");
+        int rowIndex = 1;
+        for (Map<String, Object> scheme : schemes) {
+            Map<String, Object> result = map(scheme.get("result"));
+            Row row = sheet.createRow(rowIndex++);
+            write(row, 0, scheme.get("name"));
+            write(row, 1, applicableDays(scheme));
+            write(row, 2, scheme.get("status"));
+            write(row, 3, firstNonBlank(scheme.get("error"), result.get("message"), scheme.get("message")));
+            write(row, 4, result.get("routeCount"));
+            write(row, 5, result.get("assignedPointCount"));
+            write(row, 6, result.get("unassignedPointCount"));
+            write(row, 7, result.get("assignedWeightKg"));
+            write(row, 8, result.get("unassignedWeightKg"));
+            double distance = 0D;
+            double duration = 0D;
+            for (Map<String, Object> route : maps(result.get("routes"))) {
+                distance += number(route.get("distance"));
+                duration += number(route.get("durationMinutes"));
+            }
+            if (!maps(result.get("routes")).isEmpty()) {
+                write(row, 9, distance);
+                write(row, 10, duration);
+            }
+        }
+        autosize(sheet, 11);
+    }
+
+    private void writeAssignmentRoutes(Workbook workbook, CellStyle headerStyle, List<Map<String, Object>> schemes) {
+        Sheet sheet = workbook.createSheet("趟次路线");
+        writeHeader(sheet, headerStyle, "方案", "适用日", "状态", "路线", "车辆", "车型", "第几趟", "收运点数", "预计重量kg", "预计体积L", "装载率", "距离m", "总时间min", "点位顺序");
+        int rowIndex = 1;
+        for (Map<String, Object> scheme : schemes) {
+            Map<String, Object> result = map(scheme.get("result"));
+            for (Map<String, Object> route : maps(result.get("routes"))) {
+                Row row = sheet.createRow(rowIndex++);
+                write(row, 0, scheme.get("name"));
+                write(row, 1, applicableDays(scheme));
+                write(row, 2, scheme.get("status"));
+                write(row, 3, route.get("routeNo"));
+                write(row, 4, route.get("vehicleName"));
+                write(row, 5, route.get("vehicleType"));
+                write(row, 6, route.get("tripNo"));
+                write(row, 7, route.get("pointCount"));
+                write(row, 8, route.get("estimatedWeightKg"));
+                write(row, 9, route.get("estimatedVolumeLiter"));
+                write(row, 10, route.get("loadRate"));
+                write(row, 11, route.get("distance"));
+                write(row, 12, route.get("durationMinutes"));
+                write(row, 13, pointSequence(route));
+            }
+        }
+        autosize(sheet, 14);
+        sheet.setColumnWidth(13, 80 * 256);
+    }
+
+    private void writeAssignmentPoints(Workbook workbook, CellStyle headerStyle, List<Map<String, Object>> schemes) {
+        Sheet sheet = workbook.createSheet("点位顺序");
+        writeHeader(sheet, headerStyle, "方案", "适用日", "路线", "车辆", "第几趟", "顺序", "点位角色", "点位ID", "点位名称", "设施类型", "经度", "纬度", "预计重量kg", "预计体积L");
+        int rowIndex = 1;
+        for (Map<String, Object> scheme : schemes) {
+            Map<String, Object> result = map(scheme.get("result"));
+            for (Map<String, Object> route : maps(result.get("routes"))) {
+                for (Map<String, Object> point : maps(route.get("points"))) {
+                    Row row = sheet.createRow(rowIndex++);
+                    write(row, 0, scheme.get("name"));
+                    write(row, 1, applicableDays(scheme));
+                    write(row, 2, route.get("routeNo"));
+                    write(row, 3, route.get("vehicleName"));
+                    write(row, 4, route.get("tripNo"));
+                    write(row, 5, point.get("order"));
+                    write(row, 6, point.get("role"));
+                    write(row, 7, point.get("facilityId"));
+                    write(row, 8, point.get("facilityName"));
+                    write(row, 9, point.get("facilityTypeName"));
+                    write(row, 10, point.get("longitude"));
+                    write(row, 11, point.get("latitude"));
+                    write(row, 12, point.get("estimatedWeightKg"));
+                    write(row, 13, point.get("estimatedVolumeLiter"));
+                }
+            }
+        }
+        autosize(sheet, 14);
+    }
+
+    private void writeAssignmentSegments(Workbook workbook, CellStyle headerStyle, List<Map<String, Object>> schemes) {
+        Sheet sheet = workbook.createSheet("路段明细");
+        writeHeader(sheet, headerStyle, "方案", "适用日", "路线", "车辆", "第几趟", "路段", "起点ID", "起点名称", "终点ID", "终点名称", "距离m", "耗时min", "速度km/h", "速度档位", "路径来源");
+        int rowIndex = 1;
+        for (Map<String, Object> scheme : schemes) {
+            Map<String, Object> result = map(scheme.get("result"));
+            for (Map<String, Object> route : maps(result.get("routes"))) {
+                for (Map<String, Object> segment : maps(route.get("segments"))) {
+                    Row row = sheet.createRow(rowIndex++);
+                    write(row, 0, scheme.get("name"));
+                    write(row, 1, applicableDays(scheme));
+                    write(row, 2, route.get("routeNo"));
+                    write(row, 3, route.get("vehicleName"));
+                    write(row, 4, route.get("tripNo"));
+                    write(row, 5, segment.get("order"));
+                    write(row, 6, segment.get("fromFacilityId"));
+                    write(row, 7, segment.get("fromFacilityName"));
+                    write(row, 8, segment.get("toFacilityId"));
+                    write(row, 9, segment.get("toFacilityName"));
+                    write(row, 10, segment.get("distance"));
+                    write(row, 11, segment.get("durationMinutes"));
+                    write(row, 12, segment.get("speedKmh"));
+                    write(row, 13, segment.get("speedClass"));
+                    write(row, 14, pathSourceLabel(segment.get("pathSource")));
+                }
+            }
+        }
+        autosize(sheet, 15);
+    }
+
+    private String applicableDays(Map<String, Object> scheme) {
+        Object days = scheme.get("applicableDays");
+        if (days instanceof List && !((List<?>) days).isEmpty()) {
+            StringBuilder builder = new StringBuilder();
+            for (Object day : (List<?>) days) {
+                if (builder.length() > 0) builder.append("、");
+                builder.append("第").append(value(day)).append("天");
+            }
+            return builder.toString();
+        }
+        Object cycleDay = scheme.get("cycleDay");
+        return cycleDay == null ? "" : "第" + value(cycleDay) + "天";
+    }
+
+    private String pointSequence(Map<String, Object> route) {
+        StringBuilder builder = new StringBuilder();
+        for (Map<String, Object> point : maps(route.get("points"))) {
+            if (builder.length() > 0) builder.append(" -> ");
+            String name = value(point.get("facilityName"));
+            builder.append(name.isEmpty() ? value(point.get("facilityId")) : name);
+        }
+        return builder.toString();
+    }
+
+    @SuppressWarnings("unchecked")
+    private Map<String, Object> map(Object value) {
+        return value instanceof Map ? (Map<String, Object>) value : java.util.Collections.<String, Object>emptyMap();
+    }
+
+    private double number(Object value) {
+        if (value instanceof Number) return ((Number) value).doubleValue();
+        if (value == null) return 0D;
+        try { return Double.parseDouble(String.valueOf(value)); } catch (NumberFormatException ignored) { return 0D; }
+    }
+
+    private String firstNonBlank(Object... values) {
+        for (Object item : values) {
+            String text = value(item);
+            if (!text.trim().isEmpty()) return text;
+        }
+        return "";
+    }
 
     private void writeClusterSummary(Workbook workbook, CellStyle headerStyle, Map<String, Object> result) {
         Sheet sheet = workbook.createSheet("分堆汇总");
@@ -213,7 +388,7 @@ public class RouteExportService {
 
     private String pathSourceLabel(Object source) {
         String value = value(source);
-        if ("OD_CACHE".equals(value)) {
+        if ("OD_CACHE".equals(value) || "OD_PRELOAD".equals(value) || "OD_PRELOAD_DISTANCE".equals(value)) {
             return "OD缓存";
         }
         if ("BAIDU_ONLINE".equals(value)) {

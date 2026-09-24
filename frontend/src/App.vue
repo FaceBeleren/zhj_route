@@ -1053,10 +1053,12 @@
                 <div class="assignment-frequency-overview-head"><strong>点位频次分析</strong><small v-if="assignmentFrequencyLoading">读取中...</small><small v-else-if="assignmentFrequencyError">读取失败</small><small v-else>原路线 {{ assignmentFrequencyAnalysis.totalCount }} 点</small></div>
                 <template v-if="!assignmentFrequencyLoading && !assignmentFrequencyError">
                   <div class="assignment-frequency-groups"><span v-for="group in assignmentFrequencyAnalysis.groups" :key="group.key">{{ group.period }}天/{{ group.collectCount }}次 · {{ group.count }}点</span><span v-if="assignmentFrequencyAnalysis.missingCount">未配置 · {{ assignmentFrequencyAnalysis.missingCount }}点</span><span v-if="assignmentFrequencyAnalysis.invalidCount">配置异常 · {{ assignmentFrequencyAnalysis.invalidCount }}点</span></div>
-                  <p v-if="assignmentFrequencyAnalysis.cycleDays">按当前起算方式，共同周期{{ assignmentFrequencyAnalysis.cycleDays > 366 ? '超过 366 天' : ` ${assignmentFrequencyAnalysis.cycleDays} 天` }}<template v-if="assignmentFrequencyAnalysis.distinctSetCount != null">，其中 {{ assignmentFrequencyAnalysis.distinctSetCount }} 种不同点位组合</template>。频次取自统计期的代表性排班配置。</p>
+                  <p v-if="assignmentFrequencyAnalysis.cycleDays">{{ assignmentPhaseMode === 'FLAT' ? '按原路线顺序依次平铺后' : assignmentPhaseMode === 'BALANCE' ? '按预计垃圾量均衡后' : '所有点从第1天起算时' }}，共同周期{{ assignmentFrequencyAnalysis.cycleDays > 366 ? '超过 366 天' : ` ${assignmentFrequencyAnalysis.cycleDays} 天` }}<template v-if="assignmentFrequencyAnalysis.distinctSetCount != null">，其中 {{ assignmentFrequencyAnalysis.distinctSetCount }} 种不同点位组合</template>。频次取自统计期的代表性排班配置。</p>
+                  <p v-if="assignmentFrequencyAnalysis.balanced">周期内每天点位 {{ assignmentFrequencyAnalysis.balanced.minPointCount }}～{{ assignmentFrequencyAnalysis.balanced.maxPointCount }} 个，预计收运量 {{ formatWeight(assignmentFrequencyAnalysis.balanced.minWeightKg) }}～{{ formatWeight(assignmentFrequencyAnalysis.balanced.maxWeightKg) }}；{{ assignmentPhaseMode === 'FLAT' ? '只按同频次点位的原路线顺序轮流安排，重量仅展示' : assignmentPhaseMode === 'BALANCE' ? '以重量均衡为主、点数均衡为次' : '未做均衡' }}，不预估路程。</p>
                 </template>
               </div>
-              <div class="assignment-version-head"><strong>路线点位扩展</strong><div class="assignment-version-actions"><label>生成方式<select v-model="assignmentFrequencyGenerationMode" :disabled="assignmentBatchRunning || loading"><option value="MERGE">相同点位套合并</option><option value="DAILY">每天单独一套</option></select></label><button type="button" class="secondary" :disabled="assignmentBatchRunning || loading || assignmentFrequencyLoading || !!assignmentFrequencyError || splitFromSavedRoute" @click="generateAssignmentVersionsByFrequency">按频次生成</button><button type="button" class="secondary" :disabled="assignmentBatchRunning || loading" @click="addAssignmentVersion">新增一套点位</button></div></div>
+              <div class="assignment-version-head"><strong>路线点位扩展</strong><div class="assignment-version-actions"><label>点位分配<select v-model="assignmentPhaseMode" :disabled="assignmentBatchRunning || loading"><option value="FLAT">按原路线顺序平铺</option><option value="BALANCE">按预计垃圾量均衡</option><option value="SAME">全部从第1天起</option></select></label><label>生成方式<select v-model="assignmentFrequencyGenerationMode" :disabled="assignmentBatchRunning || loading"><option value="MERGE">相同点位套合并</option><option value="DAILY">每天单独一套</option></select></label><button type="button" class="secondary" :disabled="assignmentBatchRunning || loading || assignmentFrequencyLoading || !!assignmentFrequencyError || splitFromSavedRoute" @click="generateAssignmentVersionsByFrequency">按频次生成</button><button type="button" class="secondary" :disabled="assignmentBatchRunning || loading" @click="addAssignmentVersion">新增一套点位</button></div></div>
+              <p class="assignment-version-hint">改变点位分配或生成方式后，需重新点击“按频次生成”；已生成方案不会自动改动。</p>
               <div class="assignment-version-list">
                 <div v-for="version in assignmentVersions" :key="version.id" class="assignment-version-item" :class="{ active: assignmentActiveVersionId === version.id }">
                   <button type="button" class="assignment-version-select" :disabled="assignmentBatchRunning" :title="assignmentApplicableDaysLabel(version)" @click="selectAssignmentVersion(version.id)"><strong>{{ version.name }}<template v-if="version.applicableDays?.length > 1"> · 适用{{ version.applicableDays.length }}天</template><template v-else-if="version.cycleDay"> · 第{{ version.cycleDay }}天</template></strong><small>已选 {{ version.selectedIndices.size }} 点 · {{ assignmentVersionStatusLabel(version) }}</small></button>
@@ -1074,14 +1076,14 @@
               <div class="panel-head compact"><h2>原路线点位</h2><div class="assignment-point-actions"><span class="muted">已选 {{ assignmentSelectedPoints.length }} / {{ splitPlanPoints.length }}</span><button type="button" class="secondary" :disabled="loading || assignmentSelectionLocked" @click="selectAllAssignmentPoints">全选</button><button type="button" class="secondary" :disabled="loading || assignmentSelectionLocked" @click="invertAssignmentPoints">反选</button></div></div>
               <p v-if="assignmentFrequencyError" class="assignment-frequency-note">点位频次读取失败：{{ assignmentFrequencyError }}</p>
               <ol class="point-list split-point-list assignment-point-list">
-                <li v-for="(point, index) in splitPlanPoints" :key="`${point.facilityId}-${index}`"><label class="assignment-point-option"><input type="checkbox" :checked="assignmentSelectedPointIndices.has(index)" :disabled="loading || assignmentSelectionLocked" @change="toggleAssignmentPoint(index)" /><span>{{ point.facilityName || point.facilityId }} <em class="assignment-frequency" :title="assignmentFrequencyTitle(point)">频次 {{ assignmentFrequencyLabel(point) }}</em><small>{{ point.facilityTypeName || '-' }} · {{ formatWeight(point.estimatedWeightKg) }}<template v-if="point.containerInfo"> · 桶 {{ point.containerInfo }}</template></small></span></label></li>
+                <li v-for="(point, index) in splitPlanPoints" :key="`${point.facilityId}-${index}`"><label class="assignment-point-option"><input type="checkbox" :checked="assignmentSelectedPointIndices.has(index)" :disabled="loading || assignmentSelectionLocked" @change="toggleAssignmentPoint(index)" /><span>{{ point.facilityName || point.facilityId }} <em class="assignment-frequency" :title="assignmentFrequencyTitle(point)">频次 {{ assignmentFrequencyLabel(point) }}</em><em v-if="assignmentPointPhase(index)?.period > 1" class="assignment-phase">第{{ assignmentPointPhase(index).phase + 1 }}组</em><small>{{ point.facilityTypeName || '-' }} · {{ formatWeight(point.estimatedWeightKg) }}<template v-if="point.containerInfo"> · 桶 {{ point.containerInfo }}</template></small></span></label></li>
               </ol>
             </div>
             <div>
-              <div class="panel-head compact"><h2>拆分结果<small v-if="assignmentActiveVersion"> · 当前{{ assignmentActiveVersion.name }}</small></h2><div class="panel-actions"><button @click="openSaveSplitCurrentRoute" :disabled="!selectedMultiRoute || loading">另存当前路线</button><button @click="openSaveSplitGroup" :disabled="!multiOptimization || loading">{{ splitFromSavedRoute ? '保存为新版本' : '另存当前方案整组' }}</button><button @click="exportCompanyRoutes" :disabled="!multiOptimization || loading">导出Excel</button></div></div>
+              <div class="panel-head compact"><h2>拆分结果<small v-if="assignmentActiveVersion"> · 当前{{ assignmentActiveVersion.name }}</small></h2><div class="panel-actions"><button @click="openSaveSplitCurrentRoute" :disabled="!selectedMultiRoute || loading">另存当前路线</button><button @click="openSaveSplitGroup" :disabled="!multiOptimization || loading">{{ splitFromSavedRoute ? '保存为新版本' : '另存当前方案整组' }}</button><button @click="exportAssignmentVersions" :disabled="assignmentBatchRunning || loading || !assignmentVersions.some(version => version.result)">导出全部方案</button></div></div>
               <p v-if="assignmentActiveVersion?.applicableDays?.length" class="assignment-applicable-dates">{{ assignmentActiveVersion.name }}适用：{{ assignmentApplicableDaysLabel(assignmentActiveVersion) }}<template v-if="assignmentActiveVersion.applicableDays.length > 1">。修改这套点位会影响所有适用天数。</template></p>
               <div v-if="assignmentVersions.some(version => version.status !== 'IDLE')" class="assignment-result-summary"><button v-for="version in assignmentVersions" :key="'result-'+version.id" type="button" class="assignment-result-version" :class="{ active: assignmentActiveVersionId === version.id }" :aria-pressed="assignmentActiveVersionId === version.id" :disabled="assignmentBatchRunning" @click="selectAssignmentVersion(version.id)"><strong>{{ version.name }}<template v-if="version.applicableDays?.length > 1"> · 适用{{ version.applicableDays.length }}天</template><template v-else-if="version.cycleDay"> · 第{{ version.cycleDay }}天</template></strong><span>{{ assignmentVersionStatusLabel(version) }}</span><small v-if="version.error">{{ version.error }}</small><small v-else-if="version.status === 'RUNNING'">{{ version.message }}<template v-if="version.percent"> · {{ version.percent }}%</template></small><small v-else-if="version.result">{{ version.result.routeCount || 0 }} 趟 · 已分配 {{ version.result.assignedPointCount || 0 }} 点</small></button></div>
-              <p v-if="assignmentVersions.some(version => version.result)" class="assignment-save-scope">点击上方方案切换结果；这里的“当前路线”和“当前方案整组”仅保存所选方案，不包含其他方案。</p>
+              <p v-if="assignmentVersions.some(version => version.result)" class="assignment-save-scope">点击上方方案切换结果；“当前路线”和“当前方案整组”仅保存所选方案，“导出全部方案”包含本次所有方案及其状态。</p>
               <div v-if="multiOptimization" class="optimization-box">
                 <strong>{{ multiOptimization.status }}</strong>
                 <p>{{ multiOptimization.message }}</p>
@@ -2110,6 +2112,7 @@ import { computed, nextTick, onMounted, reactive, ref, watch } from 'vue'
 import RouteMapPanel from './components/RouteMapPanel.vue'
 import ClusterMapPanel from './components/ClusterMapPanel.vue'
 import FlowAnalysisPdfReport from './components/FlowAnalysisPdfReport.vue'
+import { balanceAssignmentPhases } from './assignmentPhases.js'
 
 const LOGIN_USERNAME = 'admin'
 const LOGIN_PASSWORD = 'zhj521%@!'
@@ -2478,6 +2481,7 @@ const assignmentSelectedPointIndices = computed(() => assignmentActiveVersion.va
 const assignmentFrequencyByFacility = ref(new Map())
 const assignmentFrequencyLoading = ref(false)
 const assignmentFrequencyError = ref('')
+const assignmentPhaseMode = ref('FLAT')
 const assignmentFrequencyGenerationMode = ref('MERGE')
 const assignmentFrequencyGenerationMessage = ref('')
 const assignmentFrequencyAnalysis = computed(() => {
@@ -2500,17 +2504,17 @@ const assignmentFrequencyAnalysis = computed(() => {
     groups.set(key, group)
     if (frequency.configChanged) changedCount += 1
     if (collectCount === 0) continue
-    scheduledPoints.push({ index, period, dueOffsets: new Set(Array.from({ length: collectCount }, (_, occurrence) => Math.ceil(occurrence * period / collectCount))) })
+    scheduledPoints.push({ index, period, weightKg: Number(point.estimatedWeightKg) || 0, dueOffsets: new Set(Array.from({ length: collectCount }, (_, occurrence) => Math.ceil(occurrence * period / collectCount))) })
   }
   let cycleDays = scheduledPoints.length ? 1 : 0
   for (const point of scheduledPoints) {
     cycleDays = cycleDays / assignmentGcd(cycleDays, point.period) * point.period
     if (cycleDays > 366) { cycleDays = 367; break }
   }
-  const distinctSetCount = cycleDays > 0 && cycleDays <= 366
-    ? new Set(Array.from({ length: cycleDays }, (_, dayIndex) => scheduledPoints.filter(point => point.dueOffsets.has(dayIndex % point.period)).map(point => point.index).join(','))).size
-    : null
-  return { totalCount: splitPlanPoints.value.length, groups: [...groups.values()].sort((a, b) => a.period - b.period || b.collectCount - a.collectCount), scheduledPoints, missingCount, invalidCount, changedCount, cycleDays, distinctSetCount }
+  const balanced = cycleDays > 0 && cycleDays <= 366 ? balanceAssignmentPhases(scheduledPoints, cycleDays, assignmentPhaseMode.value) : null
+  const distinctSetCount = balanced ? new Set(balanced.dayPlans.map(day => day.key)).size : null
+  const missingWeightCount = scheduledPoints.filter(point => !Number.isFinite(point.weightKg) || point.weightKg <= 0).length
+  return { totalCount: splitPlanPoints.value.length, groups: [...groups.values()].sort((a, b) => a.period - b.period || b.collectCount - a.collectCount), scheduledPoints, balanced, missingCount, missingWeightCount, invalidCount, changedCount, cycleDays, distinctSetCount }
 })
 let assignmentFrequencyRequestId = 0
 watch(splitPlanPoints, (points) => {
@@ -3264,9 +3268,13 @@ function assignmentApplicableDaysLabel(version) {
   return (version?.applicableDays || []).map(day => `第${day}天`).join('、')
 }
 
+function assignmentPointPhase(index) {
+  return assignmentFrequencyAnalysis.value.balanced?.points.find(point => point.index === index)
+}
+
 function generateAssignmentVersionsByFrequency() {
   if (!selectedSplitRoute.value || assignmentBatchRunning.value || assignmentFrequencyLoading.value || assignmentFrequencyError.value || splitFromSavedRoute.value) return
-  const { scheduledPoints, missingCount, invalidCount, changedCount, cycleDays } = assignmentFrequencyAnalysis.value
+  const { scheduledPoints, balanced, missingCount, missingWeightCount, invalidCount, changedCount, cycleDays } = assignmentFrequencyAnalysis.value
   if (!scheduledPoints.length) {
     assignmentFrequencyGenerationMessage.value = '没有可用于生成的有效点位频次；未配置或配置异常的点位请手动选择。'
     return
@@ -3278,10 +3286,7 @@ function generateAssignmentVersionsByFrequency() {
   if (assignmentVersions.value.length > 1 || assignmentVersions.value.some(version => version.result || version.selectedIndices.size !== splitPlanPoints.value.length)) {
     if (!window.confirm('按频次生成会替换当前所有点位方案，确定继续吗？')) return
   }
-  const dayPlans = Array.from({ length: cycleDays }, (_, dayIndex) => {
-    const indices = scheduledPoints.filter(point => point.dueOffsets.has(dayIndex % point.period)).map(point => point.index)
-    return { day: dayIndex + 1, indices, key: indices.join(',') }
-  })
+  const dayPlans = balanced.dayPlans
   const versions = []
   const byPointSet = new Map()
   for (const day of dayPlans) {
@@ -3300,9 +3305,10 @@ function generateAssignmentVersionsByFrequency() {
   }
   assignmentVersions.value = versions
   selectAssignmentVersion(versions[0].id)
-  const notices = [`已按 ${cycleDays} 天共同周期生成 ${versions.length} 套待定方案，覆盖第 1 至 ${cycleDays} 天；碰撞点位保留在同一天。`]
+  const notices = [`已${assignmentPhaseMode.value === 'FLAT' ? '按原路线顺序平铺' : assignmentPhaseMode.value === 'BALANCE' ? '按预计垃圾量均衡' : '统一从第1天起算'}，按 ${cycleDays} 天共同周期生成 ${versions.length} 套待定方案，覆盖第 1 至 ${cycleDays} 天。`]
   if (missingCount) notices.push(`${missingCount} 个未配置频次的点位未参与。`)
   if (invalidCount) notices.push(`${invalidCount} 个频次配置异常的点位未参与。`)
+  if (missingWeightCount && assignmentPhaseMode.value === 'BALANCE') notices.push(`${missingWeightCount} 个点位缺少有效估算重量，按 0 kg 参与重量均衡、按点数参与次级均衡。`)
   if (changedCount) notices.push(`${changedCount} 个点位在统计期内配置曾变化，请核对。`)
   assignmentFrequencyGenerationMessage.value = notices.join(' ')
 }
@@ -5371,6 +5377,72 @@ function sourceTypeLabel(value) {
   if (value === 'EDIT') return '路线编辑'
   if (value === 'FLOW_ANALYSIS') return '流水归纳草案'
   return value || '-'
+}
+
+function assignmentExportPoint(point) {
+  return {
+    order: point?.order, facilityId: point?.facilityId, facilityName: point?.facilityName, role: point?.role,
+    facilityTypeName: point?.facilityTypeName, longitude: point?.longitude, latitude: point?.latitude,
+    estimatedWeightKg: point?.estimatedWeightKg, estimatedVolumeLiter: point?.estimatedVolumeLiter
+  }
+}
+
+function assignmentExportSegment(segment) {
+  return {
+    order: segment?.order, fromFacilityId: segment?.fromFacilityId, fromFacilityName: segment?.fromFacilityName,
+    toFacilityId: segment?.toFacilityId, toFacilityName: segment?.toFacilityName, distance: segment?.distance,
+    durationMinutes: segment?.durationMinutes, speedKmh: segment?.speedKmh, speedClass: segment?.speedClass,
+    pathSource: segment?.pathSource
+  }
+}
+
+function assignmentExportRoute(route) {
+  return {
+    routeNo: route?.routeNo, vehicleName: route?.vehicleName, vehicleType: route?.vehicleType, tripNo: route?.tripNo,
+    ratedCapacityKg: route?.ratedCapacityKg, pointCount: route?.pointCount, estimatedWeightKg: route?.estimatedWeightKg,
+    estimatedVolumeLiter: route?.estimatedVolumeLiter, loadRate: route?.loadRate, distance: route?.distance,
+    durationMinutes: route?.durationMinutes, travelDurationMinutes: route?.travelDurationMinutes,
+    operationDurationMinutes: route?.operationDurationMinutes, timeExceeded: route?.timeExceeded,
+    points: (route?.points || []).map(assignmentExportPoint),
+    segments: (route?.roadSegments || route?.segments || []).map(assignmentExportSegment)
+  }
+}
+
+function assignmentExportResult(result) {
+  if (!result) return null
+  return {
+    status: result.status, message: result.message, routeCount: result.routeCount,
+    assignedPointCount: result.assignedPointCount, unassignedPointCount: result.unassignedPointCount,
+    assignedWeightKg: result.assignedWeightKg, unassignedWeightKg: result.unassignedWeightKg,
+    dispatchTripCount: result.dispatchTripCount, totalPlannedCapacityKg: result.totalPlannedCapacityKg,
+    targetLoadWeightKg: result.targetLoadWeightKg, ratedCapacityKg: result.ratedCapacityKg,
+    targetLoadRate: result.targetLoadRate, routes: (result.routes || []).map(assignmentExportRoute),
+    unassignedPoints: (result.unassignedPoints || []).map(assignmentExportPoint)
+  }
+}
+
+async function exportAssignmentVersions() {
+  const versions = assignmentVersions.value
+  if (assignmentBatchRunning.value || !versions.some(version => version.result)) return
+  await withLoading(async () => {
+    const response = await fetch('/api/optimize/assignment-export', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        company: selectedSplitCompany.value,
+        sourceRoute: selectedSplitRoute.value,
+        generatedAt: new Date().toISOString(),
+        schemes: versions.map(version => ({
+          name: version.name, cycleDay: version.cycleDay, applicableDays: version.applicableDays || [],
+          status: version.status, error: version.error, message: version.message,
+          result: assignmentExportResult(version.result)
+        }))
+      })
+    })
+    if (!response.ok) throw new Error(`${response.status} ${response.statusText}`)
+    const routeName = sanitizeFilename(selectedSplitRoute.value?.routeName || selectedSplitRoute.value?.routeCode || '路线')
+    downloadBlob(await response.blob(), `${routeName}-路线拆分全部方案-${toDateInput(new Date())}.xlsx`)
+  })
 }
 
 async function exportCompanyRoutes() {

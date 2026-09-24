@@ -277,6 +277,15 @@ public class RouteDataController {
                 .body(bytes);
     }
 
+    @PostMapping("/optimize/assignment-export")
+    public ResponseEntity<byte[]> exportAssignmentVersions(@RequestBody Map<String, Object> request) {
+        byte[] bytes = routeExportService.exportAssignmentVersions(request);
+        return ResponseEntity.ok()
+                .header(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=assignment-routes.xlsx")
+                .contentType(MediaType.parseMediaType("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"))
+                .body(bytes);
+    }
+
     @GetMapping("/route-map/status")
     public Map<String, Object> routeMapStatus() {
         return routeMapPathService.status();
