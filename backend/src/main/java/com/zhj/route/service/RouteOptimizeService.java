@@ -386,6 +386,7 @@ public class RouteOptimizeService {
         result.put("targetLoadRate", round(targetLoadRate));
         result.put("targetLoadWeightKg", round(targetLoadWeightKg));
         result.put("maxCapacityKg", round(maxCapacityKg));
+        result.put("terminalUnloadMinutes", round(terminalUnloadDuration(request)));
         result.put("planningStrategy", planningStrategy);
         result.put("distanceMode", useRoadPath ? "ROAD" : "DIRECT");
         result.put("refineMode", refineWithRoad ? "ROAD" : "NONE");
@@ -550,7 +551,9 @@ public class RouteOptimizeService {
             view.put("estimatedWeightKg", round(valueOrZero(point.getEstimatedWeightKg())));
             view.put("containerInfo", point.getContainerInfo());
             view.put("containerCount", round(valueOrZero(point.getContainerCount())));
-            view.put("operationDurationMinutes", round(operationDuration(point, request, i == 0 || i == points.size() - 1)));
+            boolean routeStart = i == 0;
+            boolean routeEnd = i == points.size() - 1;
+            view.put("operationDurationMinutes", round(routeEnd && request != null ? terminalUnloadDuration(request) : operationDuration(point, request, routeStart)));
             view.put("litersPerTon", point.getLitersPerTon());
             view.put("weightSource", point.getWeightSource());
             view.put("role", i == 0 ? "START" : (i == points.size() - 1 ? "END" : "MIDDLE"));
@@ -617,7 +620,7 @@ public class RouteOptimizeService {
             selected.put("previousFacilityId", previous.getFacilityId()); selected.put("previousFacilityName", previous.getFacilityName());
             selected.put("nextFacilityId", next.getFacilityId()); selected.put("nextFacilityName", next.getFacilityName()); selected.put("increaseDistanceMeters", best.increase);
             double traceTotalMinutes = estimatedRouteDuration(route, request, distanceCalculator);
-            traceService.step(trace, routeNo, trip.vehicleId, trip.tripNo, iteration, pointViews(route, request), selected, topCandidates, available.size(), available.size() + 1, candidateEvaluations.size(), routeDistance(route, distanceCalculator), traceTotalMinutes, sumOperationDuration(collectedPoints(route), request), traceTotalMinutes, load, distanceCalculator.delegate.useRoadPath ? "OD_PRELOAD" : "DIRECT");
+            traceService.step(trace, routeNo, trip.vehicleId, trip.tripNo, iteration, pointViews(route, request), selected, topCandidates, available.size(), available.size() + 1, candidateEvaluations.size(), routeDistance(route, distanceCalculator), traceTotalMinutes, sumOperationDuration(collectedPoints(route), request) + terminalUnloadDuration(request), traceTotalMinutes, load, distanceCalculator.delegate.useRoadPath ? "OD_PRELOAD" : "DIRECT");
             if (targetLoadWeightKg > 0D && load >= targetLoadWeightKg) {
                 break;
             }
@@ -638,7 +641,7 @@ public class RouteOptimizeService {
             SpeedDecision speed = profile.forSegment(route, i, distance);
             total += minutes(distance, speed.kmh);
         }
-        total += sumOperationDuration(collectedPoints(route), request);
+        total += sumOperationDuration(collectedPoints(route), request) + terminalUnloadDuration(request);
         return total;
     }
 
@@ -950,7 +953,7 @@ public class RouteOptimizeService {
         double planningTravelDurationMinutes = sumSegmentDuration(planningSegments);
         double displayDistance = sumSegmentDistance(displaySegments);
         double displayTravelDurationMinutes = sumSegmentDuration(displaySegments);
-        double operationDurationMinutes = sumOperationDuration(collected, request);
+        double operationDurationMinutes = sumOperationDuration(collected, request) + terminalUnloadDuration(request);
         double totalDurationMinutes = planningTravelDurationMinutes + operationDurationMinutes;
         double displayTotalDurationMinutes = displayTravelDurationMinutes + operationDurationMinutes;
         double workLimitMinutes = positiveOrDefault(request, "workHours", 8D) * 60D;
@@ -958,6 +961,7 @@ public class RouteOptimizeService {
         view.put("distance", round(planningDistance));
         view.put("travelDurationMinutes", round(planningTravelDurationMinutes));
         view.put("operationDurationMinutes", round(operationDurationMinutes));
+        view.put("terminalUnloadMinutes", round(terminalUnloadDuration(request)));
         view.put("totalDurationMinutes", round(totalDurationMinutes));
         view.put("durationMinutes", round(totalDurationMinutes));
         view.put("planningDistance", round(planningDistance));
@@ -1765,6 +1769,10 @@ public class RouteOptimizeService {
             total += operationDuration(point, request, false);
         }
         return total;
+    }
+
+    private double terminalUnloadDuration(Map<String, Object> request) {
+        return Math.max(0D, requestNumber(request, "terminalUnloadMinutes", 15D));
     }
 
     private double operationDuration(RoutePoint point, Map<String, Object> request, boolean routeAnchor) {

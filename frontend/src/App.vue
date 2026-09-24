@@ -841,8 +841,10 @@
               <label>目标装载率<input v-model.number="optimizeOptions.targetLoadRate" type="number" min="0.1" max="1" step="0.05" /></label>
               <label>最大趟数<input v-model.number="optimizeOptions.maxRoutes" type="number" min="1" step="1" /></label>
               <label>标准工时 h<input v-model.number="optimizeOptions.workHours" type="number" min="1" max="24" step="0.5" /></label>
+              <label>首趟发车时间<input v-model="optimizeOptions.plannedStartTime" type="time" /></label>
               <label>每桶秒<input v-model.number="optimizeOptions.secondsPerContainer" type="number" min="1" step="1" /></label>
               <label>每点分钟<input v-model.number="optimizeOptions.minutesPerPoint" type="number" min="0" step="0.5" /></label>
+              <label>处理厂/中转站卸料 min<input v-model.number="optimizeOptions.terminalUnloadMinutes" type="number" min="0" step="1" /></label>
               <div class="route-mode-card optimizer-mode-card strategy-mode-card">
                 <label class="strategy-select"><span>规划策略</span><select v-model="optimizeOptions.multiRouteStrategy"><option value="DIRECT_GROUP">直线快速分组</option><option value="DIRECT_GROUP_ROAD_REFINE">直线分组 + 道路精排</option><option value="ROAD_GLOBAL">全程实际距离</option></select></label>
               </div>
@@ -925,6 +927,30 @@
                   <small>{{ selectedMultiRouteDisplaySummary }}</small>
                 </div>
                 <RouteMapPanel v-if="selectedMultiRoute" :original-points="[]" :optimized-points="selectedMultiRoute.points || []" :optimized-segments="selectedMultiRouteDisplaySegments" :show-original="false" optimized-label="拆分路线" />
+                <div v-if="selectedMultiRoute" class="route-time-detail">
+                  <div class="route-time-summary">
+                    <span>行驶 {{ formatDuration(selectedMultiRouteDisplayTravelDuration) }}</span>
+                    <span>作业 {{ formatDuration(selectedMultiRoute.operationDurationMinutes) }}（含终点卸料 {{ formatDuration(selectedMultiRoute.terminalUnloadMinutes) }}）</span>
+                    <strong>合计 {{ formatDuration(selectedMultiRouteDisplayTotalDuration) }}</strong>
+                    <span v-if="selectedMultiRouteSchedule">计划 {{ selectedMultiRouteSchedule.startTime }}—{{ selectedMultiRouteSchedule.endTime }}</span>
+                  </div>
+                  <div class="route-time-table multi-route-time-table">
+                    <div class="route-time-row head">
+                      <span>顺序</span><span>点位</span><span>上一段行驶</span><span>速度</span><span>桶信息</span><span>总桶数</span><span>预计到达</span><span>点位作业</span><span>预计离开</span>
+                    </div>
+                    <div v-for="point in selectedMultiRoute.points" :key="`split-time-${selectedMultiRoute.routeNo}-${point.order}-${point.facilityId}`" class="route-time-row">
+                      <span>{{ point.order }}</span>
+                      <span>{{ point.facilityName || point.facilityId }} <small>{{ routePointRoleLabel(point) }}</small></span>
+                      <span v-if="segmentBeforePoint(planningSegmentsForSchedule(selectedMultiRoute, multiOptimization), point.order)">{{ formatDistance(segmentBeforePoint(planningSegmentsForSchedule(selectedMultiRoute, multiOptimization), point.order).distance) }} · {{ formatDuration(segmentBeforePoint(planningSegmentsForSchedule(selectedMultiRoute, multiOptimization), point.order).durationMinutes) }}</span><span v-else>-</span>
+                      <span v-if="segmentBeforePoint(planningSegmentsForSchedule(selectedMultiRoute, multiOptimization), point.order)">{{ formatNumber(segmentBeforePoint(planningSegmentsForSchedule(selectedMultiRoute, multiOptimization), point.order).speedKmh) }} km/h</span><span v-else>-</span>
+                      <span :title="point.containerInfo || '-'">{{ point.containerInfo || '-' }}</span>
+                      <span>{{ formatNumber(point.containerCount) }}</span>
+                      <span>{{ selectedMultiRoutePointSchedule(point)?.arrivalTime || '-' }}</span>
+                      <span>{{ formatDuration(point.operationDurationMinutes) }}</span>
+                      <span>{{ selectedMultiRoutePointSchedule(point)?.departureTime || '-' }}</span>
+                    </div>
+                  </div>
+                </div>
               </div>
               <div v-else class="empty">点击“拆分生成”后，将把该路线点位拆成多趟路线。</div>
             </div>
@@ -1017,8 +1043,10 @@
               <label>目标装载率<input v-model.number="optimizeOptions.targetLoadRate" type="number" min="0.1" max="1" step="0.05" /></label>
               <label>最大趟数<input v-model.number="optimizeOptions.maxRoutes" type="number" min="1" step="1" /></label>
               <label>标准工时 h<input v-model.number="optimizeOptions.workHours" type="number" min="1" max="24" step="0.5" /></label>
+              <label>首趟发车时间<input v-model="optimizeOptions.plannedStartTime" type="time" /></label>
               <label>每桶秒<input v-model.number="optimizeOptions.secondsPerContainer" type="number" min="1" step="1" /></label>
               <label>每点分钟<input v-model.number="optimizeOptions.minutesPerPoint" type="number" min="0" step="0.5" /></label>
+              <label>处理厂/中转站卸料 min<input v-model.number="optimizeOptions.terminalUnloadMinutes" type="number" min="0" step="1" /></label>
               <div class="route-mode-card optimizer-mode-card strategy-mode-card">
                 <label class="strategy-select"><span>规划策略</span><select v-model="optimizeOptions.multiRouteStrategy"><option value="DIRECT_GROUP">直线快速分组</option><option value="DIRECT_GROUP_ROAD_REFINE">直线分组 + 道路精排</option><option value="ROAD_GLOBAL">全程实际距离</option></select></label>
               </div>
@@ -1100,6 +1128,30 @@
                   <small>{{ selectedMultiRouteDisplaySummary }}</small>
                 </div>
                 <RouteMapPanel v-if="selectedMultiRoute" :original-points="[]" :optimized-points="selectedMultiRoute.points || []" :optimized-segments="selectedMultiRouteDisplaySegments" :show-original="false" optimized-label="拆分路线" />
+                <div v-if="selectedMultiRoute" class="route-time-detail">
+                  <div class="route-time-summary">
+                    <span>行驶 {{ formatDuration(selectedMultiRouteDisplayTravelDuration) }}</span>
+                    <span>作业 {{ formatDuration(selectedMultiRoute.operationDurationMinutes) }}（含终点卸料 {{ formatDuration(selectedMultiRoute.terminalUnloadMinutes) }}）</span>
+                    <strong>合计 {{ formatDuration(selectedMultiRouteDisplayTotalDuration) }}</strong>
+                    <span v-if="selectedMultiRouteSchedule">计划 {{ selectedMultiRouteSchedule.startTime }}—{{ selectedMultiRouteSchedule.endTime }}</span>
+                  </div>
+                  <div class="route-time-table multi-route-time-table">
+                    <div class="route-time-row head">
+                      <span>顺序</span><span>点位</span><span>上一段行驶</span><span>速度</span><span>桶信息</span><span>总桶数</span><span>预计到达</span><span>点位作业</span><span>预计离开</span>
+                    </div>
+                    <div v-for="point in selectedMultiRoute.points" :key="`split-time-${selectedMultiRoute.routeNo}-${point.order}-${point.facilityId}`" class="route-time-row">
+                      <span>{{ point.order }}</span>
+                      <span>{{ point.facilityName || point.facilityId }} <small>{{ routePointRoleLabel(point) }}</small></span>
+                      <span v-if="segmentBeforePoint(planningSegmentsForSchedule(selectedMultiRoute, multiOptimization), point.order)">{{ formatDistance(segmentBeforePoint(planningSegmentsForSchedule(selectedMultiRoute, multiOptimization), point.order).distance) }} · {{ formatDuration(segmentBeforePoint(planningSegmentsForSchedule(selectedMultiRoute, multiOptimization), point.order).durationMinutes) }}</span><span v-else>-</span>
+                      <span v-if="segmentBeforePoint(planningSegmentsForSchedule(selectedMultiRoute, multiOptimization), point.order)">{{ formatNumber(segmentBeforePoint(planningSegmentsForSchedule(selectedMultiRoute, multiOptimization), point.order).speedKmh) }} km/h</span><span v-else>-</span>
+                      <span :title="point.containerInfo || '-'">{{ point.containerInfo || '-' }}</span>
+                      <span>{{ formatNumber(point.containerCount) }}</span>
+                      <span>{{ selectedMultiRoutePointSchedule(point)?.arrivalTime || '-' }}</span>
+                      <span>{{ formatDuration(point.operationDurationMinutes) }}</span>
+                      <span>{{ selectedMultiRoutePointSchedule(point)?.departureTime || '-' }}</span>
+                    </div>
+                  </div>
+                </div>
               </div>
               <div v-else class="empty">点击“生成全部方案”后，可切换查看每套点位的优化结果。</div>
             </div>
@@ -1163,12 +1215,20 @@
                 <input v-model.number="optimizeOptions.workHours" type="number" min="1" max="24" step="0.5" />
               </label>
               <label>
+                首趟发车时间
+                <input v-model="optimizeOptions.plannedStartTime" type="time" />
+              </label>
+              <label>
                 每桶秒
                 <input v-model.number="optimizeOptions.secondsPerContainer" type="number" min="1" step="1" />
               </label>
               <label>
                 每点分钟
                 <input v-model.number="optimizeOptions.minutesPerPoint" type="number" min="0" step="0.5" />
+              </label>
+              <label>
+                处理厂/中转站卸料 min
+                <input v-model.number="optimizeOptions.terminalUnloadMinutes" type="number" min="0" step="1" />
               </label>
               <div class="route-mode-card optimizer-mode-card strategy-mode-card">
                 <label class="strategy-select">
@@ -1504,8 +1564,9 @@
                 <div v-if="selectedMultiRoute" class="route-time-detail">
                   <div class="route-time-summary">
                     <span>行驶 {{ formatDuration(selectedMultiRouteDisplayTravelDuration) }}</span>
-                    <span>作业 {{ formatDuration(selectedMultiRoute.operationDurationMinutes) }}</span>
+                    <span>作业 {{ formatDuration(selectedMultiRoute.operationDurationMinutes) }}（含终点卸料 {{ formatDuration(selectedMultiRoute.terminalUnloadMinutes) }}）</span>
                     <strong>合计 {{ formatDuration(selectedMultiRouteDisplayTotalDuration) }}</strong>
+                    <span v-if="selectedMultiRouteSchedule">计划 {{ selectedMultiRouteSchedule.startTime }}—{{ selectedMultiRouteSchedule.endTime }}</span>
                   </div>
                   <div class="route-time-table multi-route-time-table">
                     <div class="route-time-row head">
@@ -1515,7 +1576,9 @@
                       <span>速度</span>
                       <span>桶信息</span>
                       <span>总桶数</span>
+                      <span>预计到达</span>
                       <span>点位作业</span>
+                      <span>预计离开</span>
                     </div>
                     <div v-for="point in selectedMultiRoute.points" :key="`time-${selectedMultiRoute.routeNo}-${point.order}-${point.facilityId}`" class="route-time-row">
                       <span>{{ point.order }}</span>
@@ -1531,7 +1594,9 @@
                       <span v-else>-</span>
                       <span :title="point.containerInfo || '-'">{{ point.containerInfo || '-' }}</span>
                       <span>{{ formatNumber(point.containerCount) }}</span>
+                      <span>{{ selectedMultiRoutePointSchedule(point)?.arrivalTime || '-' }}</span>
                       <span>{{ formatDuration(point.operationDurationMinutes) }}</span>
+                      <span>{{ selectedMultiRoutePointSchedule(point)?.departureTime || '-' }}</span>
                     </div>
                   </div>
                 </div>
@@ -2738,8 +2803,10 @@ const optimizeOptions = reactive({
   targetLoadRate: 0.9,
   maxRoutes: 10,
   workHours: 8,
+  plannedStartTime: '06:00',
   secondsPerContainer: 35,
   minutesPerPoint: 3,
+  terminalUnloadMinutes: 15,
   useRoadPath: false,
   multiRouteStrategy: 'DIRECT_GROUP',
   displayRoadPath: false,
@@ -2957,6 +3024,73 @@ const selectedMultiRouteDisplaySummary = computed(() => {
   const duration = selectedMultiRouteDisplayTotalDuration.value || route.durationMinutes
   return formatDistance(distance) + ' · ' + formatDuration(duration) + ' · ' + pathSourceSummary(segments)
 })
+
+function parseClockMinutes(value) {
+  const match = String(value || '').match(/^(\d{1,2}):(\d{2})/)
+  if (!match) return 6 * 60
+  return Math.max(0, Math.min(23, Number(match[1]))) * 60 + Math.max(0, Math.min(59, Number(match[2])))
+}
+
+function formatPlanClock(totalMinutes) {
+  const rounded = Math.max(0, Math.round(Number(totalMinutes) || 0))
+  const dayOffset = Math.floor(rounded / 1440)
+  const minuteOfDay = rounded % 1440
+  const hours = String(Math.floor(minuteOfDay / 60)).padStart(2, '0')
+  const minutes = String(minuteOfDay % 60).padStart(2, '0')
+  return `${hours}:${minutes}${dayOffset > 0 ? `（+${dayOffset}天）` : ''}`
+}
+
+function planningSegmentsForSchedule(route, result) {
+  if (String(result?.distanceMode || '').toUpperCase() === 'ROAD' && route?.roadSegments?.length) return route.roadSegments
+  return route?.segments || []
+}
+
+function buildPointSchedule(route, startMinutes, result) {
+  const segments = planningSegmentsForSchedule(route, result)
+  let cursor = startMinutes
+  const points = (route?.points || []).map((point, index) => {
+    if (index > 0) cursor += Number(segments[index - 1]?.durationMinutes || 0)
+    const arrivalMinutes = cursor
+    const operationMinutes = Number(point?.operationDurationMinutes || 0)
+    cursor += operationMinutes
+    return {
+      order: Number(point?.order || index + 1),
+      arrivalMinutes,
+      departureMinutes: cursor,
+      arrivalTime: formatPlanClock(arrivalMinutes),
+      departureTime: formatPlanClock(cursor)
+    }
+  })
+  const officialEnd = startMinutes + Number(route?.durationMinutes || routeDisplayTotalDuration(route) || 0)
+  return {
+    startMinutes,
+    endMinutes: Math.max(cursor, officialEnd),
+    startTime: formatPlanClock(startMinutes),
+    endTime: formatPlanClock(Math.max(cursor, officialEnd)),
+    points,
+    pointsByOrder: new Map(points.map(point => [point.order, point]))
+  }
+}
+
+function buildRouteSchedules(result, startTime) {
+  const schedules = new Map()
+  const vehicleNextStart = new Map()
+  const baseStart = parseClockMinutes(startTime)
+  for (const route of result?.routes || []) {
+    const vehicleKey = String(route?.vehicleId || route?.vehicleName || 'DEFAULT')
+    const routeStart = vehicleNextStart.get(vehicleKey) ?? baseStart
+    const schedule = buildPointSchedule(route, routeStart, result)
+    schedules.set(Number(route?.routeNo), schedule)
+    vehicleNextStart.set(vehicleKey, schedule.endMinutes)
+  }
+  return schedules
+}
+
+const multiRouteSchedules = computed(() => buildRouteSchedules(multiOptimization.value, optimizeOptions.plannedStartTime))
+const selectedMultiRouteSchedule = computed(() => multiRouteSchedules.value.get(Number(selectedMultiRoute.value?.routeNo)) || null)
+function selectedMultiRoutePointSchedule(point) {
+  return selectedMultiRouteSchedule.value?.pointsByOrder.get(Number(point?.order)) || null
+}
 
 const filteredSavedGroups = computed(() => {
   if (selectedSavedFolderId.value === 'all') return savedGroups.value
@@ -3574,8 +3708,15 @@ async function selectSplitCompany(company) {
   })
 }
 
+function routeWorkBeginTime(route) {
+  const match = String(route?.workBeginTime || '').match(/(\d{1,2}):(\d{2})/)
+  return match ? `${String(Number(match[1])).padStart(2, '0')}:${match[2]}` : ''
+}
+
 async function selectSplitRoute(route) {
   selectedSplitRoute.value = route
+  const workBeginTime = routeWorkBeginTime(route)
+  if (workBeginTime) optimizeOptions.plannedStartTime = workBeginTime
   splitPlanPoints.value = []
   clearMultiOptimization()
   await withLoading(async () => {
@@ -5396,7 +5537,8 @@ function assignmentExportPoint(point, metadata = new Map()) {
     facilityName: point?.facilityName || source.facilityName, role: point?.role,
     facilityTypeName: point?.facilityTypeName || source.facilityTypeName,
     longitude: point?.longitude ?? source.longitude, latitude: point?.latitude ?? source.latitude,
-    estimatedWeightKg: point?.estimatedWeightKg, estimatedVolumeLiter: point?.estimatedVolumeLiter
+    estimatedWeightKg: point?.estimatedWeightKg, estimatedVolumeLiter: point?.estimatedVolumeLiter,
+    operationDurationMinutes: point?.operationDurationMinutes
   }
 }
 
@@ -5409,20 +5551,26 @@ function assignmentExportSegment(segment) {
   }
 }
 
-function assignmentExportRoute(route, metadata) {
+function assignmentExportRoute(route, metadata, schedule) {
   return {
     routeNo: route?.routeNo, vehicleName: route?.vehicleName || '默认车辆', vehicleType: route?.vehicleType || '未配置', tripNo: route?.tripNo,
     ratedCapacityKg: route?.ratedCapacityKg, pointCount: route?.pointCount, estimatedWeightKg: route?.estimatedWeightKg,
     estimatedVolumeLiter: route?.estimatedVolumeLiter, loadRate: route?.loadRate, distance: route?.distance,
     durationMinutes: route?.durationMinutes, travelDurationMinutes: route?.travelDurationMinutes,
-    operationDurationMinutes: route?.operationDurationMinutes, timeExceeded: route?.timeExceeded,
-    points: (route?.points || []).map(point => assignmentExportPoint(point, metadata)),
+    operationDurationMinutes: route?.operationDurationMinutes, terminalUnloadMinutes: route?.terminalUnloadMinutes, timeExceeded: route?.timeExceeded,
+    plannedStartTime: schedule?.startTime, plannedEndTime: schedule?.endTime,
+    points: (route?.points || []).map(point => {
+      const exported = assignmentExportPoint(point, metadata)
+      const pointSchedule = schedule?.pointsByOrder.get(Number(point?.order))
+      return { ...exported, plannedArrivalTime: pointSchedule?.arrivalTime, plannedDepartureTime: pointSchedule?.departureTime }
+    }),
     segments: (route?.roadSegments || route?.segments || []).map(assignmentExportSegment)
   }
 }
 
 function assignmentExportResult(result, metadata) {
   if (!result) return null
+  const schedules = buildRouteSchedules(result, optimizeOptions.plannedStartTime)
   return {
     status: result.status, message: result.message, routeCount: result.routeCount,
     assignedPointCount: result.assignedPointCount, unassignedPointCount: result.unassignedPointCount,
@@ -5430,7 +5578,7 @@ function assignmentExportResult(result, metadata) {
     dispatchTripCount: result.dispatchTripCount, totalPlannedCapacityKg: result.totalPlannedCapacityKg,
     targetLoadWeightKg: result.targetLoadWeightKg, ratedCapacityKg: result.ratedCapacityKg,
     targetLoadRate: result.targetLoadRate, planningStrategy: result.planningStrategy, distanceMode: result.distanceMode,
-    optimizerCostSource: result.optimizerCostSource, routes: (result.routes || []).map(route => assignmentExportRoute(route, metadata)),
+    optimizerCostSource: result.optimizerCostSource, routes: (result.routes || []).map(route => assignmentExportRoute(route, metadata, schedules.get(Number(route?.routeNo)))),
     unassignedPoints: (result.unassignedPoints || []).map(point => assignmentExportPoint(point, metadata))
   }
 }

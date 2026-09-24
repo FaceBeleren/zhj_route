@@ -173,7 +173,7 @@ public class RouteExportService {
 
     private void writeAssignmentRoutes(Workbook workbook, CellStyle headerStyle, List<CellStyle> schemeStyles, List<Map<String, Object>> schemes) {
         Sheet sheet = workbook.createSheet("趟次路线");
-        writeHeader(sheet, headerStyle, "方案", "适用日", "状态", "路线", "车辆", "车型", "第几趟", "收运点数", "预计重量kg", "预计体积L", "装载率", "距离m", "行驶时间min", "作业时间min", "总时间min", "距离口径", "点位顺序");
+        writeHeader(sheet, headerStyle, "方案", "适用日", "状态", "路线", "车辆", "车型", "第几趟", "计划发车", "计划结束", "收运点数", "预计重量kg", "预计体积L", "装载率", "距离m", "行驶时间min", "点位及卸料作业min", "其中终点卸料min", "总时间min", "距离口径", "点位顺序");
         int rowIndex = 1;
         for (int schemeIndex = 0; schemeIndex < schemes.size(); schemeIndex++) {
             Map<String, Object> scheme = schemes.get(schemeIndex);
@@ -187,26 +187,29 @@ public class RouteExportService {
                 write(row, 4, vehicleName(route));
                 write(row, 5, vehicleType(route));
                 write(row, 6, route.get("tripNo"));
-                write(row, 7, route.get("pointCount"));
-                write(row, 8, route.get("estimatedWeightKg"));
-                write(row, 9, route.get("estimatedVolumeLiter"));
-                write(row, 10, route.get("loadRate"));
-                write(row, 11, route.get("distance"));
-                write(row, 12, route.get("travelDurationMinutes"));
-                write(row, 13, route.get("operationDurationMinutes"));
-                write(row, 14, route.get("durationMinutes"));
-                write(row, 15, distanceModeLabel(result));
-                write(row, 16, pointSequence(route));
+                write(row, 7, route.get("plannedStartTime"));
+                write(row, 8, route.get("plannedEndTime"));
+                write(row, 9, route.get("pointCount"));
+                write(row, 10, route.get("estimatedWeightKg"));
+                write(row, 11, route.get("estimatedVolumeLiter"));
+                write(row, 12, route.get("loadRate"));
+                write(row, 13, route.get("distance"));
+                write(row, 14, route.get("travelDurationMinutes"));
+                write(row, 15, route.get("operationDurationMinutes"));
+                write(row, 16, route.get("terminalUnloadMinutes"));
+                write(row, 17, route.get("durationMinutes"));
+                write(row, 18, distanceModeLabel(result));
+                write(row, 19, pointSequence(route));
                 applyRowStyle(row, schemeStyles.get(schemeIndex % schemeStyles.size()));
             }
         }
-        finishAssignmentSheet(sheet, rowIndex, new int[]{14, 18, 10, 9, 18, 16, 9, 11, 15, 15, 10, 14, 16, 16, 14, 18, 72});
+        finishAssignmentSheet(sheet, rowIndex, new int[]{14, 18, 10, 9, 18, 16, 9, 14, 14, 11, 15, 15, 10, 14, 16, 20, 18, 14, 18, 72});
         sheet.setDefaultRowHeightInPoints(20);
     }
 
     private void writeAssignmentPoints(Workbook workbook, CellStyle headerStyle, List<CellStyle> schemeStyles, List<Map<String, Object>> schemes) {
         Sheet sheet = workbook.createSheet("点位顺序");
-        writeHeader(sheet, headerStyle, "方案", "适用日", "路线", "车辆", "车型", "第几趟", "顺序", "点位角色", "点位ID", "点位名称", "设施类型", "经度", "纬度", "预计重量kg", "预计体积L");
+        writeHeader(sheet, headerStyle, "方案", "适用日", "路线", "车辆", "车型", "第几趟", "顺序", "点位角色", "点位ID", "点位名称", "设施类型", "经度", "纬度", "预计到达", "点位作业min", "预计离开", "预计重量kg", "预计体积L");
         int rowIndex = 1;
         for (int schemeIndex = 0; schemeIndex < schemes.size(); schemeIndex++) {
             Map<String, Object> scheme = schemes.get(schemeIndex);
@@ -227,13 +230,16 @@ public class RouteExportService {
                     write(row, 10, firstNonBlank(point.get("facilityTypeName"), "未配置"));
                     write(row, 11, point.get("longitude"));
                     write(row, 12, point.get("latitude"));
-                    write(row, 13, point.get("estimatedWeightKg"));
-                    write(row, 14, point.get("estimatedVolumeLiter"));
+                    write(row, 13, point.get("plannedArrivalTime"));
+                    write(row, 14, point.get("operationDurationMinutes"));
+                    write(row, 15, point.get("plannedDepartureTime"));
+                    write(row, 16, point.get("estimatedWeightKg"));
+                    write(row, 17, point.get("estimatedVolumeLiter"));
                     applyRowStyle(row, schemeStyles.get(schemeIndex % schemeStyles.size()));
                 }
             }
         }
-        finishAssignmentSheet(sheet, rowIndex, new int[]{14, 18, 9, 18, 16, 9, 9, 12, 14, 28, 20, 15, 15, 15, 15});
+        finishAssignmentSheet(sheet, rowIndex, new int[]{14, 18, 9, 18, 16, 9, 9, 12, 14, 28, 20, 15, 15, 14, 16, 14, 15, 15});
     }
 
     private void writeAssignmentSegments(Workbook workbook, CellStyle headerStyle, List<CellStyle> schemeStyles, List<Map<String, Object>> schemes) {
