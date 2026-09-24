@@ -1861,6 +1861,69 @@ tbody tr.active {
   color: #536274;
 }
 
+.route-playback-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  white-space: nowrap;
+}
+
+.route-playback-help {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  border: 1px solid #94a3b8;
+  border-radius: 50%;
+  color: #64748b;
+  background: #ffffff;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1;
+  cursor: help;
+  outline: none;
+}
+
+.route-playback-help:hover,
+.route-playback-help:focus-visible {
+  color: #1565c0;
+  border-color: #1565c0;
+  background: #eff6ff;
+}
+
+.route-playback-help::after {
+  content: attr(data-tooltip);
+  position: absolute;
+  z-index: 30;
+  right: -8px;
+  bottom: calc(100% + 9px);
+  width: 300px;
+  padding: 8px 10px;
+  border: 1px solid #cbd5e1;
+  border-radius: 6px;
+  color: #334155;
+  background: #ffffff;
+  box-shadow: 0 6px 18px rgba(15, 23, 42, 0.16);
+  font-size: 12px;
+  font-weight: 400;
+  line-height: 1.5;
+  white-space: normal;
+  opacity: 0;
+  visibility: hidden;
+  transform: translateY(3px);
+  transition: opacity 0.15s ease, transform 0.15s ease, visibility 0.15s ease;
+  pointer-events: none;
+}
+
+.route-playback-help:hover::after,
+.route-playback-help:focus-visible::after {
+  opacity: 1;
+  visibility: visible;
+  transform: translateY(0);
+}
+
 .route-progress-track {
   width: 150px;
   height: 6px;

@@ -66,7 +66,15 @@
         </select>
       </div>
       <div class="route-playback-progress">
-        <span>{{ playbackLabel }}</span>
+        <span class="route-playback-label">
+          <span>{{ playbackLabel }}</span>
+          <span
+            class="route-playback-help"
+            tabindex="0"
+            aria-label="播放距离口径说明"
+            data-tooltip="该数值由地图道路折线坐标二次测距，仅用于动画播放进度；正式路线距离以上方 OD 缓存或百度接口统计为准。"
+          >!</span>
+        </span>
         <div class="route-progress-track">
           <div class="route-progress-fill" :style="{ width: playbackPercent + '%' }"></div>
         </div>

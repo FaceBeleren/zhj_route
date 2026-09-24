@@ -5379,10 +5379,23 @@ function sourceTypeLabel(value) {
   return value || '-'
 }
 
-function assignmentExportPoint(point) {
+function assignmentPointMetadata(points = []) {
+  const metadata = new Map()
+  for (const point of points) {
+    for (const id of [point?.facilityId, point?.sourceFacilityId]) {
+      if (id !== null && id !== undefined && String(id)) metadata.set(String(id), point)
+    }
+  }
+  return metadata
+}
+
+function assignmentExportPoint(point, metadata = new Map()) {
+  const source = metadata.get(String(point?.sourceFacilityId ?? point?.facilityId ?? '')) || metadata.get(String(point?.facilityId ?? '')) || {}
   return {
-    order: point?.order, facilityId: point?.facilityId, facilityName: point?.facilityName, role: point?.role,
-    facilityTypeName: point?.facilityTypeName, longitude: point?.longitude, latitude: point?.latitude,
+    order: point?.order, facilityId: point?.facilityId, sourceFacilityId: point?.sourceFacilityId,
+    facilityName: point?.facilityName || source.facilityName, role: point?.role,
+    facilityTypeName: point?.facilityTypeName || source.facilityTypeName,
+    longitude: point?.longitude ?? source.longitude, latitude: point?.latitude ?? source.latitude,
     estimatedWeightKg: point?.estimatedWeightKg, estimatedVolumeLiter: point?.estimatedVolumeLiter
   }
 }
@@ -5396,19 +5409,19 @@ function assignmentExportSegment(segment) {
   }
 }
 
-function assignmentExportRoute(route) {
+function assignmentExportRoute(route, metadata) {
   return {
-    routeNo: route?.routeNo, vehicleName: route?.vehicleName, vehicleType: route?.vehicleType, tripNo: route?.tripNo,
+    routeNo: route?.routeNo, vehicleName: route?.vehicleName || '默认车辆', vehicleType: route?.vehicleType || '未配置', tripNo: route?.tripNo,
     ratedCapacityKg: route?.ratedCapacityKg, pointCount: route?.pointCount, estimatedWeightKg: route?.estimatedWeightKg,
     estimatedVolumeLiter: route?.estimatedVolumeLiter, loadRate: route?.loadRate, distance: route?.distance,
     durationMinutes: route?.durationMinutes, travelDurationMinutes: route?.travelDurationMinutes,
     operationDurationMinutes: route?.operationDurationMinutes, timeExceeded: route?.timeExceeded,
-    points: (route?.points || []).map(assignmentExportPoint),
+    points: (route?.points || []).map(point => assignmentExportPoint(point, metadata)),
     segments: (route?.roadSegments || route?.segments || []).map(assignmentExportSegment)
   }
 }
 
-function assignmentExportResult(result) {
+function assignmentExportResult(result, metadata) {
   if (!result) return null
   return {
     status: result.status, message: result.message, routeCount: result.routeCount,
@@ -5416,14 +5429,16 @@ function assignmentExportResult(result) {
     assignedWeightKg: result.assignedWeightKg, unassignedWeightKg: result.unassignedWeightKg,
     dispatchTripCount: result.dispatchTripCount, totalPlannedCapacityKg: result.totalPlannedCapacityKg,
     targetLoadWeightKg: result.targetLoadWeightKg, ratedCapacityKg: result.ratedCapacityKg,
-    targetLoadRate: result.targetLoadRate, routes: (result.routes || []).map(assignmentExportRoute),
-    unassignedPoints: (result.unassignedPoints || []).map(assignmentExportPoint)
+    targetLoadRate: result.targetLoadRate, planningStrategy: result.planningStrategy, distanceMode: result.distanceMode,
+    optimizerCostSource: result.optimizerCostSource, routes: (result.routes || []).map(route => assignmentExportRoute(route, metadata)),
+    unassignedPoints: (result.unassignedPoints || []).map(point => assignmentExportPoint(point, metadata))
   }
 }
 
 async function exportAssignmentVersions() {
   const versions = assignmentVersions.value
   if (assignmentBatchRunning.value || !versions.some(version => version.result)) return
+  const pointMetadata = assignmentPointMetadata(splitPlanPoints.value)
   await withLoading(async () => {
     const response = await fetch('/api/optimize/assignment-export', {
       method: 'POST',
@@ -5435,7 +5450,7 @@ async function exportAssignmentVersions() {
         schemes: versions.map(version => ({
           name: version.name, cycleDay: version.cycleDay, applicableDays: version.applicableDays || [],
           status: version.status, error: version.error, message: version.message,
-          result: assignmentExportResult(version.result)
+          result: assignmentExportResult(version.result, pointMetadata)
         }))
       })
     })
