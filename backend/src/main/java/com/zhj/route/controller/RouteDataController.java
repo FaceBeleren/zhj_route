@@ -10,6 +10,7 @@ import com.zhj.route.service.RouteClusterService;
 import com.zhj.route.service.RoutePlanService;
 import com.zhj.route.service.OdCacheService;
 import com.zhj.route.service.FlowAnalysisService;
+import com.zhj.route.service.TripReorderService;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
@@ -40,6 +41,7 @@ public class RouteDataController {
     private final RoutePlanService routePlanService;
     private final OdCacheService odCacheService;
     private final FlowAnalysisService flowAnalysisService;
+    private final TripReorderService tripReorderService;
 
     public RouteDataController(
             RouteQueryService routeQueryService,
@@ -51,7 +53,8 @@ public class RouteDataController {
             RouteClusterService routeClusterService,
             RoutePlanService routePlanService,
             OdCacheService odCacheService,
-            FlowAnalysisService flowAnalysisService) {
+            FlowAnalysisService flowAnalysisService,
+            TripReorderService tripReorderService) {
         this.routeQueryService = routeQueryService;
         this.routeConformanceService = routeConformanceService;
         this.routeOptimizeService = routeOptimizeService;
@@ -62,6 +65,7 @@ public class RouteDataController {
         this.routePlanService = routePlanService;
         this.odCacheService = odCacheService;
         this.flowAnalysisService = flowAnalysisService;
+        this.tripReorderService = tripReorderService;
     }
 
 
@@ -247,6 +251,11 @@ public class RouteDataController {
     @PostMapping("/optimize/multi-preview/tasks/{taskId}/cancel")
     public Map<String, Object> cancelOptimizeMultiPreviewTask(@PathVariable String taskId) {
         return routeOptimizeService.cancelMultiPreviewTask(taskId);
+    }
+
+    @PostMapping("/optimize/reorder-trips")
+    public Map<String, Object> reorderTrips(@RequestBody Map<String, Object> request) {
+        return tripReorderService.reorder(request);
     }
 
     @PostMapping("/optimize/cluster-preview")

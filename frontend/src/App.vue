@@ -915,6 +915,7 @@
                 <strong>{{ multiOptimization.status }}</strong>
                 <p>{{ multiOptimization.message }}</p>
                 <div class="optimization-metrics"><span>拆分路线 {{ multiOptimization.routeCount || 0 }}</span><span>已分配 {{ multiOptimization.assignedPointCount || 0 }}</span><span>未分配 {{ multiOptimization.unassignedPointCount || 0 }}</span><span>已分配量 {{ formatWeight(multiOptimization.assignedWeightKg) }}</span></div>
+
                 <div class="multi-routes split-routes-result">
                   <article v-for="route in multiOptimization.routes" :key="route.routeNo" class="multi-route-card" :class="{ active: selectedMultiRouteNo === route.routeNo }" @click="selectedMultiRouteNo = route.routeNo"><div><strong>第 {{ route.routeNo }} 趟 · {{ route.vehicleName || '默认车辆' }} 第{{ route.tripNo || route.routeNo }}趟</strong><small>{{ route.pointCount }} 点 · {{ formatWeight(route.estimatedWeightKg) }} · {{ formatDistance(routeDisplayDistance(route)) }} · 合计 {{ formatDuration(routeDisplayTotalDuration(route)) }}</small></div><div class="sequence route-point-sequence"><span v-for="point in route.points" :key="`${route.routeNo}-${point.order}-${point.facilityId}`">{{ point.facilityName || point.facilityId }}</span></div></article>
                 </div>
@@ -1034,7 +1035,7 @@
                 <span class="muted">把一条已有路线或岗位的规划点位拆成多趟实际收运路线</span>
               </div>
               <div class="panel-actions">
-                <button @click="generateAssignmentVersions" :disabled="!selectedSplitRoute || !assignmentVersions.length || assignmentVersions.some(version => version.selectedIndices.size < 3) || assignmentBatchRunning || loading">生成全部方案</button>
+                <button @click="generateAssignmentVersions" :disabled="!selectedSplitRoute || !assignmentVersions.length || assignmentVersions.some(version => version.selectedIndices.size < 3) || assignmentBatchRunning || assignmentTripReorderRunning || loading">生成全部方案</button>
                 <button v-if="assignmentBatchRunning" class="secondary" @click="stopAssignmentVersionGeneration">停止</button>
               </div>
             </div>
@@ -1097,7 +1098,7 @@
               <p class="assignment-version-hint">改变点位分配或生成方式后，需重新点击“按频次生成”；已生成方案不会自动改动。</p>
               <div class="assignment-version-list">
                 <div v-for="version in assignmentVersions" :key="version.id" class="assignment-version-item" :class="{ active: assignmentActiveVersionId === version.id }">
-                  <button type="button" class="assignment-version-select" :disabled="assignmentBatchRunning" :title="assignmentApplicableDaysLabel(version)" @click="selectAssignmentVersion(version.id)"><strong>{{ version.name }}<template v-if="version.applicableDays?.length > 1"> · 适用{{ version.applicableDays.length }}天</template><template v-else-if="version.cycleDay"> · 第{{ version.cycleDay }}天</template></strong><small>已选 {{ version.selectedIndices.size }} 点 · {{ assignmentVersionStatusLabel(version) }}</small></button>
+                  <button type="button" class="assignment-version-select" :disabled="assignmentBatchRunning || assignmentTripReorderRunning" :title="assignmentApplicableDaysLabel(version)" @click="selectAssignmentVersion(version.id)"><strong>{{ version.name }}<template v-if="version.applicableDays?.length > 1"> · 适用{{ version.applicableDays.length }}天</template><template v-else-if="version.cycleDay"> · 第{{ version.cycleDay }}天</template></strong><small>已选 {{ version.selectedIndices.size }} 点 · {{ assignmentVersionStatusLabel(version) }}</small></button>
                   <button type="button" class="assignment-version-remove" :disabled="assignmentBatchRunning || assignmentVersions.length === 1" :aria-label="'删除' + version.name" @click="removeAssignmentVersion(version.id)">×</button>
                 </div>
               </div>
@@ -1116,14 +1117,19 @@
               </ol>
             </div>
             <div>
-              <div class="panel-head compact"><h2>拆分结果<small v-if="assignmentActiveVersion"> · 当前{{ assignmentActiveVersion.name }}</small></h2><div class="panel-actions"><button @click="openSaveSplitCurrentRoute" :disabled="!selectedMultiRoute || loading">另存当前路线</button><button @click="openSaveSplitGroup" :disabled="!multiOptimization || loading">{{ splitFromSavedRoute ? '保存为新版本' : '另存当前方案整组' }}</button><button @click="exportAssignmentVersions" :disabled="assignmentBatchRunning || loading || !assignmentVersions.some(version => version.result)">导出全部方案</button></div></div>
+              <div class="panel-head compact"><h2>拆分结果<small v-if="assignmentActiveVersion"> · 当前{{ assignmentActiveVersion.name }}</small></h2><div class="panel-actions"><button type="button" class="secondary" :disabled="!!assignmentBatchTripReorderDisabledReason" :title="assignmentBatchTripReorderDisabledReason" @click="tryReorderAllAssignmentTrips">{{ assignmentTripReorderRunning ? '正在批量调整…' : '尝试调整全部方案趟序' }}</button><button @click="openSaveSplitCurrentRoute" :disabled="!selectedMultiRoute || loading || assignmentTripReorderRunning">另存当前路线</button><button @click="openSaveSplitGroup" :disabled="!multiOptimization || loading || assignmentTripReorderRunning">{{ splitFromSavedRoute ? '保存为新版本' : '另存当前方案整组' }}</button><button @click="exportAssignmentVersions" :disabled="assignmentBatchRunning || assignmentTripReorderRunning || loading || !assignmentVersions.some(version => version.result)">导出全部方案</button></div></div>
               <p v-if="assignmentActiveVersion?.applicableDays?.length" class="assignment-applicable-dates">{{ assignmentActiveVersion.name }}适用：{{ assignmentApplicableDaysLabel(assignmentActiveVersion) }}<template v-if="assignmentActiveVersion.applicableDays.length > 1">。修改这套点位会影响所有适用天数。</template></p>
-              <div v-if="assignmentVersions.some(version => version.status !== 'IDLE')" class="assignment-result-summary"><button v-for="version in assignmentVersions" :key="'result-'+version.id" type="button" class="assignment-result-version" :class="{ active: assignmentActiveVersionId === version.id }" :aria-pressed="assignmentActiveVersionId === version.id" :disabled="assignmentBatchRunning" @click="selectAssignmentVersion(version.id)"><strong>{{ version.name }}<template v-if="version.applicableDays?.length > 1"> · 适用{{ version.applicableDays.length }}天</template><template v-else-if="version.cycleDay"> · 第{{ version.cycleDay }}天</template></strong><span>{{ assignmentVersionStatusLabel(version) }}</span><small v-if="version.error">{{ version.error }}</small><small v-else-if="version.status === 'RUNNING'">{{ version.message }}<template v-if="version.percent"> · {{ version.percent }}%</template></small><small v-else-if="version.result">{{ version.result.routeCount || 0 }} 趟 · 已分配 {{ version.result.assignedPointCount || 0 }} 点</small></button></div>
+              <div v-if="assignmentVersions.some(version => version.status !== 'IDLE')" class="assignment-result-summary"><button v-for="version in assignmentVersions" :key="'result-'+version.id" type="button" class="assignment-result-version" :class="{ active: assignmentActiveVersionId === version.id }" :aria-pressed="assignmentActiveVersionId === version.id" :disabled="assignmentBatchRunning || assignmentTripReorderRunning" @click="selectAssignmentVersion(version.id)"><strong>{{ version.name }}<template v-if="version.applicableDays?.length > 1"> · 适用{{ version.applicableDays.length }}天</template><template v-else-if="version.cycleDay"> · 第{{ version.cycleDay }}天</template></strong><span>{{ assignmentVersionStatusLabel(version) }}</span><small v-if="version.error">{{ version.error }}</small><small v-else-if="version.status === 'RUNNING'">{{ version.message }}<template v-if="version.percent"> · {{ version.percent }}%</template></small><small v-else-if="version.result">{{ version.result.routeCount || 0 }} 趟 · 已分配 {{ version.result.assignedPointCount || 0 }} 点</small></button></div>
               <p v-if="assignmentVersions.some(version => version.result)" class="assignment-save-scope">点击上方方案切换结果；“当前路线”和“当前方案整组”仅保存所选方案，“导出全部方案”包含本次所有方案及其状态。</p>
               <div v-if="multiOptimization" class="optimization-box">
                 <strong>{{ multiOptimization.status }}</strong>
                 <p>{{ multiOptimization.message }}</p>
                 <div class="optimization-metrics"><span>拆分路线 {{ multiOptimization.routeCount || 0 }}</span><span>已分配 {{ multiOptimization.assignedPointCount || 0 }}</span><span>未分配 {{ multiOptimization.unassignedPointCount || 0 }}</span><span>已分配量 {{ formatWeight(multiOptimization.assignedWeightKg) }}</span></div>
+                <div class="assignment-trip-reorder-bar">
+                  <button type="button" class="secondary" :disabled="!!assignmentTripReorderDisabledReason" :title="assignmentTripReorderDisabledReason" @click="tryReorderAssignmentTrips">{{ assignmentTripReorderRunning ? '正在尝试重排…' : '尝试修改趟数顺序' }}</button>
+                  <span :class="{ success: assignmentTimeWindowStats.violationCount === 0, warning: assignmentTimeWindowStats.violationCount > 0 }">{{ assignmentTimeWindowStats.violationCount === 0 ? '当前方案时间窗均已通过' : `当前有 ${assignmentTimeWindowStats.violationCount} 个点位时间窗冲突` }}</span>
+                  <small v-if="assignmentTripReorderMessage">{{ assignmentTripReorderMessage }}</small>
+                </div>
                 <div class="multi-routes split-routes-result">
                   <article v-for="route in multiOptimization.routes" :key="route.routeNo" class="multi-route-card" :class="{ active: selectedMultiRouteNo === route.routeNo }" @click="selectedMultiRouteNo = route.routeNo"><div><strong>第 {{ route.routeNo }} 趟 · {{ route.vehicleName || '默认车辆' }} 第{{ route.tripNo || route.routeNo }}趟</strong><small>{{ route.pointCount }} 点 · {{ formatWeight(route.estimatedWeightKg) }} · {{ formatDistance(routeDisplayDistance(route)) }} · 合计 {{ formatDuration(routeDisplayTotalDuration(route)) }}</small></div><div class="sequence route-point-sequence"><span v-for="point in route.points" :key="`${route.routeNo}-${point.order}-${point.facilityId}`">{{ point.facilityName || point.facilityId }}</span></div></article>
                 </div>
@@ -2549,6 +2555,8 @@ const assignmentVehicles = ref([])
 const assignmentVehicleCode = ref('')
 const assignmentVehicleLoading = ref(false)
 const assignmentVehicleError = ref('')
+const assignmentTripReorderRunning = ref(false)
+const assignmentTripReorderMessage = ref('')
 let assignmentVehicleRequestId = 0
 let assignmentVersionSerial = 0
 let assignmentBatchRunId = 0
@@ -3112,6 +3120,55 @@ function buildRouteSchedules(result, startTime) {
   return schedules
 }
 
+function timeWindowStatsForResult(result) {
+  if (!result?.routes?.length) return { violationCount: 0, penaltyMinutes: 0, reorderable: false }
+  const schedules = buildRouteSchedules(result, optimizeOptions.plannedStartTime)
+  const vehicleTrips = new Map()
+  let violationCount = 0
+  let penaltyMinutes = 0
+  for (const route of result.routes) {
+    const vehicleKey = String(route?.vehicleId || route?.vehicleName || 'DEFAULT')
+    vehicleTrips.set(vehicleKey, Number(vehicleTrips.get(vehicleKey) || 0) + 1)
+    const schedule = schedules.get(Number(route?.routeNo))
+    for (const point of (route?.points || [])) {
+      if (point?.role !== 'MIDDLE') continue
+      const arrival = schedule?.pointsByOrder.get(Number(point?.order))?.arrivalMinutes
+      if (arrivalViolatesTimeWindow(point, arrival)) {
+        violationCount += 1
+        penaltyMinutes += timeWindowViolationDistance(point, arrival)
+      }
+    }
+  }
+  return { violationCount, penaltyMinutes, reorderable: [...vehicleTrips.values()].some(count => count > 1) }
+}
+
+function timeWindowViolationDistance(point, arrivalMinutes) {
+  if (!Number.isFinite(Number(arrivalMinutes))) return 0
+  const clock = clockMinuteOfDay(arrivalMinutes)
+  for (let distance = 1; distance <= 720; distance += 1) {
+    if (!arrivalViolatesTimeWindow(point, clock + distance) || !arrivalViolatesTimeWindow(point, clock - distance)) return distance
+  }
+  return 720
+}
+
+const assignmentTimeWindowStats = computed(() => timeWindowStatsForResult(multiOptimization.value))
+const assignmentTripReorderDisabledReason = computed(() => {
+  if (assignmentTripReorderRunning.value) return '正在尝试重排'
+  if (!multiOptimization.value?.routes?.length) return '请先生成当前方案'
+  if (assignmentTimeWindowStats.value.violationCount === 0) return '当前方案时间窗均已通过'
+  if (!assignmentTimeWindowStats.value.reorderable) return '同一车辆没有两趟以上路线，无法调整趟序'
+  return ''
+})
+const assignmentBatchTripReorderDisabledReason = computed(() => {
+  if (assignmentTripReorderRunning.value) return '正在批量调整方案趟序'
+  if (assignmentBatchRunning.value || loading.value) return '请等待当前计算完成'
+  const completed = assignmentVersions.value.filter(version => version.result?.routes?.length)
+  if (!completed.length) return '请先生成全部方案'
+  const summaries = completed.map(version => timeWindowStatsForResult(version.result))
+  if (summaries.every(summary => summary.violationCount === 0)) return '全部方案时间窗均已通过'
+  if (!summaries.some(summary => summary.violationCount > 0 && summary.reorderable)) return '存在时间窗冲突，但没有可调整的多趟路线'
+  return ''
+})
 const multiRouteSchedules = computed(() => buildRouteSchedules(multiOptimization.value, optimizeOptions.plannedStartTime))
 const selectedMultiRouteSchedule = computed(() => multiRouteSchedules.value.get(Number(selectedMultiRoute.value?.routeNo)) || null)
 function selectedMultiRoutePointSchedule(point) {
@@ -3400,16 +3457,18 @@ function resetAssignmentVersions(points) {
   assignmentVersions.value = [first]
   assignmentActiveVersionId.value = first.id
   assignmentFrequencyGenerationMessage.value = ''
+  assignmentTripReorderMessage.value = ''
 }
 
 function selectAssignmentVersion(id) {
-  if (assignmentBatchRunning.value) return
+  if (assignmentBatchRunning.value || assignmentTripReorderRunning.value) return
   const version = assignmentVersions.value.find(item => item.id === id)
   if (!version) return
   assignmentActiveVersionId.value = id
   multiOptimization.value = version.result
   selectedMultiRouteNo.value = version.result?.routes?.[0]?.routeNo || null
   multiRouteDisplayModes.value = {}
+  assignmentTripReorderMessage.value = ''
 }
 
 function addAssignmentVersion() {
@@ -4534,7 +4593,135 @@ async function generateSplitRoutes() {
   })
 }
 
+function assignmentReorderRoutePayload(route, result) {
+  const segments = planningSegmentsForSchedule(route, result).map(segment => ({
+    order: segment?.order,
+    distance: segment?.distance,
+    durationMinutes: segment?.durationMinutes,
+    speedKmh: segment?.speedKmh,
+    speedClass: segment?.speedClass,
+    pathSource: segment?.pathSource
+  }))
+  return {
+    routeNo: route?.routeNo,
+    vehicleIndex: route?.vehicleIndex,
+    vehicleId: route?.vehicleId,
+    vehicleName: route?.vehicleName,
+    vehicleType: route?.vehicleType,
+    tripNo: route?.tripNo,
+    ratedCapacityKg: route?.ratedCapacityKg,
+    maxCapacityKg: route?.maxCapacityKg,
+    targetLoadWeightKg: route?.targetLoadWeightKg,
+    pointCount: route?.pointCount,
+    estimatedWeightKg: route?.estimatedWeightKg,
+    estimatedVolumeLiter: route?.estimatedVolumeLiter,
+    loadRate: route?.loadRate,
+    terminalUnloadMinutes: route?.terminalUnloadMinutes,
+    durationMinutes: route?.durationMinutes,
+    points: (route?.points || []).map(point => ({ ...point })),
+    segments
+  }
+}
+
+function compactAssignmentReorderResult(result) {
+  return {
+    ...result,
+    routes: (result?.routes || []).map(route => assignmentReorderRoutePayload(route, result))
+  }
+}
+
+async function requestAssignmentTripReorder(result) {
+  return api('/api/optimize/reorder-trips', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      result: compactAssignmentReorderResult(result),
+      plannedStartTime: optimizeOptions.plannedStartTime,
+      speedKmh: optimizeOptions.speedKmh,
+      roadSpeedKmh: optimizeOptions.roadSpeedKmh,
+      communitySpeedKmh: optimizeOptions.communitySpeedKmh,
+      internalSpeedKmh: optimizeOptions.internalSpeedKmh
+    })
+  })
+}
+
+function showAssignmentVersionResult(version) {
+  if (!version || assignmentActiveVersionId.value !== version.id) return
+  multiOptimization.value = version.result
+  selectedMultiRouteNo.value = version.result?.routes?.[0]?.routeNo || null
+  multiRouteDisplayModes.value = {}
+}
+
+async function tryReorderAssignmentTrips() {
+  if (assignmentTripReorderDisabledReason.value || !assignmentActiveVersion.value) return
+  assignmentTripReorderRunning.value = true
+  assignmentTripReorderMessage.value = ''
+  try {
+    const response = await requestAssignmentTripReorder(multiOptimization.value)
+    assignmentTripReorderMessage.value = response.message || (response.improved ? '已调整趟序' : '调整趟序无法改善时间窗')
+    if (response.improved && response.result) {
+      assignmentActiveVersion.value.result = response.result
+      assignmentActiveVersion.value.message = response.message || '已调整趟序'
+      showAssignmentVersionResult(assignmentActiveVersion.value)
+    }
+  } catch (err) {
+    assignmentTripReorderMessage.value = `趟序调整失败：${err.message || String(err)}`
+  } finally {
+    assignmentTripReorderRunning.value = false
+  }
+}
+
+async function tryReorderAllAssignmentTrips() {
+  if (assignmentBatchTripReorderDisabledReason.value) return
+  assignmentTripReorderRunning.value = true
+  const completed = assignmentVersions.value.filter(version => version.result?.routes?.length)
+  const counts = { passed: 0, partial: 0, unchanged: 0, alreadyPassed: 0, notReorderable: 0, failed: 0 }
+  try {
+    for (let index = 0; index < completed.length; index += 1) {
+      const version = completed[index]
+      const stats = timeWindowStatsForResult(version.result)
+      assignmentTripReorderMessage.value = `正在处理 ${index + 1}/${completed.length}：${version.name}`
+      if (stats.violationCount === 0) {
+        counts.alreadyPassed += 1
+        continue
+      }
+      if (!stats.reorderable) {
+        counts.notReorderable += 1
+        continue
+      }
+      try {
+        const response = await requestAssignmentTripReorder(version.result)
+        version.message = response.message || (response.improved ? '已调整趟序' : '调整趟序无法改善时间窗')
+        if (!response.improved || !response.result) {
+          counts.unchanged += 1
+          continue
+        }
+        version.result = response.result
+        if (Number(response.afterViolationCount || 0) === 0) counts.passed += 1
+        else counts.partial += 1
+        showAssignmentVersionResult(version)
+      } catch (err) {
+        counts.failed += 1
+        version.message = `趟序调整失败：${err.message || String(err)}`
+      }
+    }
+    const summary = [
+      `${counts.passed}套重排后通过`,
+      `${counts.partial}套冲突减少`,
+      `${counts.unchanged}套无法改善`,
+      `${counts.alreadyPassed}套原本通过`,
+      `${counts.notReorderable}套无可调趟序`,
+      `${counts.failed}套处理失败`
+    ].join('，')
+    assignmentTripReorderMessage.value = `已检查${completed.length}套方案：${summary}。`
+  } finally {
+    showAssignmentVersionResult(assignmentActiveVersion.value)
+    assignmentTripReorderRunning.value = false
+  }
+}
+
 async function generateAssignmentVersions() {
+  assignmentTripReorderMessage.value = ''
   if (!selectedSplitRoute.value || !selectedSplitCompany.value || assignmentBatchRunning.value) return
   if (!assignmentVersions.value.length || assignmentVersions.value.some(version => version.selectedIndices.size < 3)) return
   const versions = assignmentVersions.value.map(version => ({

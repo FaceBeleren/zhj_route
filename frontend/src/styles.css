@@ -3530,3 +3530,28 @@ tbody tr.active {
 @media (max-width: 650px) { .flow-analysis-filters { grid-template-columns: 1fr; } .flow-company-input-row { align-items: stretch; } .flow-process-steps { grid-template-columns: 1fr; } .flow-route-metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 
 @media (max-width: 720px) { .flow-raw-groups-grid { grid-template-columns: 1fr; } }
+
+.assignment-trip-reorder-bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin: 10px 0;
+  padding: 10px 12px;
+  border: 1px solid #cfe0f4;
+  border-radius: 8px;
+  background: #f7fbff;
+}
+
+.assignment-trip-reorder-bar span {
+  color: #b45309;
+  font-weight: 600;
+}
+
+.assignment-trip-reorder-bar span.success {
+  color: #15803d;
+}
+
+.assignment-trip-reorder-bar small {
+  color: #536b86;
+}
