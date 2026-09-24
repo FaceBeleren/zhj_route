@@ -938,9 +938,9 @@
                     <div class="route-time-row head">
                       <span>顺序</span><span>点位</span><span>上一段行驶</span><span>速度</span><span>桶信息</span><span>总桶数</span><span>预计到达</span><span>点位作业</span><span>预计离开</span>
                     </div>
-                    <div v-for="point in selectedMultiRoute.points" :key="`split-time-${selectedMultiRoute.routeNo}-${point.order}-${point.facilityId}`" class="route-time-row">
+                    <div v-for="point in selectedMultiRoute.points" :key="`split-time-${selectedMultiRoute.routeNo}-${point.order}-${point.facilityId}`" class="route-time-row" :class="{ 'time-window-violation': pointArrivalViolates(point) }" :title="pointArrivalViolates(point) ? '预计到达不在允许时段，或落在禁止进入时段' : ''">
                       <span>{{ point.order }}</span>
-                      <span>{{ point.facilityName || point.facilityId }} <small>{{ routePointRoleLabel(point) }}</small></span>
+                      <span>{{ point.facilityName || point.facilityId }} <small>{{ routePointRoleLabel(point) }}</small><small v-if="pointTimeWindowLabel(point)"> {{ pointTimeWindowLabel(point) }}</small></span>
                       <span v-if="segmentBeforePoint(planningSegmentsForSchedule(selectedMultiRoute, multiOptimization), point.order)">{{ formatDistance(segmentBeforePoint(planningSegmentsForSchedule(selectedMultiRoute, multiOptimization), point.order).distance) }} · {{ formatDuration(segmentBeforePoint(planningSegmentsForSchedule(selectedMultiRoute, multiOptimization), point.order).durationMinutes) }}</span><span v-else>-</span>
                       <span v-if="segmentBeforePoint(planningSegmentsForSchedule(selectedMultiRoute, multiOptimization), point.order)">{{ formatNumber(segmentBeforePoint(planningSegmentsForSchedule(selectedMultiRoute, multiOptimization), point.order).speedKmh) }} km/h</span><span v-else>-</span>
                       <span :title="point.containerInfo || '-'">{{ point.containerInfo || '-' }}</span>
@@ -1139,9 +1139,9 @@
                     <div class="route-time-row head">
                       <span>顺序</span><span>点位</span><span>上一段行驶</span><span>速度</span><span>桶信息</span><span>总桶数</span><span>预计到达</span><span>点位作业</span><span>预计离开</span>
                     </div>
-                    <div v-for="point in selectedMultiRoute.points" :key="`split-time-${selectedMultiRoute.routeNo}-${point.order}-${point.facilityId}`" class="route-time-row">
+                    <div v-for="point in selectedMultiRoute.points" :key="`split-time-${selectedMultiRoute.routeNo}-${point.order}-${point.facilityId}`" class="route-time-row" :class="{ 'time-window-violation': pointArrivalViolates(point) }" :title="pointArrivalViolates(point) ? '预计到达不在允许时段，或落在禁止进入时段' : ''">
                       <span>{{ point.order }}</span>
-                      <span>{{ point.facilityName || point.facilityId }} <small>{{ routePointRoleLabel(point) }}</small></span>
+                      <span>{{ point.facilityName || point.facilityId }} <small>{{ routePointRoleLabel(point) }}</small><small v-if="pointTimeWindowLabel(point)"> {{ pointTimeWindowLabel(point) }}</small></span>
                       <span v-if="segmentBeforePoint(planningSegmentsForSchedule(selectedMultiRoute, multiOptimization), point.order)">{{ formatDistance(segmentBeforePoint(planningSegmentsForSchedule(selectedMultiRoute, multiOptimization), point.order).distance) }} · {{ formatDuration(segmentBeforePoint(planningSegmentsForSchedule(selectedMultiRoute, multiOptimization), point.order).durationMinutes) }}</span><span v-else>-</span>
                       <span v-if="segmentBeforePoint(planningSegmentsForSchedule(selectedMultiRoute, multiOptimization), point.order)">{{ formatNumber(segmentBeforePoint(planningSegmentsForSchedule(selectedMultiRoute, multiOptimization), point.order).speedKmh) }} km/h</span><span v-else>-</span>
                       <span :title="point.containerInfo || '-'">{{ point.containerInfo || '-' }}</span>
@@ -1580,9 +1580,9 @@
                       <span>点位作业</span>
                       <span>预计离开</span>
                     </div>
-                    <div v-for="point in selectedMultiRoute.points" :key="`time-${selectedMultiRoute.routeNo}-${point.order}-${point.facilityId}`" class="route-time-row">
+                    <div v-for="point in selectedMultiRoute.points" :key="`time-${selectedMultiRoute.routeNo}-${point.order}-${point.facilityId}`" class="route-time-row" :class="{ 'time-window-violation': pointArrivalViolates(point) }" :title="pointArrivalViolates(point) ? '预计到达不在允许时段，或落在禁止进入时段' : ''">
                       <span>{{ point.order }}</span>
-                      <span>{{ point.facilityName || point.facilityId }} <small>{{ routePointRoleLabel(point) }}</small></span>
+                      <span>{{ point.facilityName || point.facilityId }} <small>{{ routePointRoleLabel(point) }}</small><small v-if="pointTimeWindowLabel(point)"> {{ pointTimeWindowLabel(point) }}</small></span>
                       <span v-if="segmentBeforePoint(selectedMultiRouteDisplaySegments, point.order)">
                         {{ formatDistance(segmentBeforePoint(selectedMultiRouteDisplaySegments, point.order).distance) }} ·
                         {{ formatDuration(segmentBeforePoint(selectedMultiRouteDisplaySegments, point.order).durationMinutes) }}
@@ -5544,6 +5544,8 @@ function assignmentExportPoint(point, metadata = new Map()) {
     order: point?.order, facilityId: point?.facilityId, sourceFacilityId: point?.sourceFacilityId,
     facilityName: point?.facilityName || source.facilityName, role: point?.role,
     facilityTypeName: point?.facilityTypeName || source.facilityTypeName,
+    allowTimeBegin: point?.allowTimeBegin || source.allowTimeBegin, allowTimeEnd: point?.allowTimeEnd || source.allowTimeEnd,
+    barredTimeBegin: point?.barredTimeBegin || source.barredTimeBegin, barredTimeEnd: point?.barredTimeEnd || source.barredTimeEnd,
     longitude: point?.longitude ?? source.longitude, latitude: point?.latitude ?? source.latitude,
     estimatedWeightKg: point?.estimatedWeightKg, estimatedVolumeLiter: point?.estimatedVolumeLiter,
     operationDurationMinutes: point?.operationDurationMinutes
@@ -5570,7 +5572,12 @@ function assignmentExportRoute(route, metadata, schedule) {
     points: (route?.points || []).map(point => {
       const exported = assignmentExportPoint(point, metadata)
       const pointSchedule = schedule?.pointsByOrder.get(Number(point?.order))
-      return { ...exported, plannedArrivalTime: pointSchedule?.arrivalTime, plannedDepartureTime: pointSchedule?.departureTime }
+      return {
+        ...exported,
+        plannedArrivalTime: pointSchedule?.arrivalTime,
+        plannedDepartureTime: pointSchedule?.departureTime,
+        timeWindowViolation: arrivalViolatesTimeWindow(exported, pointSchedule?.arrivalMinutes)
+      }
     }),
     segments: (route?.roadSegments || route?.segments || []).map(assignmentExportSegment)
   }
@@ -5616,6 +5623,30 @@ async function exportAssignmentVersions() {
   })
 }
 
+function multiExportPayload(result) {
+  const schedules = buildRouteSchedules(result, optimizeOptions.plannedStartTime)
+  return {
+    ...result,
+    routes: (result?.routes || []).map(route => {
+      const schedule = schedules.get(Number(route?.routeNo))
+      return {
+        ...route,
+        plannedStartTime: schedule?.startTime,
+        plannedEndTime: schedule?.endTime,
+        points: (route?.points || []).map(point => {
+          const pointSchedule = schedule?.pointsByOrder.get(Number(point?.order))
+          return {
+            ...point,
+            plannedArrivalTime: pointSchedule?.arrivalTime,
+            plannedDepartureTime: pointSchedule?.departureTime,
+            timeWindowViolation: arrivalViolatesTimeWindow(point, pointSchedule?.arrivalMinutes)
+          }
+        })
+      }
+    })
+  }
+}
+
 async function exportCompanyRoutes() {
   if (!multiOptimization.value) return
   await withLoading(async () => {
@@ -5625,7 +5656,7 @@ async function exportCompanyRoutes() {
       body: JSON.stringify({
         company: selectedMultiCompany.value,
         generatedAt: new Date().toISOString(),
-        ...multiOptimization.value
+        ...multiExportPayload(multiOptimization.value)
       })
     })
     if (!response.ok) {
@@ -6349,6 +6380,54 @@ function routePointRoleLabel(point) {
   if (point?.role === "START") return "起点"
   if (point?.role === "END") return "终点"
   return "收运点"
+}
+
+function pointTimeWindowLabel(point) {
+  const allow = point?.allowTimeBegin || point?.allowTimeEnd ? `${point.allowTimeBegin || '不限'}-${point.allowTimeEnd || '不限'}` : ''
+  const barred = point?.barredTimeBegin && point?.barredTimeEnd ? `${point.barredTimeBegin}-${point.barredTimeEnd}` : ''
+  if (!allow && !barred) return ''
+  return `${allow ? `允许${allow}` : ''}${allow && barred ? ' ' : ''}${barred ? `禁止${barred}` : ''}`
+}
+
+function clockMinuteOfDay(totalMinutes) {
+  const rounded = Math.round(Number(totalMinutes) || 0)
+  return ((rounded % 1440) + 1440) % 1440
+}
+
+function parseClockToMinutes(value) {
+  const match = String(value || '').match(/(\d{1,2}):(\d{2})/)
+  if (!match) return null
+  const hour = Number(match[1])
+  const minute = Number(match[2])
+  if (hour > 23 || minute > 59) return null
+  return hour * 60 + minute
+}
+
+function clockWithinWindow(begin, end, clock) {
+  if (begin <= end) return clock >= begin && clock <= end
+  return clock >= begin || clock <= end
+}
+
+function arrivalViolatesTimeWindow(point, arrivalMinutes) {
+  const allowBegin = parseClockToMinutes(point?.allowTimeBegin)
+  const allowEnd = parseClockToMinutes(point?.allowTimeEnd)
+  const barredBegin = parseClockToMinutes(point?.barredTimeBegin)
+  const barredEnd = parseClockToMinutes(point?.barredTimeEnd)
+  const hasAllow = allowBegin != null || allowEnd != null
+  const hasBarred = barredBegin != null && barredEnd != null
+  if (!hasAllow && !hasBarred) return false
+  if (!Number.isFinite(Number(arrivalMinutes))) return false
+  const clock = clockMinuteOfDay(arrivalMinutes)
+  let outsideAllow = false
+  if (allowBegin == null && allowEnd != null) outsideAllow = clock > allowEnd
+  else if (allowBegin != null && allowEnd == null) outsideAllow = clock < allowBegin
+  else if (allowBegin != null && allowEnd != null) outsideAllow = !clockWithinWindow(allowBegin, allowEnd, clock)
+  const insideBarred = hasBarred && clockWithinWindow(barredBegin, barredEnd, clock)
+  return outsideAllow || insideBarred
+}
+
+function pointArrivalViolates(point) {
+  return arrivalViolatesTimeWindow(point, selectedMultiRoutePointSchedule(point)?.arrivalMinutes)
 }
 
 function pathSourceSummary(segments = []) {

@@ -13,6 +13,10 @@ public class RoutePoint {
     private final Double containerCount;
     private final Double litersPerTon;
     private final String weightSource;
+    private Integer allowTimeBeginMinutes;
+    private Integer allowTimeEndMinutes;
+    private Integer barredTimeBeginMinutes;
+    private Integer barredTimeEndMinutes;
 
     public RoutePoint(Long facilityId, String facilityName, Double longitude, Double latitude, Integer originalOrder,
                       Double estimatedVolumeLiter, Double estimatedWeightKg, String containerInfo,
@@ -89,6 +93,31 @@ public class RoutePoint {
     public boolean hasCoordinate() {
         return longitude != null && latitude != null;
     }
+
+    public void setTimeWindow(Integer allowTimeBeginMinutes, Integer allowTimeEndMinutes,
+                              Integer barredTimeBeginMinutes, Integer barredTimeEndMinutes) {
+        this.allowTimeBeginMinutes = allowTimeBeginMinutes;
+        this.allowTimeEndMinutes = allowTimeEndMinutes;
+        this.barredTimeBeginMinutes = barredTimeBeginMinutes;
+        this.barredTimeEndMinutes = barredTimeEndMinutes;
+    }
+
+    public Integer getAllowTimeBeginMinutes() {
+        return allowTimeBeginMinutes;
+    }
+
+    public Integer getAllowTimeEndMinutes() {
+        return allowTimeEndMinutes;
+    }
+
+    public Integer getBarredTimeBeginMinutes() {
+        return barredTimeBeginMinutes;
+    }
+
+    public Integer getBarredTimeEndMinutes() {
+        return barredTimeEndMinutes;
+    }
+
 }
 
 

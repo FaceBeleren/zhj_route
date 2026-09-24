@@ -1,5 +1,6 @@
 package com.zhj.route.service;
 
+import com.zhj.route.algorithm.FacilityTimeWindow;
 import com.zhj.route.algorithm.RouteOptimizationResult;
 import com.zhj.route.algorithm.RoutePoint;
 import com.zhj.route.algorithm.SingleRouteOptimizer;
@@ -475,6 +476,11 @@ public class RouteOptimizeService {
                     toDouble(row.get("containerCount")),
                     toDouble(row.get("litersPerTon")),
                     row.get("weightSource") == null ? null : String.valueOf(row.get("weightSource"))));
+            points.get(points.size() - 1).setTimeWindow(
+                    FacilityTimeWindow.parseClockMinutes(row.get("allowTimeBegin")),
+                    FacilityTimeWindow.parseClockMinutes(row.get("allowTimeEnd")),
+                    FacilityTimeWindow.parseClockMinutes(row.get("barredTimeBegin")),
+                    FacilityTimeWindow.parseClockMinutes(row.get("barredTimeEnd")));
         }
         return points;
     }
@@ -556,6 +562,10 @@ public class RouteOptimizeService {
             view.put("operationDurationMinutes", round(routeEnd && request != null ? terminalUnloadDuration(request) : operationDuration(point, request, routeStart)));
             view.put("litersPerTon", point.getLitersPerTon());
             view.put("weightSource", point.getWeightSource());
+            view.put("allowTimeBegin", FacilityTimeWindow.format(point.getAllowTimeBeginMinutes()));
+            view.put("allowTimeEnd", FacilityTimeWindow.format(point.getAllowTimeEndMinutes()));
+            view.put("barredTimeBegin", FacilityTimeWindow.format(point.getBarredTimeBeginMinutes()));
+            view.put("barredTimeEnd", FacilityTimeWindow.format(point.getBarredTimeEndMinutes()));
             view.put("role", i == 0 ? "START" : (i == points.size() - 1 ? "END" : "MIDDLE"));
             views.add(view);
         }

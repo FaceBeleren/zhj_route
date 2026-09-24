@@ -87,7 +87,8 @@ public class RouteExportService {
 
     private void writeRoutes(Workbook workbook, CellStyle headerStyle, Map<String, Object> result) {
         Sheet sheet = workbook.createSheet("路线明细");
-        writeHeader(sheet, headerStyle, "路线", "车辆", "车型", "第几趟", "额定载重kg", "点位顺序", "点位ID", "点位名称", "角色", "预计重量kg", "预计体积L", "装载率", "路线距离m", "路线耗时min");
+        writeHeader(sheet, headerStyle, "路线", "车辆", "车型", "第几趟", "额定载重kg", "点位顺序", "点位ID", "点位名称", "角色", "预计重量kg", "预计体积L", "装载率", "路线距离m", "路线耗时min", "预计到达", "时间窗");
+        CellStyle violationStyle = redTextStyle(workbook);
         int rowIndex = 1;
         for (Map<String, Object> route : maps(result.get("routes"))) {
             for (Map<String, Object> point : maps(route.get("points"))) {
@@ -106,9 +107,12 @@ public class RouteExportService {
                 write(row, 11, route.get("loadRate"));
                 write(row, 12, route.get("distance"));
                 write(row, 13, route.get("durationMinutes"));
+                write(row, 14, point.get("plannedArrivalTime"));
+                write(row, 15, timeWindowViolation(point) ? "超出" : "");
+                if (timeWindowViolation(point)) applyRowStyle(row, violationStyle);
             }
         }
-        autosize(sheet, 14);
+        autosize(sheet, 16);
     }
 
     private void writeSegments(Workbook workbook, CellStyle headerStyle, Map<String, Object> result) {
@@ -209,7 +213,7 @@ public class RouteExportService {
 
     private void writeAssignmentPoints(Workbook workbook, CellStyle headerStyle, List<CellStyle> schemeStyles, List<Map<String, Object>> schemes) {
         Sheet sheet = workbook.createSheet("点位顺序");
-        writeHeader(sheet, headerStyle, "方案", "适用日", "路线", "车辆", "车型", "第几趟", "顺序", "点位角色", "点位ID", "点位名称", "设施类型", "经度", "纬度", "预计到达", "点位作业min", "预计离开", "预计重量kg", "预计体积L");
+        writeHeader(sheet, headerStyle, "方案", "适用日", "路线", "车辆", "车型", "第几趟", "顺序", "点位角色", "点位ID", "点位名称", "设施类型", "经度", "纬度", "预计到达", "时间窗", "点位作业min", "预计离开", "预计重量kg", "预计体积L");
         int rowIndex = 1;
         for (int schemeIndex = 0; schemeIndex < schemes.size(); schemeIndex++) {
             Map<String, Object> scheme = schemes.get(schemeIndex);
@@ -231,15 +235,17 @@ public class RouteExportService {
                     write(row, 11, point.get("longitude"));
                     write(row, 12, point.get("latitude"));
                     write(row, 13, point.get("plannedArrivalTime"));
-                    write(row, 14, point.get("operationDurationMinutes"));
-                    write(row, 15, point.get("plannedDepartureTime"));
-                    write(row, 16, point.get("estimatedWeightKg"));
-                    write(row, 17, point.get("estimatedVolumeLiter"));
-                    applyRowStyle(row, schemeStyles.get(schemeIndex % schemeStyles.size()));
+                    write(row, 14, timeWindowViolation(point) ? "超出" : "");
+                    write(row, 15, point.get("operationDurationMinutes"));
+                    write(row, 16, point.get("plannedDepartureTime"));
+                    write(row, 17, point.get("estimatedWeightKg"));
+                    write(row, 18, point.get("estimatedVolumeLiter"));
+                    CellStyle rowStyle = schemeStyles.get(schemeIndex % schemeStyles.size());
+                    applyRowStyle(row, timeWindowViolation(point) ? redCopy(workbook, rowStyle) : rowStyle);
                 }
             }
         }
-        finishAssignmentSheet(sheet, rowIndex, new int[]{14, 18, 9, 18, 16, 9, 9, 12, 14, 28, 20, 15, 15, 14, 16, 14, 15, 15});
+        finishAssignmentSheet(sheet, rowIndex, new int[]{14, 18, 9, 18, 16, 9, 9, 12, 14, 28, 20, 15, 15, 14, 12, 16, 14, 15, 15});
     }
 
     private void writeAssignmentSegments(Workbook workbook, CellStyle headerStyle, List<CellStyle> schemeStyles, List<Map<String, Object>> schemes) {
@@ -292,6 +298,29 @@ public class RouteExportService {
 
     private void applyRowStyle(Row row, CellStyle style) {
         for (Cell cell : row) cell.setCellStyle(style);
+    }
+
+    private boolean timeWindowViolation(Map<String, Object> point) {
+        Object value = point.get("timeWindowViolation");
+        if (value instanceof Boolean) return (Boolean) value;
+        return value != null && "true".equalsIgnoreCase(String.valueOf(value));
+    }
+
+    private CellStyle redTextStyle(Workbook workbook) {
+        CellStyle style = workbook.createCellStyle();
+        Font font = workbook.createFont();
+        font.setColor(IndexedColors.RED.getIndex());
+        style.setFont(font);
+        return style;
+    }
+
+    private CellStyle redCopy(Workbook workbook, CellStyle base) {
+        CellStyle style = workbook.createCellStyle();
+        style.cloneStyleFrom(base);
+        Font font = workbook.createFont();
+        font.setColor(IndexedColors.RED.getIndex());
+        style.setFont(font);
+        return style;
     }
 
     private void finishAssignmentSheet(Sheet sheet, int rowCount, int[] widths) {

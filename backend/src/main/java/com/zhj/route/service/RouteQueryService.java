@@ -55,6 +55,10 @@ public class RouteQueryService {
         String sql = "SELECT b.route_id AS routeId, b.fac_id AS facilityId, b.order_num AS orderNum, " +
                 "f.name AS facilityName, f.facility_type_name AS facilityTypeName, " +
                 "f.longitude_done AS longitude, f.latitude_done AS latitude, " +
+                "DATE_FORMAT(f.allow_time_begin, '%H:%i:%s') AS allowTimeBegin, " +
+                "DATE_FORMAT(f.allow_time_end, '%H:%i:%s') AS allowTimeEnd, " +
+                "DATE_FORMAT(f.barred_time_begin, '%H:%i:%s') AS barredTimeBegin, " +
+                "DATE_FORMAT(f.barred_time_end, '%H:%i:%s') AS barredTimeEnd, " +
                 "container.containerInfo AS containerInfo, " +
                 "IFNULL(container.containerCount, 0) AS containerCount, " +
                 "IFNULL(container.estimatedVolumeLiter, 0) AS estimatedVolumeLiter, " +
@@ -89,6 +93,10 @@ public class RouteQueryService {
     public List<Map<String, Object>> companyFacilityPoints(String unitId) {
         String sql = "SELECT f.id AS facilityId, f.name AS facilityName, f.facility_type_name AS facilityTypeName, " +
                 "f.longitude_done AS longitude, f.latitude_done AS latitude, " +
+                "DATE_FORMAT(f.allow_time_begin, '%H:%i:%s') AS allowTimeBegin, " +
+                "DATE_FORMAT(f.allow_time_end, '%H:%i:%s') AS allowTimeEnd, " +
+                "DATE_FORMAT(f.barred_time_begin, '%H:%i:%s') AS barredTimeBegin, " +
+                "DATE_FORMAT(f.barred_time_end, '%H:%i:%s') AS barredTimeEnd, " +
                 "container.containerInfo AS containerInfo, " +
                 "IFNULL(container.containerCount, 0) AS containerCount, " +
                 "IFNULL(container.estimatedVolumeLiter, 0) AS estimatedVolumeLiter, " +

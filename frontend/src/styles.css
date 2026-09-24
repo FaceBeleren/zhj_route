@@ -1449,6 +1449,11 @@ tbody tr.active {
   grid-template-columns: 52px minmax(150px, 1.5fr) minmax(120px, 1fr) 90px minmax(100px, 1fr) 70px 82px 90px 82px;
 }
 
+.route-time-row.time-window-violation span,
+.route-time-row.time-window-violation small {
+  color: #c62828;
+}
+
 .route-time-row.head {
   position: sticky;
   top: 0;
