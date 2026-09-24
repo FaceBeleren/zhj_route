@@ -1080,7 +1080,7 @@
               <div v-if="!splitFromSavedRoute" class="assignment-frequency-overview">
                 <div class="assignment-frequency-overview-head"><strong>点位频次分析</strong><small v-if="assignmentFrequencyLoading">读取中...</small><small v-else-if="assignmentFrequencyError">读取失败</small><small v-else>原路线 {{ assignmentFrequencyAnalysis.totalCount }} 点</small></div>
                 <template v-if="!assignmentFrequencyLoading && !assignmentFrequencyError">
-                  <div class="assignment-frequency-groups"><span v-for="group in assignmentFrequencyAnalysis.groups" :key="group.key">{{ group.period }}天/{{ group.collectCount }}次 · {{ group.count }}点</span><span v-if="assignmentFrequencyAnalysis.missingCount">未配置 · {{ assignmentFrequencyAnalysis.missingCount }}点</span><span v-if="assignmentFrequencyAnalysis.invalidCount">配置异常 · {{ assignmentFrequencyAnalysis.invalidCount }}点</span></div>
+                  <div class="assignment-frequency-groups"><span v-for="group in assignmentFrequencyAnalysis.groups" :key="group.key">{{ group.period }}天/{{ group.collectCount }}次 · {{ group.count }}点</span><span v-if="assignmentFrequencyAnalysis.defaultedCount">未配置（默认1天/1次） · {{ assignmentFrequencyAnalysis.defaultedCount }}点</span><span v-if="assignmentFrequencyAnalysis.invalidCount">配置异常 · {{ assignmentFrequencyAnalysis.invalidCount }}点</span></div>
                   <p v-if="assignmentFrequencyAnalysis.cycleDays">{{ assignmentPhaseMode === 'FLAT' ? '按原路线顺序依次平铺后' : assignmentPhaseMode === 'BALANCE' ? '按预计垃圾量均衡后' : '所有点从第1天起算时' }}，共同周期{{ assignmentFrequencyAnalysis.cycleDays > 366 ? '超过 366 天' : ` ${assignmentFrequencyAnalysis.cycleDays} 天` }}<template v-if="assignmentFrequencyAnalysis.distinctSetCount != null">，其中 {{ assignmentFrequencyAnalysis.distinctSetCount }} 种不同点位组合</template>。频次取自统计期的代表性排班配置。</p>
                   <p v-if="assignmentFrequencyAnalysis.balanced">周期内每天点位 {{ assignmentFrequencyAnalysis.balanced.minPointCount }}～{{ assignmentFrequencyAnalysis.balanced.maxPointCount }} 个，预计收运量 {{ formatWeight(assignmentFrequencyAnalysis.balanced.minWeightKg) }}～{{ formatWeight(assignmentFrequencyAnalysis.balanced.maxWeightKg) }}；{{ assignmentPhaseMode === 'FLAT' ? '只按同频次点位的原路线顺序轮流安排，重量仅展示' : assignmentPhaseMode === 'BALANCE' ? '以重量均衡为主、点数均衡为次' : '未做均衡' }}，不预估路程。</p>
                 </template>
@@ -2552,21 +2552,26 @@ const assignmentFrequencyGenerationMessage = ref('')
 const assignmentFrequencyAnalysis = computed(() => {
   const groups = new Map()
   const scheduledPoints = []
-  let missingCount = 0
+  let defaultedCount = 0
   let invalidCount = 0
   let changedCount = 0
+  const frequencyReady = !assignmentFrequencyLoading.value && !assignmentFrequencyError.value && !splitFromSavedRoute.value
   for (const [index, point] of splitPlanPoints.value.entries()) {
-    const frequency = assignmentFrequencyByFacility.value.get(String(point.facilityId))
-    if (!frequency) { missingCount += 1; continue }
+    const configured = assignmentFrequencyByFacility.value.get(String(point.facilityId))
+    const frequency = configured || (frequencyReady ? { period: 1, collectCount: 1, daily: 1, defaulted: true } : null)
+    if (!frequency) continue
     const { period, collectCount } = frequency
     if (!Number.isInteger(period) || !Number.isInteger(collectCount) || period < 1 || collectCount < 0 || collectCount > period) {
       invalidCount += 1
       continue
     }
-    const key = `${period}/${collectCount}`
-    const group = groups.get(key) || { key, period, collectCount, count: 0 }
-    group.count += 1
-    groups.set(key, group)
+    if (frequency.defaulted) defaultedCount += 1
+    else {
+      const key = `${period}/${collectCount}`
+      const group = groups.get(key) || { key, period, collectCount, count: 0 }
+      group.count += 1
+      groups.set(key, group)
+    }
     if (frequency.configChanged) changedCount += 1
     if (collectCount === 0) continue
     scheduledPoints.push({ index, period, weightKg: Number(point.estimatedWeightKg) || 0, dueOffsets: new Set(Array.from({ length: collectCount }, (_, occurrence) => Math.ceil(occurrence * period / collectCount))) })
@@ -2579,7 +2584,7 @@ const assignmentFrequencyAnalysis = computed(() => {
   const balanced = cycleDays > 0 && cycleDays <= 366 ? balanceAssignmentPhases(scheduledPoints, cycleDays, assignmentPhaseMode.value) : null
   const distinctSetCount = balanced ? new Set(balanced.dayPlans.map(day => day.key)).size : null
   const missingWeightCount = scheduledPoints.filter(point => !Number.isFinite(point.weightKg) || point.weightKg <= 0).length
-  return { totalCount: splitPlanPoints.value.length, groups: [...groups.values()].sort((a, b) => a.period - b.period || b.collectCount - a.collectCount), scheduledPoints, balanced, missingCount, missingWeightCount, invalidCount, changedCount, cycleDays, distinctSetCount }
+  return { totalCount: splitPlanPoints.value.length, groups: [...groups.values()].sort((a, b) => a.period - b.period || b.collectCount - a.collectCount), scheduledPoints, balanced, defaultedCount, missingWeightCount, invalidCount, changedCount, cycleDays, distinctSetCount }
 })
 let assignmentFrequencyRequestId = 0
 watch(splitPlanPoints, (points) => {
@@ -3408,9 +3413,9 @@ function assignmentPointPhase(index) {
 
 function generateAssignmentVersionsByFrequency() {
   if (!selectedSplitRoute.value || assignmentBatchRunning.value || assignmentFrequencyLoading.value || assignmentFrequencyError.value || splitFromSavedRoute.value) return
-  const { scheduledPoints, balanced, missingCount, missingWeightCount, invalidCount, changedCount, cycleDays } = assignmentFrequencyAnalysis.value
+  const { scheduledPoints, balanced, defaultedCount, missingWeightCount, invalidCount, changedCount, cycleDays } = assignmentFrequencyAnalysis.value
   if (!scheduledPoints.length) {
-    assignmentFrequencyGenerationMessage.value = '没有可用于生成的有效点位频次；未配置或配置异常的点位请手动选择。'
+    assignmentFrequencyGenerationMessage.value = '没有可用于生成的有效点位频次；配置异常的点位请手动选择。'
     return
   }
   if (cycleDays > 366) {
@@ -3440,7 +3445,7 @@ function generateAssignmentVersionsByFrequency() {
   assignmentVersions.value = versions
   selectAssignmentVersion(versions[0].id)
   const notices = [`已${assignmentPhaseMode.value === 'FLAT' ? '按原路线顺序平铺' : assignmentPhaseMode.value === 'BALANCE' ? '按预计垃圾量均衡' : '统一从第1天起算'}，按 ${cycleDays} 天共同周期生成 ${versions.length} 套待定方案，覆盖第 1 至 ${cycleDays} 天。`]
-  if (missingCount) notices.push(`${missingCount} 个未配置频次的点位未参与。`)
+  if (defaultedCount) notices.push(`${defaultedCount} 个未配置频次的点位已按 1天/1次 参与。`)
   if (invalidCount) notices.push(`${invalidCount} 个频次配置异常的点位未参与。`)
   if (missingWeightCount && assignmentPhaseMode.value === 'BALANCE') notices.push(`${missingWeightCount} 个点位缺少有效估算重量，按 0 kg 参与重量均衡、按点数参与次级均衡。`)
   if (changedCount) notices.push(`${changedCount} 个点位在统计期内配置曾变化，请核对。`)
@@ -3525,12 +3530,15 @@ function assignmentFrequencyLabel(point) {
   if (assignmentFrequencyLoading.value) return '加载中'
   if (assignmentFrequencyError.value) return '读取失败'
   const frequency = assignmentFrequencyByFacility.value.get(String(point?.facilityId))
-  return frequency ? `${frequency.period}天/${frequency.collectCount}次` : '未配置'
+  return frequency ? `${frequency.period}天/${frequency.collectCount}次` : '未配置（默认1天/1次）'
 }
 
 function assignmentFrequencyTitle(point) {
   const frequency = assignmentFrequencyByFacility.value.get(String(point?.facilityId))
-  if (!frequency) return assignmentFrequencyLabel(point)
+  if (!frequency) {
+    if (splitFromSavedRoute.value || assignmentFrequencyLoading.value || assignmentFrequencyError.value) return assignmentFrequencyLabel(point)
+    return '未配置排班频次，按默认 1天/1次 参与生成'
+  }
   const changed = frequency.configChanged ? '；统计期内关联过多个排班周期，当前展示使用次数最多且最近的周期配置' : ''
   return `排班配置：${frequency.period}天收运${frequency.collectCount}次，折合每天${frequency.daily.toFixed(2)}次${changed}`
 }
