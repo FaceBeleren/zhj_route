@@ -3624,9 +3624,13 @@ function normalizedAssignmentVehicles() {
     tripCount: Math.max(1, Number(optimizeOptions.maxRoutes || 1)),
     startLongitude: optimizeOptions.startLongitude,
     startLatitude: optimizeOptions.startLatitude,
+    startFacilityId: optimizeOptions.startFacilityId,
+    startSourceFacilityId: optimizeOptions.startFacilityId,
     startFacilityName: optimizeOptions.startFacilityName,
     endLongitude: optimizeOptions.endLongitude,
     endLatitude: optimizeOptions.endLatitude,
+    endFacilityId: optimizeOptions.endFacilityId,
+    endSourceFacilityId: optimizeOptions.endFacilityId,
     endFacilityName: optimizeOptions.endFacilityName
   }]
 }
@@ -4306,9 +4310,13 @@ function normalizedDispatchVehicles() {
       tripCount: Math.max(1, Number(vehicle.tripCount || 1)),
       startLongitude: optimizeOptions.startLongitude,
       startLatitude: optimizeOptions.startLatitude,
+      startFacilityId: optimizeOptions.startFacilityId,
+      startSourceFacilityId: optimizeOptions.startFacilityId,
       startFacilityName: optimizeOptions.startFacilityName,
       endLongitude: optimizeOptions.endLongitude,
       endLatitude: optimizeOptions.endLatitude,
+      endFacilityId: optimizeOptions.endFacilityId,
+      endSourceFacilityId: optimizeOptions.endFacilityId,
       endFacilityName: optimizeOptions.endFacilityName
     }
   })
