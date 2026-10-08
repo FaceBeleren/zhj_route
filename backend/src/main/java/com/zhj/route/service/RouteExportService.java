@@ -390,9 +390,13 @@ public class RouteExportService {
         }
 
         List<Map<Integer, String>> sequenceByDay = new ArrayList<Map<Integer, String>>(cycleDays + 1);
+        List<Set<Integer>> violationByDay = new ArrayList<Set<Integer>>(cycleDays + 1);
         Set<Integer> disabledDays = new HashSet<Integer>();
         Set<Integer> activeDays = new HashSet<Integer>();
-        for (int day = 0; day <= cycleDays; day++) sequenceByDay.add(new HashMap<Integer, String>());
+        for (int day = 0; day <= cycleDays; day++) {
+            sequenceByDay.add(new HashMap<Integer, String>());
+            violationByDay.add(new HashSet<Integer>());
+        }
         for (Map<String, Object> scheme : schemes) {
             boolean scheduleDisabled = Boolean.TRUE.equals(scheme.get("scheduleDisabled"))
                     || "true".equalsIgnoreCase(value(scheme.get("scheduleDisabled")));
@@ -418,6 +422,7 @@ public class RouteExportService {
                         Map<Integer, String> sequences = sequenceByDay.get(day);
                         String previous = sequences.get(pointRow);
                         sequences.put(pointRow, previous == null || previous.isEmpty() ? token : previous + "、" + token);
+                        if (timeWindowViolation(point)) violationByDay.get(day).add(pointRow);
                     }
                 }
             }
@@ -428,6 +433,7 @@ public class RouteExportService {
         CellStyle pointStyle = scheduleDayStyle(workbook);
         CellStyle emptyStyle = scheduleCellStyle(workbook, false);
         CellStyle sequenceStyle = scheduleCellStyle(workbook, true);
+        CellStyle violationStyle = redCopy(workbook, sequenceStyle);
         CellStyle disabledStyle = scheduleDisabledStyle(workbook);
         Row headerRow = sheet.createRow(0);
         headerRow.setHeightInPoints(36);
@@ -447,8 +453,9 @@ public class RouteExportService {
             for (int day = 1; day <= cycleDays; day++) {
                 boolean disabled = disabledDays.contains(day) && !activeDays.contains(day);
                 String token = sequenceByDay.get(day).get(pointIndex);
+                boolean violation = violationByDay.get(day).contains(pointIndex);
                 writeStyled(row, day, token == null ? "" : token,
-                        disabled ? disabledStyle : token == null ? emptyStyle : sequenceStyle);
+                        disabled ? disabledStyle : token == null ? emptyStyle : violation ? violationStyle : sequenceStyle);
             }
         }
 

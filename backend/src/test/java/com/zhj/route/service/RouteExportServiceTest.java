@@ -74,9 +74,11 @@ class RouteExportServiceTest {
         Map<String, Object> result = new HashMap<String, Object>();
         Map<String, Object> route = new HashMap<String, Object>();
         route.put("tripNo", 2);
+        Map<String, Object> violatingPoint = routePoint("A", "A点", "MIDDLE");
+        violatingPoint.put("timeWindowViolation", true);
         route.put("points", Arrays.asList(
                 routePoint("PARK", "停车场", "START"),
-                routePoint("A", "A点", "MIDDLE"),
+                violatingPoint,
                 routePoint("B", "B点", "MIDDLE"),
                 routePoint("END", "处理厂", "END")));
         result.put("routes", Arrays.asList(route));
@@ -97,6 +99,8 @@ class RouteExportServiceTest {
             assertEquals("√", schedule.getRow(1).getCell(1).getStringCellValue());
             assertEquals("A点", optimized.getRow(1).getCell(0).getStringCellValue());
             assertEquals("02-001", optimized.getRow(1).getCell(1).getStringCellValue());
+            int violationFont = optimized.getRow(1).getCell(1).getCellStyle().getFontIndex();
+            assertEquals(org.apache.poi.ss.usermodel.IndexedColors.RED.getIndex(), workbook.getFontAt(violationFont).getColor());
             assertEquals("B点", optimized.getRow(2).getCell(0).getStringCellValue());
             assertEquals("02-002", optimized.getRow(2).getCell(1).getStringCellValue());
             assertEquals("2026-10-09（第2天，已停排）", optimized.getRow(0).getCell(2).getStringCellValue());

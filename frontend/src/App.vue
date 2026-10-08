@@ -845,6 +845,9 @@
               <label>每桶秒<input v-model.number="optimizeOptions.secondsPerContainer" type="number" min="1" step="1" /></label>
               <label>每点分钟<input v-model.number="optimizeOptions.minutesPerPoint" type="number" min="0" step="0.5" /></label>
               <label>处理厂/中转站卸料 min<input v-model.number="optimizeOptions.terminalUnloadMinutes" type="number" min="0" step="1" /></label>
+              <label>密集路段速度 km/h<input v-model.number="optimizeOptions.denseSpeedKmh" type="number" min="1" step="1" /></label>
+              <label>普通路段速度 km/h<input v-model.number="optimizeOptions.normalSpeedKmh" type="number" min="1" step="1" /></label>
+              <label>转场速度 km/h<input v-model.number="optimizeOptions.transferSpeedKmh" type="number" min="1" step="1" /></label>
               <div class="route-mode-card optimizer-mode-card strategy-mode-card">
                 <label class="strategy-select"><span>规划策略</span><select v-model="optimizeOptions.multiRouteStrategy"><option value="DIRECT_GROUP">直线快速分组</option><option value="DIRECT_GROUP_ROAD_REFINE">直线分组 + 道路精排</option><option value="ROAD_GLOBAL">全程实际距离</option></select></label>
               </div>
@@ -1056,6 +1059,9 @@
               <label>每桶秒<input v-model.number="optimizeOptions.secondsPerContainer" type="number" min="1" step="1" /></label>
               <label>每点分钟<input v-model.number="optimizeOptions.minutesPerPoint" type="number" min="0" step="0.5" /></label>
               <label>处理厂/中转站卸料 min<input v-model.number="optimizeOptions.terminalUnloadMinutes" type="number" min="0" step="1" /></label>
+              <label>密集路段速度 km/h<input v-model.number="optimizeOptions.denseSpeedKmh" type="number" min="1" step="1" /></label>
+              <label>普通路段速度 km/h<input v-model.number="optimizeOptions.normalSpeedKmh" type="number" min="1" step="1" /></label>
+              <label>转场速度 km/h<input v-model.number="optimizeOptions.transferSpeedKmh" type="number" min="1" step="1" /></label>
               <div class="route-mode-card optimizer-mode-card strategy-mode-card">
                 <label class="strategy-select"><span>规划策略</span><select v-model="optimizeOptions.multiRouteStrategy"><option value="DIRECT_GROUP">直线快速分组</option><option value="DIRECT_GROUP_ROAD_REFINE">直线分组 + 道路精排</option><option value="ROAD_GLOBAL">全程实际距离</option></select></label>
               </div>
@@ -1244,6 +1250,18 @@
               <label>
                 处理厂/中转站卸料 min
                 <input v-model.number="optimizeOptions.terminalUnloadMinutes" type="number" min="0" step="1" />
+              </label>
+              <label>
+                密集路段速度 km/h
+                <input v-model.number="optimizeOptions.denseSpeedKmh" type="number" min="1" step="1" />
+              </label>
+              <label>
+                普通路段速度 km/h
+                <input v-model.number="optimizeOptions.normalSpeedKmh" type="number" min="1" step="1" />
+              </label>
+              <label>
+                转场速度 km/h
+                <input v-model.number="optimizeOptions.transferSpeedKmh" type="number" min="1" step="1" />
               </label>
               <div class="route-mode-card optimizer-mode-card strategy-mode-card">
                 <label class="strategy-select">
@@ -2842,6 +2860,9 @@ const optimizeOptions = reactive({
   secondsPerContainer: 35,
   minutesPerPoint: 3,
   terminalUnloadMinutes: 15,
+  denseSpeedKmh: 15,
+  normalSpeedKmh: 25,
+  transferSpeedKmh: 40,
   useRoadPath: false,
   multiRouteStrategy: 'DIRECT_GROUP',
   displayRoadPath: false,
@@ -4656,10 +4677,9 @@ async function requestAssignmentTripReorder(result) {
     body: JSON.stringify({
       result: compactAssignmentReorderResult(result),
       plannedStartTime: optimizeOptions.plannedStartTime,
-      speedKmh: optimizeOptions.speedKmh,
-      roadSpeedKmh: optimizeOptions.roadSpeedKmh,
-      communitySpeedKmh: optimizeOptions.communitySpeedKmh,
-      internalSpeedKmh: optimizeOptions.internalSpeedKmh
+      denseSpeedKmh: optimizeOptions.denseSpeedKmh,
+      normalSpeedKmh: optimizeOptions.normalSpeedKmh,
+      transferSpeedKmh: optimizeOptions.transferSpeedKmh
     })
   })
 }
