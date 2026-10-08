@@ -1097,9 +1097,9 @@
               <div class="assignment-version-head"><strong>路线点位扩展</strong><div class="assignment-version-actions"><label>点位分配<select v-model="assignmentPhaseMode" :disabled="assignmentBatchRunning || loading"><option value="FLAT">按原路线顺序平铺</option><option value="BALANCE">按预计垃圾量均衡</option><option value="SAME">全部从第1天起</option></select></label><label>生成方式<select v-model="assignmentFrequencyGenerationMode" :disabled="assignmentBatchRunning || loading"><option value="MERGE">相同点位套合并</option><option value="DAILY">每天单独一套</option></select></label><button type="button" class="secondary" :disabled="assignmentBatchRunning || loading || assignmentFrequencyLoading || !!assignmentFrequencyError || splitFromSavedRoute" @click="generateAssignmentVersionsByFrequency">按频次生成</button><button type="button" class="secondary" :disabled="assignmentBatchRunning || loading" @click="addAssignmentVersion">新增一套点位</button></div></div>
               <p class="assignment-version-hint">改变点位分配或生成方式后，需重新点击“按频次生成”；已生成方案不会自动改动。</p>
               <div class="assignment-version-list">
-                <div v-for="version in assignmentVersions" :key="version.id" class="assignment-version-item" :class="{ active: assignmentActiveVersionId === version.id }">
-                  <button type="button" class="assignment-version-select" :disabled="assignmentBatchRunning || assignmentTripReorderRunning" :title="assignmentApplicableDaysLabel(version)" @click="selectAssignmentVersion(version.id)"><strong>{{ version.name }}<template v-if="version.applicableDays?.length > 1"> · 适用{{ version.applicableDays.length }}天</template><template v-else-if="version.cycleDay"> · 第{{ version.cycleDay }}天</template></strong><small>已选 {{ version.selectedIndices.size }} 点 · {{ assignmentVersionStatusLabel(version) }}</small></button>
-                  <button type="button" class="assignment-version-remove" :disabled="assignmentBatchRunning || assignmentVersions.length === 1" :aria-label="'删除' + version.name" @click="removeAssignmentVersion(version.id)">×</button>
+                <div v-for="version in assignmentVersions" :key="version.id" class="assignment-version-item" :class="{ active: assignmentActiveVersionId === version.id, disabled: version.scheduleDisabled }">
+                  <button type="button" class="assignment-version-select" :disabled="assignmentBatchRunning || assignmentTripReorderRunning" :title="assignmentApplicableDaysLabel(version)" @click="selectAssignmentVersion(version.id)"><strong>{{ version.name }}<template v-if="version.applicableDays?.length > 1"> · 适用{{ version.applicableDays.length }}天</template><template v-else-if="version.cycleDay"> · 第{{ version.cycleDay }}天</template></strong><small>已选 {{ version.selectedIndices.size }} 点 · {{ version.scheduleDisabled ? '已停排' : assignmentVersionStatusLabel(version) }}</small></button>
+                  <button type="button" class="assignment-version-remove" :disabled="assignmentBatchRunning" :aria-label="(version.scheduleDisabled ? '恢复' : '停排') + version.name" :title="version.scheduleDisabled ? '恢复排班' : '停排该方案'" @click="removeAssignmentVersion(version.id)">{{ version.scheduleDisabled ? '↺' : '×' }}</button>
                 </div>
               </div>
               <p v-if="assignmentFrequencyGenerationMessage" class="assignment-version-hint">{{ assignmentFrequencyGenerationMessage }}</p>
@@ -3543,9 +3543,10 @@ function generateAssignmentVersionsByFrequency() {
 }
 
 function removeAssignmentVersion(id) {
-  if (assignmentBatchRunning.value || assignmentVersions.value.length < 2) return
-  assignmentVersions.value = assignmentVersions.value.filter(version => version.id !== id).map((version, index) => ({ ...version, name: `方案${index + 1}` }))
-  if (assignmentActiveVersionId.value === id) selectAssignmentVersion(assignmentVersions.value[0].id)
+  if (assignmentBatchRunning.value) return
+  const version = assignmentVersions.value.find(item => item.id === id)
+  if (!version) return
+  version.scheduleDisabled = !version.scheduleDisabled
 }
 
 function assignmentVersionStatusLabel(version) {
@@ -5903,6 +5904,7 @@ async function exportAssignmentSchedule() {
           name: version.name,
           cycleDay: version.cycleDay,
           applicableDays: version.applicableDays || [],
+          scheduleDisabled: !!version.scheduleDisabled,
           selectedIndices: Array.from(version.selectedIndices || [])
         }))
       })

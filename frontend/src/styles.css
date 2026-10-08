@@ -820,6 +820,17 @@ button:disabled {
   background: #eff6ff;
 }
 
+.assignment-version-item.disabled {
+  opacity: 0.42;
+  border-style: dashed;
+  background: #f1f3f5;
+}
+
+.assignment-version-item.disabled.active {
+  border-color: #94a3b8;
+  background: #eef1f4;
+}
+
 .assignment-version-select {
   display: grid;
   gap: 3px;

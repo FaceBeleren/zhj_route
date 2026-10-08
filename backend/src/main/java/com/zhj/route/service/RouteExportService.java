@@ -308,14 +308,19 @@ public class RouteExportService {
         }
 
         List<Set<Integer>> selectedByDay = new ArrayList<Set<Integer>>(cycleDays + 1);
+        Set<Integer> disabledDays = new HashSet<Integer>();
         for (int day = 0; day <= cycleDays; day++) selectedByDay.add(new HashSet<Integer>());
         for (Map<String, Object> scheme : schemes) {
             Set<Integer> selectedIndices = integerSet(scheme.get("selectedIndices"));
+            boolean scheduleDisabled = Boolean.TRUE.equals(scheme.get("scheduleDisabled"))
+                    || "true".equalsIgnoreCase(value(scheme.get("scheduleDisabled")));
             Object daysValue = scheme.get("applicableDays");
             if (daysValue instanceof List) {
                 for (Object dayValue : (List<?>) daysValue) {
                     int day = (int) Math.round(number(dayValue));
-                    if (day >= 1 && day <= cycleDays) selectedByDay.get(day).addAll(selectedIndices);
+                    if (day < 1 || day > cycleDays) continue;
+                    if (scheduleDisabled) disabledDays.add(day);
+                    else selectedByDay.get(day).addAll(selectedIndices);
                 }
             }
         }
@@ -325,6 +330,7 @@ public class RouteExportService {
         CellStyle dayStyle = scheduleDayStyle(workbook);
         CellStyle emptyStyle = scheduleCellStyle(workbook, false);
         CellStyle selectedStyle = scheduleCellStyle(workbook, true);
+        CellStyle disabledStyle = scheduleDisabledStyle(workbook);
         Row headerRow = sheet.createRow(0);
         headerRow.setHeightInPoints(36);
         writeStyled(headerRow, 0, "日期 / 天数", header);
@@ -337,11 +343,12 @@ public class RouteExportService {
         for (int day = 1; day <= cycleDays; day++) {
             Row row = sheet.createRow(day);
             row.setHeightInPoints(22);
-            writeStyled(row, 0, startDate.plusDays(day - 1L) + "（第" + day + "天）", dayStyle);
+            boolean disabled = disabledDays.contains(day) && selectedByDay.get(day).isEmpty();
+            writeStyled(row, 0, startDate.plusDays(day - 1L) + "（第" + day + "天" + (disabled ? "，已停排" : "") + "）", disabled ? disabledStyle : dayStyle);
             Set<Integer> selected = selectedByDay.get(day);
             for (int pointIndex = 0; pointIndex < points.size(); pointIndex++) {
-                boolean due = selected.contains((int) Math.round(number(points.get(pointIndex).get("index"))));
-                writeStyled(row, pointIndex + 1, due ? "√" : "", due ? selectedStyle : emptyStyle);
+                boolean due = !disabled && selected.contains((int) Math.round(number(points.get(pointIndex).get("index"))));
+                writeStyled(row, pointIndex + 1, due ? "√" : "", disabled ? disabledStyle : due ? selectedStyle : emptyStyle);
             }
         }
 
@@ -378,6 +385,17 @@ public class RouteExportService {
         font.setBold(true);
         style.setFont(font);
         style.setFillForegroundColor(IndexedColors.LIGHT_CORNFLOWER_BLUE.getIndex());
+        style.setFillPattern(FillPatternType.SOLID_FOREGROUND);
+        return style;
+    }
+
+    private CellStyle scheduleDisabledStyle(Workbook workbook) {
+        CellStyle style = scheduleCellStyle(workbook, false);
+        Font font = workbook.createFont();
+        font.setColor(IndexedColors.GREY_50_PERCENT.getIndex());
+        font.setItalic(true);
+        style.setFont(font);
+        style.setFillForegroundColor(IndexedColors.GREY_25_PERCENT.getIndex());
         style.setFillPattern(FillPatternType.SOLID_FOREGROUND);
         return style;
     }

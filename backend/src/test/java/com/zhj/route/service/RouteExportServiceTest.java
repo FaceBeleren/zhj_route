@@ -12,6 +12,7 @@ import java.util.List;
 import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class RouteExportServiceTest {
 
@@ -43,6 +44,26 @@ class RouteExportServiceTest {
             assertEquals("√", sheet.getRow(3).getCell(3).getStringCellValue());
             assertEquals(1, sheet.getPaneInformation().getVerticalSplitPosition());
             assertEquals(1, sheet.getPaneInformation().getHorizontalSplitPosition());
+        }
+    }
+
+    @Test
+    void keepsDisabledScheduleDayAndDimsItsExcelRow() throws Exception {
+        Map<String, Object> disabledScheme = scheme(Arrays.asList(2), Arrays.asList(1));
+        disabledScheme.put("scheduleDisabled", true);
+        Map<String, Object> request = new HashMap<String, Object>();
+        request.put("scheduleStartDate", "2026-10-08");
+        request.put("cycleDays", 2);
+        request.put("points", Arrays.asList(point(0, "A点"), point(1, "B点")));
+        request.put("schemes", Arrays.asList(scheme(Arrays.asList(1), Arrays.asList(0)), disabledScheme));
+
+        byte[] bytes = new RouteExportService().exportAssignmentSchedule(request);
+        try (XSSFWorkbook workbook = new XSSFWorkbook(new ByteArrayInputStream(bytes))) {
+            Sheet sheet = workbook.getSheet("排班表");
+            assertEquals("2026-10-09（第2天，已停排）", sheet.getRow(2).getCell(0).getStringCellValue());
+            assertEquals("", sheet.getRow(2).getCell(2).getStringCellValue());
+            assertTrue(sheet.getRow(2).getCell(0).getCellStyle().getFillPattern() != org.apache.poi.ss.usermodel.FillPatternType.NO_FILL);
+            assertEquals(sheet.getRow(2).getCell(0).getCellStyle().getFillForegroundColor(), sheet.getRow(2).getCell(2).getCellStyle().getFillForegroundColor());
         }
     }
 
