@@ -21,6 +21,7 @@ import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.format.DateTimeParseException;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
@@ -52,6 +53,8 @@ public class RouteExportService {
             writeAssignmentRoutes(workbook, headerStyle, schemeStyles, schemes);
             writeAssignmentPoints(workbook, headerStyle, schemeStyles, schemes);
             writeAssignmentSegments(workbook, headerStyle, schemeStyles, schemes);
+            writeAssignmentSchedule(workbook, request);
+            writeOptimizedAssignmentSchedule(workbook, request);
             workbook.write(out);
             return out.toByteArray();
         } catch (IOException e) {
@@ -359,6 +362,105 @@ public class RouteExportService {
             int width = Math.max(12, Math.min(28, name.length() * 2 + 2));
             sheet.setColumnWidth(pointIndex + 1, width * 256);
         }
+        sheet.setAutobreaks(true);
+        sheet.getPrintSetup().setLandscape(true);
+        sheet.getPrintSetup().setFitWidth((short) 1);
+        sheet.getPrintSetup().setFitHeight((short) 0);
+        sheet.setFitToPage(true);
+    }
+
+    private void writeOptimizedAssignmentSchedule(Workbook workbook, Map<String, Object> request) {
+        List<Map<String, Object>> points = maps(request.get("points"));
+        List<Map<String, Object>> schemes = maps(request.get("schemes"));
+        int cycleDays = Math.max(1, Math.min(366, (int) Math.round(number(request.get("cycleDays")))));
+        LocalDate startDate;
+        try {
+            startDate = LocalDate.parse(value(request.get("scheduleStartDate")));
+        } catch (DateTimeParseException e) {
+            startDate = LocalDate.now();
+        }
+
+        Map<String, Integer> pointRows = new HashMap<String, Integer>();
+        for (int pointIndex = 0; pointIndex < points.size(); pointIndex++) {
+            Map<String, Object> point = points.get(pointIndex);
+            String facilityId = value(point.get("facilityId"));
+            String facilityName = value(point.get("facilityName"));
+            if (!facilityId.isEmpty()) pointRows.put("ID:" + facilityId, pointIndex);
+            if (!facilityName.isEmpty()) pointRows.put("NAME:" + facilityName, pointIndex);
+        }
+
+        List<Map<Integer, String>> sequenceByDay = new ArrayList<Map<Integer, String>>(cycleDays + 1);
+        Set<Integer> disabledDays = new HashSet<Integer>();
+        Set<Integer> activeDays = new HashSet<Integer>();
+        for (int day = 0; day <= cycleDays; day++) sequenceByDay.add(new HashMap<Integer, String>());
+        for (Map<String, Object> scheme : schemes) {
+            boolean scheduleDisabled = Boolean.TRUE.equals(scheme.get("scheduleDisabled"))
+                    || "true".equalsIgnoreCase(value(scheme.get("scheduleDisabled")));
+            Set<Integer> applicable = integerSet(scheme.get("applicableDays"));
+            if (scheduleDisabled) {
+                disabledDays.addAll(applicable);
+                continue;
+            }
+            activeDays.addAll(applicable);
+            Map<String, Object> result = map(scheme.get("result"));
+            for (Map<String, Object> route : maps(result.get("routes"))) {
+                int tripNo = Math.max(1, (int) Math.round(number(route.get("tripNo"))));
+                int collectionOrder = 0;
+                for (Map<String, Object> point : maps(route.get("points"))) {
+                    if (!"MIDDLE".equals(value(point.get("role")))) continue;
+                    collectionOrder++;
+                    Integer pointRow = pointRows.get("ID:" + value(point.get("facilityId")));
+                    if (pointRow == null) pointRow = pointRows.get("NAME:" + value(point.get("facilityName")));
+                    if (pointRow == null) continue;
+                    String token = String.format("%02d-%03d", tripNo, collectionOrder);
+                    for (Integer day : applicable) {
+                        if (day < 1 || day > cycleDays) continue;
+                        Map<Integer, String> sequences = sequenceByDay.get(day);
+                        String previous = sequences.get(pointRow);
+                        sequences.put(pointRow, previous == null || previous.isEmpty() ? token : previous + "、" + token);
+                    }
+                }
+            }
+        }
+
+        Sheet sheet = workbook.createSheet("优化排班表");
+        CellStyle header = headerStyle(workbook);
+        CellStyle pointStyle = scheduleDayStyle(workbook);
+        CellStyle emptyStyle = scheduleCellStyle(workbook, false);
+        CellStyle sequenceStyle = scheduleCellStyle(workbook, true);
+        CellStyle disabledStyle = scheduleDisabledStyle(workbook);
+        Row headerRow = sheet.createRow(0);
+        headerRow.setHeightInPoints(36);
+        writeStyled(headerRow, 0, "点位名称（排序值=趟次-顺序）", header);
+        for (int day = 1; day <= cycleDays; day++) {
+            boolean disabled = disabledDays.contains(day) && !activeDays.contains(day);
+            String suffix = disabled ? "，已停排" : activeDays.contains(day) && sequenceByDay.get(day).isEmpty() ? "，未优化" : "";
+            String title = startDate.plusDays(day - 1L) + "（第" + day + "天" + suffix + "）";
+            writeStyled(headerRow, day, title, disabled ? disabledStyle : header);
+        }
+
+        for (int pointIndex = 0; pointIndex < points.size(); pointIndex++) {
+            Row row = sheet.createRow(pointIndex + 1);
+            row.setHeightInPoints(22);
+            Map<String, Object> point = points.get(pointIndex);
+            writeStyled(row, 0, firstNonBlank(point.get("facilityName"), point.get("facilityId")), pointStyle);
+            for (int day = 1; day <= cycleDays; day++) {
+                boolean disabled = disabledDays.contains(day) && !activeDays.contains(day);
+                String token = sequenceByDay.get(day).get(pointIndex);
+                writeStyled(row, day, token == null ? "" : token,
+                        disabled ? disabledStyle : token == null ? emptyStyle : sequenceStyle);
+            }
+        }
+
+        sheet.createFreezePane(1, 1);
+        if (!points.isEmpty()) sheet.setAutoFilter(new CellRangeAddress(0, points.size(), 0, cycleDays));
+        int pointNameWidth = 18;
+        for (Map<String, Object> point : points) {
+            String name = firstNonBlank(point.get("facilityName"), point.get("facilityId"));
+            pointNameWidth = Math.max(pointNameWidth, Math.min(36, name.length() * 2 + 2));
+        }
+        sheet.setColumnWidth(0, pointNameWidth * 256);
+        for (int day = 1; day <= cycleDays; day++) sheet.setColumnWidth(day, 24 * 256);
         sheet.setAutobreaks(true);
         sheet.getPrintSetup().setLandscape(true);
         sheet.getPrintSetup().setFitWidth((short) 1);

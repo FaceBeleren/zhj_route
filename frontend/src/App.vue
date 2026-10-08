@@ -5927,8 +5927,18 @@ async function exportAssignmentVersions() {
         company: selectedSplitCompany.value,
         sourceRoute: selectedSplitRoute.value,
         generatedAt: new Date().toISOString(),
+        scheduleStartDate: toDateInput(new Date()),
+        cycleDays: assignmentScheduleCycleDays.value,
+        points: splitPlanPoints.value.map((point, index) => ({
+          index,
+          facilityId: point.facilityId,
+          facilityName: point.facilityName || point.facilityId,
+          originalOrder: point.originalOrder || index + 1
+        })),
         schemes: versions.map(version => ({
           name: version.name, cycleDay: version.cycleDay, applicableDays: version.applicableDays || [],
+          scheduleDisabled: !!version.scheduleDisabled,
+          selectedIndices: Array.from(version.selectedIndices || []),
           status: version.status, error: version.error, message: version.message,
           result: assignmentExportResult(version.result, pointMetadata)
         }))
