@@ -1105,6 +1105,7 @@
               <p v-if="assignmentFrequencyGenerationMessage" class="assignment-version-hint">{{ assignmentFrequencyGenerationMessage }}</p>
               <p v-if="assignmentBatchRunning" class="assignment-version-hint">正在逐套优化，已完成的方案会保留各自结果。</p>
               <p v-else-if="assignmentVersions.some(version => version.selectedIndices.size < 3)" class="assignment-version-hint">请为每一套至少选择 3 个点位，再生成全部方案。</p>
+              <div class="assignment-schedule-export"><button type="button" class="secondary" :disabled="!assignmentScheduleExportReady || assignmentBatchRunning || loading" @click="exportAssignmentSchedule">导出排班表</button></div>
             </div>
           </section>
 
@@ -3487,6 +3488,15 @@ function assignmentApplicableDaysLabel(version) {
   return (version?.applicableDays || []).map(day => `第${day}天`).join('、')
 }
 
+const assignmentScheduleCycleDays = computed(() => assignmentVersions.value.reduce((maximum, version) => {
+  const versionCycle = Number(version?.cycleDays || 0)
+  const lastApplicableDay = Math.max(0, ...(version?.applicableDays || []).map(day => Number(day || 0)))
+  return Math.max(maximum, versionCycle, lastApplicableDay)
+}, 0))
+const assignmentScheduleExportReady = computed(() => splitPlanPoints.value.length > 0
+  && assignmentScheduleCycleDays.value > 0
+  && assignmentVersions.value.some(version => version?.applicableDays?.length > 0))
+
 function assignmentPointPhase(index) {
   return assignmentFrequencyAnalysis.value.balanced?.points.find(point => point.index === index)
 }
@@ -5868,6 +5878,39 @@ function assignmentExportResult(result, metadata) {
     optimizerCostSource: result.optimizerCostSource, routes: (result.routes || []).map(route => assignmentExportRoute(route, metadata, schedules.get(Number(route?.routeNo)))),
     unassignedPoints: (result.unassignedPoints || []).map(point => assignmentExportPoint(point, metadata))
   }
+}
+
+async function exportAssignmentSchedule() {
+  if (!assignmentScheduleExportReady.value || assignmentBatchRunning.value || loading.value) return
+  if (!window.confirm('确定导出排班表？')) return
+  const scheduleStartDate = toDateInput(new Date())
+  await withLoading(async () => {
+    const response = await fetch('/api/optimize/assignment-schedule-export', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        company: selectedSplitCompany.value,
+        sourceRoute: selectedSplitRoute.value,
+        scheduleStartDate,
+        cycleDays: assignmentScheduleCycleDays.value,
+        points: splitPlanPoints.value.map((point, index) => ({
+          index,
+          facilityId: point.facilityId,
+          facilityName: point.facilityName || point.facilityId,
+          originalOrder: point.originalOrder || index + 1
+        })),
+        schemes: assignmentVersions.value.map(version => ({
+          name: version.name,
+          cycleDay: version.cycleDay,
+          applicableDays: version.applicableDays || [],
+          selectedIndices: Array.from(version.selectedIndices || [])
+        }))
+      })
+    })
+    if (!response.ok) throw new Error(`${response.status} ${response.statusText}`)
+    const routeName = sanitizeFilename(selectedSplitRoute.value?.routeName || selectedSplitRoute.value?.routeCode || '路线')
+    downloadBlob(await response.blob(), `${routeName}-排班表-${scheduleStartDate}.xlsx`)
+  })
 }
 
 async function exportAssignmentVersions() {

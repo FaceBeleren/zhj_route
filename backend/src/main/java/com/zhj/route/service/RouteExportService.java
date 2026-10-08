@@ -18,8 +18,13 @@ import org.springframework.stereotype.Service;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.math.BigDecimal;
+import java.time.LocalDate;
+import java.time.format.DateTimeParseException;
+import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 @Service
 public class RouteExportService {
@@ -51,6 +56,16 @@ public class RouteExportService {
             return out.toByteArray();
         } catch (IOException e) {
             throw new IllegalStateException("导出全部方案Excel失败", e);
+        }
+    }
+
+    public byte[] exportAssignmentSchedule(Map<String, Object> request) {
+        try (Workbook workbook = new XSSFWorkbook(); ByteArrayOutputStream out = new ByteArrayOutputStream()) {
+            writeAssignmentSchedule(workbook, request);
+            workbook.write(out);
+            return out.toByteArray();
+        } catch (IOException e) {
+            throw new IllegalStateException("导出排班表Excel失败", e);
         }
     }
 
@@ -279,6 +294,111 @@ public class RouteExportService {
             }
         }
         finishAssignmentSheet(sheet, rowIndex, new int[]{14, 18, 9, 18, 16, 9, 9, 14, 28, 14, 28, 14, 14, 14, 14, 16});
+    }
+
+    private void writeAssignmentSchedule(Workbook workbook, Map<String, Object> request) {
+        List<Map<String, Object>> points = maps(request.get("points"));
+        List<Map<String, Object>> schemes = maps(request.get("schemes"));
+        int cycleDays = Math.max(1, Math.min(366, (int) Math.round(number(request.get("cycleDays")))));
+        LocalDate startDate;
+        try {
+            startDate = LocalDate.parse(value(request.get("scheduleStartDate")));
+        } catch (DateTimeParseException e) {
+            startDate = LocalDate.now();
+        }
+
+        List<Set<Integer>> selectedByDay = new ArrayList<Set<Integer>>(cycleDays + 1);
+        for (int day = 0; day <= cycleDays; day++) selectedByDay.add(new HashSet<Integer>());
+        for (Map<String, Object> scheme : schemes) {
+            Set<Integer> selectedIndices = integerSet(scheme.get("selectedIndices"));
+            Object daysValue = scheme.get("applicableDays");
+            if (daysValue instanceof List) {
+                for (Object dayValue : (List<?>) daysValue) {
+                    int day = (int) Math.round(number(dayValue));
+                    if (day >= 1 && day <= cycleDays) selectedByDay.get(day).addAll(selectedIndices);
+                }
+            }
+        }
+
+        Sheet sheet = workbook.createSheet("排班表");
+        CellStyle header = headerStyle(workbook);
+        CellStyle dayStyle = scheduleDayStyle(workbook);
+        CellStyle emptyStyle = scheduleCellStyle(workbook, false);
+        CellStyle selectedStyle = scheduleCellStyle(workbook, true);
+        Row headerRow = sheet.createRow(0);
+        headerRow.setHeightInPoints(36);
+        writeStyled(headerRow, 0, "日期 / 天数", header);
+        for (int pointIndex = 0; pointIndex < points.size(); pointIndex++) {
+            Map<String, Object> point = points.get(pointIndex);
+            writeStyled(headerRow, pointIndex + 1,
+                    firstNonBlank(point.get("facilityName"), point.get("facilityId")), header);
+        }
+
+        for (int day = 1; day <= cycleDays; day++) {
+            Row row = sheet.createRow(day);
+            row.setHeightInPoints(22);
+            writeStyled(row, 0, startDate.plusDays(day - 1L) + "（第" + day + "天）", dayStyle);
+            Set<Integer> selected = selectedByDay.get(day);
+            for (int pointIndex = 0; pointIndex < points.size(); pointIndex++) {
+                boolean due = selected.contains((int) Math.round(number(points.get(pointIndex).get("index"))));
+                writeStyled(row, pointIndex + 1, due ? "√" : "", due ? selectedStyle : emptyStyle);
+            }
+        }
+
+        sheet.createFreezePane(1, 1);
+        sheet.setColumnWidth(0, 22 * 256);
+        for (int pointIndex = 0; pointIndex < points.size(); pointIndex++) {
+            String name = firstNonBlank(points.get(pointIndex).get("facilityName"), points.get(pointIndex).get("facilityId"));
+            int width = Math.max(12, Math.min(28, name.length() * 2 + 2));
+            sheet.setColumnWidth(pointIndex + 1, width * 256);
+        }
+        sheet.setAutobreaks(true);
+        sheet.getPrintSetup().setLandscape(true);
+        sheet.getPrintSetup().setFitWidth((short) 1);
+        sheet.getPrintSetup().setFitHeight((short) 0);
+        sheet.setFitToPage(true);
+    }
+
+    private Set<Integer> integerSet(Object value) {
+        Set<Integer> result = new HashSet<Integer>();
+        if (!(value instanceof List)) return result;
+        for (Object item : (List<?>) value) result.add((int) Math.round(number(item)));
+        return result;
+    }
+
+    private void writeStyled(Row row, int column, String value, CellStyle style) {
+        Cell cell = row.createCell(column);
+        cell.setCellValue(value);
+        cell.setCellStyle(style);
+    }
+
+    private CellStyle scheduleDayStyle(Workbook workbook) {
+        CellStyle style = scheduleCellStyle(workbook, false);
+        Font font = workbook.createFont();
+        font.setBold(true);
+        style.setFont(font);
+        style.setFillForegroundColor(IndexedColors.LIGHT_CORNFLOWER_BLUE.getIndex());
+        style.setFillPattern(FillPatternType.SOLID_FOREGROUND);
+        return style;
+    }
+
+    private CellStyle scheduleCellStyle(Workbook workbook, boolean selected) {
+        CellStyle style = workbook.createCellStyle();
+        style.setAlignment(HorizontalAlignment.CENTER);
+        style.setVerticalAlignment(VerticalAlignment.CENTER);
+        style.setBorderTop(BorderStyle.THIN);
+        style.setBorderBottom(BorderStyle.THIN);
+        style.setBorderLeft(BorderStyle.THIN);
+        style.setBorderRight(BorderStyle.THIN);
+        if (selected) {
+            Font font = workbook.createFont();
+            font.setBold(true);
+            font.setColor(IndexedColors.DARK_GREEN.getIndex());
+            style.setFont(font);
+            style.setFillForegroundColor(IndexedColors.LIGHT_GREEN.getIndex());
+            style.setFillPattern(FillPatternType.SOLID_FOREGROUND);
+        }
+        return style;
     }
 
     private List<CellStyle> assignmentSchemeStyles(Workbook workbook) {
