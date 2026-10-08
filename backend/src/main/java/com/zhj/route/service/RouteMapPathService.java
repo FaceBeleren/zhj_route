@@ -103,7 +103,7 @@ public class RouteMapPathService {
             int rowCount = 0;
             for (int offset = 0; offset < facilityIds.size(); offset += CACHE_KEY_BATCH_SIZE) {
                 List<String> starts = facilityIds.subList(offset, Math.min(offset + CACHE_KEY_BATCH_SIZE, facilityIds.size()));
-                String sql = "SELECT start_code, end_code FROM ljszy_odpair_pool " +
+                String sql = "SELECT start_code, end_code, longitude_start, latitude_start, longitude_end, latitude_end FROM ljszy_odpair_pool " +
                         "WHERE been_deleted = 0 AND msg_full IS NOT NULL " +
                         "AND start_code IN (" + placeholders(starts.size()) + ") " +
                         "AND end_code IN (" + placeholders(facilityIds.size()) + ")";
@@ -113,6 +113,7 @@ public class RouteMapPathService {
                 List<Map<String, Object>> rows = jdbcTemplate.queryForList(sql, args.toArray());
                 rowCount += rows.size();
                 for (Map<String, Object> row : rows) {
+                    if (!matchesCurrentCoordinates(row, points)) continue;
                     cachedKeys.add(pathKey(String.valueOf(row.get("start_code")), String.valueOf(row.get("end_code"))));
                 }
             }
@@ -151,6 +152,7 @@ public class RouteMapPathService {
             List<Map<String, Object>> rows = jdbcTemplate.queryForList(sql, args.toArray());
             int invalidRows = 0;
             for (Map<String, Object> row : rows) {
+                if (!matchesCurrentCoordinates(row, points)) continue;
                 String startCode = String.valueOf(row.get("start_code"));
                 String endCode = String.valueOf(row.get("end_code"));
                 String key = pathKey(startCode, endCode);
@@ -230,10 +232,10 @@ public class RouteMapPathService {
             log.debug("OD cache skipped: non-cacheable pair {} -> {}", pointLabel(from), pointLabel(to));
             return null;
         }
-        String sql = "SELECT distance, time_duration, msg_full " +
+        String sql = "SELECT distance, time_duration, msg_full, longitude_start, latitude_start, longitude_end, latitude_end " +
                 "FROM ljszy_odpair_pool " +
                 "WHERE been_deleted = 0 AND start_code = ? AND end_code = ? AND msg_full IS NOT NULL " +
-                "ORDER BY create_time DESC LIMIT 1";
+                "ORDER BY create_time DESC, id DESC";
         try {
             List<Map<String, Object>> rows = jdbcTemplate.queryForList(
                     sql,
@@ -243,7 +245,8 @@ public class RouteMapPathService {
                 log.debug("OD cache miss: {} -> {}", pointLabel(from), pointLabel(to));
                 return null;
             }
-            Map<String, Object> row = rows.get(0);
+            Map<String, Object> row = firstMatchingCoordinates(rows, from, to);
+            if (row == null) return null;
             List<Map<String, Object>> path = parseBaiduPath(String.valueOf(row.get("msg_full")));
             path = withEndpoints(path, from, to);
             if (path.size() < 2) {
@@ -270,7 +273,7 @@ public class RouteMapPathService {
         try {
             for (int offset = 0; offset < facilityIds.size(); offset += CACHE_KEY_BATCH_SIZE) {
                 List<String> starts = facilityIds.subList(offset, Math.min(offset + CACHE_KEY_BATCH_SIZE, facilityIds.size()));
-                String sql = "SELECT start_code, end_code, distance, time_duration FROM ljszy_odpair_pool " +
+                String sql = "SELECT start_code, end_code, distance, time_duration, longitude_start, latitude_start, longitude_end, latitude_end FROM ljszy_odpair_pool " +
                         "WHERE been_deleted = 0 AND msg_full IS NOT NULL " +
                         "AND start_code IN (" + placeholders(starts.size()) + ") " +
                         "AND end_code IN (" + placeholders(facilityIds.size()) + ") " +
@@ -279,6 +282,7 @@ public class RouteMapPathService {
                 args.addAll(starts);
                 args.addAll(facilityIds);
                 for (Map<String, Object> row : jdbcTemplate.queryForList(sql, args.toArray())) {
+                    if (!matchesCurrentCoordinates(row, points)) continue;
                     String key = pathKey(String.valueOf(row.get("start_code")), String.valueOf(row.get("end_code")));
                     if (cached.containsKey(key)) {
                         continue;
@@ -304,16 +308,17 @@ public class RouteMapPathService {
         if (!isCacheableFacility(from) || !isCacheableFacility(to)) {
             throw new IllegalStateException("道路 OD 缓存点对缺少有效编号");
         }
-        String sql = "SELECT distance, time_duration, msg_full FROM ljszy_odpair_pool " +
+        String sql = "SELECT distance, time_duration, msg_full, longitude_start, latitude_start, longitude_end, latitude_end FROM ljszy_odpair_pool " +
                 "WHERE been_deleted = 0 AND start_code = ? AND end_code = ? AND msg_full IS NOT NULL " +
-                "ORDER BY create_time DESC LIMIT 1";
+                "ORDER BY create_time DESC, id DESC";
         try {
             List<Map<String, Object>> rows = jdbcTemplate.queryForList(sql,
                     pointCode(from), pointCode(to));
             if (rows.isEmpty()) {
                 throw new IllegalStateException("道路 OD 缓存键已存在但记录未找到: " + pointLabel(from) + " -> " + pointLabel(to));
             }
-            Map<String, Object> row = rows.get(0);
+            Map<String, Object> row = firstMatchingCoordinates(rows, from, to);
+            if (row == null) throw new IllegalStateException("道路 OD 缓存坐标已过期");
             List<Map<String, Object>> path = withEndpoints(parseBaiduPath(String.valueOf(row.get("msg_full"))), from, to);
             if (path.size() < 2) {
                 throw new IllegalStateException("道路 OD 缓存轨迹无效: " + pointLabel(from) + " -> " + pointLabel(to));
@@ -427,9 +432,9 @@ public class RouteMapPathService {
         synchronized (cacheWriteLocks[(key.hashCode() & Integer.MAX_VALUE) % cacheWriteLocks.length]) {
             try {
                 List<Map<String, Object>> existing = jdbcTemplate.queryForList(
-                        "SELECT 1 FROM ljszy_odpair_pool WHERE been_deleted = 0 AND start_code = ? AND end_code = ? AND msg_full IS NOT NULL LIMIT 1",
+                        "SELECT longitude_start, latitude_start, longitude_end, latitude_end FROM ljszy_odpair_pool WHERE been_deleted = 0 AND start_code = ? AND end_code = ? AND msg_full IS NOT NULL",
                         pointCode(from), pointCode(to));
-                if (!existing.isEmpty()) {
+                if (firstMatchingCoordinates(existing, from, to) != null) {
                     log.info("OD cache write skipped: pair already exists, {} -> {}", pointLabel(from), pointLabel(to));
                     return;
                 }
@@ -580,6 +585,34 @@ public class RouteMapPathService {
             }
         }
         return new ArrayList<String>(ids);
+    }
+
+    private Map<String, Object> firstMatchingCoordinates(List<Map<String, Object>> rows, RoutePoint from, RoutePoint to) {
+        for (Map<String, Object> row : rows) {
+            if (coordinatesNear(row, "start", from) && coordinatesNear(row, "end", to)) return row;
+        }
+        return null;
+    }
+
+    private boolean matchesCurrentCoordinates(Map<String, Object> row, List<RoutePoint> points) {
+        RoutePoint from = null;
+        RoutePoint to = null;
+        for (RoutePoint point : points) {
+            String code = pointCode(point);
+            if (String.valueOf(row.get("start_code")).equals(code)) from = point;
+            if (String.valueOf(row.get("end_code")).equals(code)) to = point;
+        }
+        return coordinatesNear(row, "start", from) && coordinatesNear(row, "end", to);
+    }
+
+    private boolean coordinatesNear(Map<String, Object> row, String side, RoutePoint point) {
+        Double longitude = toDouble(row.get("longitude_" + side));
+        Double latitude = toDouble(row.get("latitude_" + side));
+        if (point == null || !point.hasCoordinate() || longitude == null || latitude == null) return false;
+        double lat1 = Math.toRadians(latitude), lat2 = Math.toRadians(point.getLatitude());
+        double dLat = lat2 - lat1, dLng = Math.toRadians(point.getLongitude() - longitude);
+        double h = Math.pow(Math.sin(dLat / 2), 2) + Math.cos(lat1) * Math.cos(lat2) * Math.pow(Math.sin(dLng / 2), 2);
+        return 12742000D * Math.asin(Math.min(1D, Math.sqrt(h))) <= 30D;
     }
 
     private String placeholders(int size) {
