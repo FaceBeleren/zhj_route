@@ -1133,6 +1133,8 @@
                 <p>{{ multiOptimization.message }}</p>
                 <div class="optimization-metrics"><span>拆分路线 {{ multiOptimization.routeCount || 0 }}</span><span>已分配 {{ multiOptimization.assignedPointCount || 0 }}</span><span>未分配 {{ multiOptimization.unassignedPointCount || 0 }}</span><span>已分配量 {{ formatWeight(multiOptimization.assignedWeightKg) }}</span></div>
                 <div class="assignment-trip-reorder-bar">
+                  <button type="button" class="secondary" :disabled="assignmentTripReorderRunning || assignmentBatchRunning || !multiOptimization?.routes?.length || assignmentTimeWindowStats.violationCount === 0" @click="openTimeWindowRepair">时间窗修正路线</button>
+                  <button v-if="assignmentActiveVersion?.timeWindowOriginalResult" type="button" class="secondary" :disabled="assignmentTripReorderRunning || assignmentBatchRunning" @click="restoreTimeWindowOriginal">恢复修正前路线</button>
                   <button type="button" class="secondary" :disabled="!!assignmentTripReorderDisabledReason" :title="assignmentTripReorderDisabledReason" @click="tryReorderAssignmentTrips">{{ assignmentTripReorderRunning ? '正在尝试重排…' : '尝试修改趟数顺序' }}</button>
                   <span :class="{ success: assignmentTimeWindowStats.violationCount === 0, warning: assignmentTimeWindowStats.violationCount > 0 }">{{ assignmentTimeWindowStats.violationCount === 0 ? '当前方案时间窗均已通过' : `当前有 ${assignmentTimeWindowStats.violationCount} 个点位时间窗冲突` }}</span>
                   <small v-if="assignmentTripReorderMessage">{{ assignmentTripReorderMessage }}</small>
@@ -2203,6 +2205,26 @@
     <div v-if="error" class="toast error">{{ error }}</div>
     <div v-if="loading" class="toast">加载中...</div>
   </main>
+  <div v-if="timeRepairVisible" style="position:fixed;inset:0;background:#0008;z-index:1000;display:flex;align-items:center;justify-content:center">
+    <section style="background:white;padding:24px;border-radius:12px;width:min(900px,90vw);max-height:85vh;overflow:auto">
+      <h2>时间窗修正路线 · {{ timeRepairVersion?.name }}</h2>
+      <p>调整同一趟内点位顺序，以时间窗满足度为优先目标，可能增加行驶距离。修正结果是运营调整建议，不代表原距离优化结果。确认应用后更新当前方案。</p>
+      <p>本阶段按严格时间窗校验，不自动等待；最多评估500个候选、200轮，计算时间预算60秒（正在执行的道路请求完成后停止）。</p>
+      <button :disabled="assignmentTripReorderRunning" @click="runTimeWindowRepair">{{ assignmentTripReorderRunning ? '正在计算修正版…' : '开始修正' }}</button>
+      <button :disabled="assignmentTripReorderRunning" @click="timeRepairVisible = false">关闭</button>
+      <p>{{ timeRepairError || timeRepairPreview?.message }}</p>
+      <template v-if="timeRepairPreview">
+        <p>距离：{{ formatDistance(timeRepairPreview.beforeDistance) }} → {{ formatDistance(timeRepairPreview.afterDistance) }}；超窗分钟：{{ timeRepairPreview.beforePenaltyMinutes }} → {{ timeRepairPreview.afterPenaltyMinutes }}；累计作业时间：{{ formatDuration(timeRepairPreview.beforeCompletionMinutes) }} → {{ formatDuration(timeRepairPreview.afterCompletionMinutes) }}</p>
+        <p>已评估 {{ timeRepairPreview.evaluations }} 个候选，执行 {{ timeRepairPreview.iterations }} 轮。</p>
+        <article v-for="(route, index) in timeRepairPreview.result?.routes || []" :key="index">
+          <strong>第{{ route.routeNo }}趟</strong>
+          <p>原序：{{ (timeRepairOriginal?.routes?.[index]?.points || []).map(p => p.facilityName || p.facilityId).join(' → ') }}</p>
+          <p>修正：{{ (route.points || []).map(p => p.facilityName || p.facilityId).join(' → ') }}</p>
+        </article>
+        <button :disabled="!timeRepairPreview.improved || assignmentTripReorderRunning" @click="applyTimeWindowRepair">应用修正版</button>
+      </template>
+    </section>
+  </div>
 </template>
 
 <script setup>
@@ -2575,6 +2597,11 @@ const assignmentVehicleCode = ref('')
 const assignmentVehicleLoading = ref(false)
 const assignmentVehicleError = ref('')
 const assignmentTripReorderRunning = ref(false)
+const timeRepairVisible = ref(false)
+const timeRepairVersion = ref(null)
+const timeRepairOriginal = ref(null)
+const timeRepairPreview = ref(null)
+const timeRepairError = ref('')
 const assignmentTripReorderMessage = ref('')
 let assignmentVehicleRequestId = 0
 let assignmentVersionSerial = 0
@@ -3582,6 +3609,7 @@ function updateAssignmentSelection(indices) {
   const version = assignmentActiveVersion.value
   if (!version || assignmentBatchRunning.value) return
   version.selectedIndices = indices
+  version.timeWindowOriginalResult = null
   version.result = null
   version.status = 'IDLE'
   version.error = ''
@@ -4644,6 +4672,8 @@ function assignmentReorderRoutePayload(route, result) {
   }))
   return {
     routeNo: route?.routeNo,
+    workLimitMinutes: route?.workLimitMinutes,
+    workLimitHours: route?.workLimitHours,
     vehicleIndex: route?.vehicleIndex,
     vehicleId: route?.vehicleId,
     vehicleName: route?.vehicleName,
@@ -4657,6 +4687,7 @@ function assignmentReorderRoutePayload(route, result) {
     estimatedVolumeLiter: route?.estimatedVolumeLiter,
     loadRate: route?.loadRate,
     terminalUnloadMinutes: route?.terminalUnloadMinutes,
+    distance: segments.reduce((sum, segment) => sum + Number(segment.distance || 0), 0),
     durationMinutes: route?.durationMinutes,
     points: (route?.points || []).map(point => ({ ...point })),
     segments
@@ -4682,6 +4713,58 @@ async function requestAssignmentTripReorder(result) {
       transferSpeedKmh: optimizeOptions.transferSpeedKmh
     })
   })
+}
+
+function openTimeWindowRepair() {
+  timeRepairVersion.value = assignmentActiveVersion.value
+  timeRepairOriginal.value = deepClone(multiOptimization.value)
+  timeRepairPreview.value = null
+  timeRepairError.value = ''
+  timeRepairVisible.value = true
+}
+
+function restoreTimeWindowOriginal() {
+  const version = assignmentActiveVersion.value
+  if (!version?.timeWindowOriginalResult) return
+  version.result = version.timeWindowOriginalResult
+  version.timeWindowOriginalResult = null
+  showAssignmentVersionResult(version)
+}
+
+async function runTimeWindowRepair() {
+  if (assignmentTripReorderRunning.value) return
+  assignmentTripReorderRunning.value = true
+  timeRepairError.value = ''
+  try {
+    timeRepairPreview.value = await api('/api/optimize/repair-time-windows', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        result: compactAssignmentReorderResult(timeRepairOriginal.value),
+        plannedStartTime: optimizeOptions.plannedStartTime,
+        denseSpeedKmh: optimizeOptions.denseSpeedKmh,
+        normalSpeedKmh: optimizeOptions.normalSpeedKmh,
+        transferSpeedKmh: optimizeOptions.transferSpeedKmh
+      })
+    })
+  } catch (err) {
+    timeRepairError.value = `修正失败，原方案保留：${err.message || String(err)}`
+  } finally {
+    assignmentTripReorderRunning.value = false
+  }
+}
+
+function applyTimeWindowRepair() {
+  const version = timeRepairVersion.value
+  if (!version || !timeRepairPreview.value?.improved) return
+  if (!assignmentVersions.value.includes(version)) {
+    timeRepairError.value = '方案已重新生成，请关闭后重新计算'
+    return
+  }
+  if (!version.timeWindowOriginalResult) version.timeWindowOriginalResult = timeRepairOriginal.value
+  version.result = timeRepairPreview.value.result
+  version.message = timeRepairPreview.value.message
+  showAssignmentVersionResult(version)
+  timeRepairVisible.value = false
 }
 
 function showAssignmentVersionResult(version) {
@@ -4791,6 +4874,7 @@ async function generateAssignmentVersions() {
   multiOptimization.value = null
   selectedMultiRouteNo.value = null
   for (const { version } of versions) {
+    version.timeWindowOriginalResult = null
     version.result = null
     version.status = 'IDLE'
     version.error = ''

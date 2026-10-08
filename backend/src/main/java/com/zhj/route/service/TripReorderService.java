@@ -20,6 +20,98 @@ public class TripReorderService {
         this.routeOptimizeService = routeOptimizeService;
     }
 
+    /** Bounded point relocation search; returns a preview without modifying the input. */
+    public Map<String, Object> repairPoints(Map<String, Object> request) {
+        Map<String, Object> source = map(request.get("result"));
+        List<Map<String, Object>> original = maps(source.get("routes"));
+        double start = startMinutes(request);
+        Score before = score(original, start);
+        List<Map<String, Object>> current = original;
+        Score currentScore = before;
+        int evaluations = 0;
+        int iterations = 0;
+        long deadline = System.nanoTime() + 60_000_000_000L;
+        java.util.Set<String> visited = new java.util.HashSet<String>();
+        visited.add(orderSignature(current));
+        boolean limited = false;
+        search: while (currentScore.violations > 0 && iterations < 200) {
+            iterations++;
+            List<Map<String, Object>> best = current;
+            Score bestScore = currentScore;
+            for (int r = 0; r < current.size(); r++) {
+                List<Map<String, Object>> points = maps(current.get(r).get("points"));
+                for (int from = 1; from < points.size() - 1; from++) {
+                    // Evaluate every insertion position: intermediate equal-score moves need not be applied.
+                    for (int to = 1; to < points.size() - 1; to++) {
+                        if (from == to) continue;
+                        if (evaluations >= 500 || System.nanoTime() >= deadline) {
+                            limited = true;
+                            current = best;
+                            currentScore = bestScore;
+                            break search;
+                        }
+                        List<Map<String, Object>> candidate = new ArrayList<Map<String, Object>>(current);
+                        Map<String, Object> route = copy(current.get(r));
+                        List<Map<String, Object>> moved = new ArrayList<Map<String, Object>>(points);
+                        moved.add(to, moved.remove(from));
+                        route.put("points", moved);
+                        candidate.set(r, route);
+                        if (!visited.add(orderSignature(candidate))) continue;
+                        evaluations++;
+                        List<Map<String, Object>> rebuilt = rebuildRoutes(candidate, original, request, source);
+                        Score candidateScore = score(rebuilt, start);
+                        if (timeImproved(candidateScore, currentScore) && compare(candidateScore, bestScore) < 0) {
+                            best = rebuilt;
+                            bestScore = candidateScore;
+                        }
+                    }
+                }
+            }
+            if (best == current) break;
+            current = best;
+            currentScore = bestScore;
+        }
+        boolean improved = timeImproved(currentScore, before);
+        Map<String, Object> result = copy(source);
+        if (improved) {
+            result.put("routes", current);
+            result.put("timeWindowRepaired", true);
+        }
+        String reason = currentScore.violations == 0 ? "时间窗全部通过" : limited || iterations >= 200 ? "已达到计算上限" : "当前搜索未找到进一步改善";
+        String message = "冲突点由 " + before.violations + " 个变为 " + currentScore.violations + " 个；" + reason;
+        Map<String, Object> response = response(improved, message, result, before, currentScore);
+        response.put("evaluations", evaluations);
+        response.put("iterations", iterations);
+        response.put("limited", limited || iterations >= 200);
+        response.put("beforeDistance", totalDistance(original));
+        response.put("afterDistance", totalDistance(current));
+        response.put("beforeCompletionMinutes", before.completionMinutes);
+        response.put("afterCompletionMinutes", currentScore.completionMinutes);
+        return response;
+    }
+
+    private String orderSignature(List<Map<String, Object>> routes) {
+        StringBuilder signature = new StringBuilder();
+        for (Map<String, Object> route : routes) {
+            signature.append('|').append(vehicleKey(route)).append(':');
+            for (Map<String, Object> point : maps(route.get("points"))) signature.append(text(point.get("facilityId"))).append(',');
+        }
+        return signature.toString();
+    }
+
+    private double totalDistance(List<Map<String, Object>> routes) {
+        double distance = 0;
+        for (Map<String, Object> route : routes) {
+            List<Map<String, Object>> segments = maps(route.get("segments"));
+            if (!segments.isEmpty()) {
+                for (Map<String, Object> segment : segments) distance += number(segment.get("distance"));
+            } else {
+                distance += number(route.get("distance"));
+            }
+        }
+        return round(distance);
+    }
+
     public Map<String, Object> reorder(Map<String, Object> request) {
         Map<String, Object> sourceResult = map(request.get("result"));
         List<Map<String, Object>> sourceRoutes = maps(sourceResult.get("routes"));
@@ -141,6 +233,9 @@ public class TripReorderService {
             copyOption(request, segmentRequest, "roadSpeedKmh");
             copyOption(request, segmentRequest, "communitySpeedKmh");
             copyOption(request, segmentRequest, "internalSpeedKmh");
+            copyOption(request, segmentRequest, "denseSpeedKmh");
+            copyOption(request, segmentRequest, "normalSpeedKmh");
+            copyOption(request, segmentRequest, "transferSpeedKmh");
             Map<String, Object> segmentResult = routeOptimizeService.routeSegmentsPreview(segmentRequest);
             List<Map<String, Object>> segments = maps(segmentResult.get("segments"));
             if (road) ensureRoadSegments(segments, points.size() - 1);
@@ -167,6 +262,14 @@ public class TripReorderService {
             route.put("planningTotalDurationMinutes", round(travel + operation));
             route.put("displayTotalDurationMinutes", round(travel + operation));
             route.put("durationMinutes", round(travel + operation));
+            double workLimit = number(source.get("workLimitMinutes"));
+            if (workLimit > 0) {
+                route.put("timeExceeded", travel + operation > workLimit);
+                route.put("overdueMinutes", round(Math.max(0D, travel + operation - workLimit)));
+            }
+            route.remove("polyline");
+            route.remove("roadDistance");
+            route.remove("roadDurationMinutes");
             rebuilt.add(route);
             previousEnd.put(key, end);
         }

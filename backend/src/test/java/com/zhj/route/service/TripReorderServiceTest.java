@@ -57,6 +57,34 @@ class TripReorderServiceTest {
     }
 
     @Test
+    void repairsPointOrderWithoutMutatingOriginalOrChangingTripMembership() {
+        Map<String, Object> route = route(1, "v1", "限时点", "02:30", "03:30");
+        List<Map<String, Object>> originalPoints = new ArrayList<Map<String, Object>>(maps(route.get("points")));
+        originalPoints.add(2, point(999L, "普通点", "MIDDLE", null, null, 30D));
+        route.put("points", originalPoints);
+        route.put("segments", Arrays.asList(segment(1), segment(2), segment(3)));
+        Map<String, Object> response = service.repairPoints(request(Arrays.asList(route)));
+        assertEquals(true, response.get("improved"));
+        assertEquals(0, ((Number) response.get("afterViolationCount")).intValue());
+        assertEquals(3000D, ((Number) response.get("beforeDistance")).doubleValue());
+        assertTrue(((Number) response.get("iterations")).intValue() > 0);
+        assertEquals("限时点", maps(route.get("points")).get(1).get("facilityName"));
+        List<Map<String, Object>> repaired = resultRoutes(response);
+        assertEquals(1, repaired.size());
+        assertEquals("普通点", maps(repaired.get(0).get("points")).get(1).get("facilityName"));
+        assertEquals("限时点", maps(repaired.get(0).get("points")).get(2).get("facilityName"));
+    }
+
+    @Test
+    void repairKeepsImpossibleSinglePointRouteAndTerminates() {
+        Map<String, Object> route = route(1, "v1", "不可达点", "05:00", "06:00");
+        Map<String, Object> response = service.repairPoints(request(Arrays.asList(route)));
+        assertEquals(false, response.get("improved"));
+        assertEquals(0, response.get("evaluations"));
+        assertEquals(1, ((Number) response.get("afterViolationCount")).intValue());
+    }
+
+    @Test
     void keepsOriginalWhenNoOrderCanImprove() {
         Map<String, Object> first = route(1, "v1", "点1", null, null);
         Map<String, Object> second = route(2, "v1", "点2", null, null);

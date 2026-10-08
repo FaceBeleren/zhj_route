@@ -258,6 +258,11 @@ public class RouteDataController {
         return tripReorderService.reorder(request);
     }
 
+    @PostMapping("/optimize/repair-time-windows")
+    public Map<String, Object> repairTimeWindows(@RequestBody Map<String, Object> request) {
+        return tripReorderService.repairPoints(request);
+    }
+
     @PostMapping("/optimize/cluster-preview")
     public Map<String, Object> clusterPreview(@RequestBody Map<String, Object> request) {
         return routeClusterService.preview(request);
