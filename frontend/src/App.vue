@@ -2210,10 +2210,13 @@
       <h2>时间窗修正路线 · {{ timeRepairVersion?.name }}</h2>
       <p>调整同一趟内点位顺序，以时间窗满足度为优先目标，可能增加行驶距离。修正结果是运营调整建议，不代表原距离优化结果。确认应用后更新当前方案。</p>
       <p>本阶段按严格时间窗校验，不自动等待；最多评估500个候选、200轮，计算时间预算60秒（正在执行的道路请求完成后停止）。</p>
-      <button :disabled="assignmentTripReorderRunning" @click="runTimeWindowRepair">{{ assignmentTripReorderRunning ? '正在计算修正版…' : '开始修正' }}</button>
+      <p>默认只移动冲突收运点：早到向后挪，晚到向前挪；禁止或跨午夜时间窗双向尝试。每轮重新检查全部点位，选择评分严格改善的顺序。全部通过后停止，不保证全局最优。</p>
+      <button :disabled="assignmentTripReorderRunning" @click="runTimeWindowRepair('CONFLICT_ONLY')">{{ assignmentTripReorderRunning ? '正在计算修正版…' : '开始修正' }}</button>
+      <button :disabled="assignmentTripReorderRunning" title="允许移动正常收运点，搜索更广但可能更慢或增加绕行；仍从修正前原方案试算" @click="runTimeWindowRepair('EXPANDED')">扩大搜索</button>
       <button :disabled="assignmentTripReorderRunning" @click="timeRepairVisible = false">关闭</button>
       <p>{{ timeRepairError || timeRepairPreview?.message }}</p>
       <template v-if="timeRepairPreview">
+        <p>搜索方式：{{ timeRepairPreview.searchMode === 'EXPANDED' ? '扩大搜索（全部收运点）' : '只挪冲突点' }}；改善类型：{{ timeRepairPreview.improvementType === 'TIME_WINDOW' ? '时间窗改善' : timeRepairPreview.improvementType === 'EFFICIENCY_ONLY' ? '仅耗时或距离改善，时间窗冲突仍需处理' : '无改善' }}</p>
         <p>距离：{{ formatDistance(timeRepairPreview.beforeDistance) }} → {{ formatDistance(timeRepairPreview.afterDistance) }}；超窗分钟：{{ timeRepairPreview.beforePenaltyMinutes }} → {{ timeRepairPreview.afterPenaltyMinutes }}；累计作业时间：{{ formatDuration(timeRepairPreview.beforeCompletionMinutes) }} → {{ formatDuration(timeRepairPreview.afterCompletionMinutes) }}</p>
         <p>已评估 {{ timeRepairPreview.evaluations }} 个候选，执行 {{ timeRepairPreview.iterations }} 轮。</p>
         <article v-for="(route, index) in timeRepairPreview.result?.routes || []" :key="index">
@@ -4731,7 +4734,7 @@ function restoreTimeWindowOriginal() {
   showAssignmentVersionResult(version)
 }
 
-async function runTimeWindowRepair() {
+async function runTimeWindowRepair(searchMode = 'CONFLICT_ONLY') {
   if (assignmentTripReorderRunning.value) return
   assignmentTripReorderRunning.value = true
   timeRepairError.value = ''
@@ -4740,6 +4743,7 @@ async function runTimeWindowRepair() {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         result: compactAssignmentReorderResult(timeRepairOriginal.value),
+        searchMode,
         plannedStartTime: optimizeOptions.plannedStartTime,
         denseSpeedKmh: optimizeOptions.denseSpeedKmh,
         normalSpeedKmh: optimizeOptions.normalSpeedKmh,

@@ -34,16 +34,24 @@ public class TripReorderService {
         java.util.Set<String> visited = new java.util.HashSet<String>();
         visited.add(orderSignature(current));
         boolean limited = false;
+        boolean expanded = "EXPANDED".equalsIgnoreCase(text(request.get("searchMode")));
         search: while (currentScore.violations > 0 && iterations < 200) {
             iterations++;
             List<Map<String, Object>> best = current;
             Score bestScore = currentScore;
+            Map<Integer, Map<Integer, Integer>> conflicts = conflictDirections(current, start);
             for (int r = 0; r < current.size(); r++) {
                 List<Map<String, Object>> points = maps(current.get(r).get("points"));
                 for (int from = 1; from < points.size() - 1; from++) {
+                    Integer direction = conflicts.getOrDefault(r, Collections.emptyMap()).get(from);
+                    if (!isCollectionPoint(points.get(from), from, points.size())) continue;
+                    if (!expanded && direction == null) continue;
                     // Evaluate every insertion position: intermediate equal-score moves need not be applied.
-                    for (int to = 1; to < points.size() - 1; to++) {
-                        if (from == to) continue;
+                    for (int step = 1; step <= 2 * (points.size() - 2); step++) {
+                        int offset = (step + 1) / 2;
+                        int to = from + (step % 2 == 1 ? offset : -offset);
+                        if (to < 1 || to >= points.size() - 1) continue;
+                        if (!expanded && ((direction == 1 && to < from) || (direction == -1 && to > from))) continue;
                         if (evaluations >= 500 || System.nanoTime() >= deadline) {
                             limited = true;
                             current = best;
@@ -58,11 +66,21 @@ public class TripReorderService {
                         candidate.set(r, route);
                         if (!visited.add(orderSignature(candidate))) continue;
                         evaluations++;
-                        List<Map<String, Object>> rebuilt = rebuildRoutes(candidate, original, request, source);
+                        // Trip membership and endpoints are fixed: rebuild only the changed trip.
+                        List<Map<String, Object>> rebuilt = new ArrayList<Map<String, Object>>(current);
+                        Map<String, Object> changed = rebuildRoutes(Collections.singletonList(route), Collections.singletonList(current.get(r)), request, source).get(0);
+                        changed.put("routeNo", current.get(r).get("routeNo"));
+                        changed.put("tripNo", current.get(r).get("tripNo"));
+                        rebuilt.set(r, changed);
                         Score candidateScore = score(rebuilt, start);
-                        if (timeImproved(candidateScore, currentScore) && compare(candidateScore, bestScore) < 0) {
+                        if (compare(candidateScore, bestScore) < 0) {
                             best = rebuilt;
                             bestScore = candidateScore;
+                            if (bestScore.violations == 0) {
+                                current = best;
+                                currentScore = bestScore;
+                                break search;
+                            }
                         }
                     }
                 }
@@ -71,7 +89,7 @@ public class TripReorderService {
             current = best;
             currentScore = bestScore;
         }
-        boolean improved = timeImproved(currentScore, before);
+        boolean improved = compare(currentScore, before) < 0;
         Map<String, Object> result = copy(source);
         if (improved) {
             result.put("routes", current);
@@ -83,11 +101,43 @@ public class TripReorderService {
         response.put("evaluations", evaluations);
         response.put("iterations", iterations);
         response.put("limited", limited || iterations >= 200);
+        response.put("searchMode", expanded ? "EXPANDED" : "CONFLICT_ONLY");
+        response.put("improvementType", timeImproved(currentScore, before) ? "TIME_WINDOW" : improved ? "EFFICIENCY_ONLY" : "NONE");
         response.put("beforeDistance", totalDistance(original));
         response.put("afterDistance", totalDistance(current));
         response.put("beforeCompletionMinutes", before.completionMinutes);
         response.put("afterCompletionMinutes", currentScore.completionMinutes);
         return response;
+    }
+
+    /** Recompute conflicts every round, with continuous execution independently per vehicle. */
+    private Map<Integer, Map<Integer, Integer>> conflictDirections(List<Map<String, Object>> routes, double start) {
+        Map<Integer, Map<Integer, Integer>> conflicts = new HashMap<>();
+        Map<String, Double> nextStart = new HashMap<>();
+        for (int r = 0; r < routes.size(); r++) {
+            Map<String, Object> route = routes.get(r);
+            String key = vehicleKey(route);
+            double routeStart = nextStart.getOrDefault(key, start);
+            double cursor = routeStart;
+            List<Map<String, Object>> points = maps(route.get("points"));
+            List<Map<String, Object>> segments = maps(route.get("segments"));
+            for (int i = 0; i < points.size(); i++) {
+                if (i > 0 && i - 1 < segments.size()) cursor += number(segments.get(i - 1).get("durationMinutes"));
+                Map<String, Object> point = points.get(i);
+                int minute = minuteOfDay(cursor);
+                if (isCollectionPoint(point, i, points.size()) && hasWindow(point) && !allows(point, minute)) {
+                    int direction = 0; // Forbidden, overnight and incomplete windows search both directions.
+                    Integer begin = FacilityTimeWindow.parseClockMinutes(point.get("allowTimeBegin"));
+                    Integer end = FacilityTimeWindow.parseClockMinutes(point.get("allowTimeEnd"));
+                    boolean barred = point.get("barredTimeBegin") != null && point.get("barredTimeEnd") != null;
+                    if (!barred && begin != null && end != null && begin <= end) direction = minute < begin ? 1 : -1;
+                    conflicts.computeIfAbsent(r, ignored -> new HashMap<>()).put(i, direction);
+                }
+                cursor += number(point.get("operationDurationMinutes"));
+            }
+            nextStart.put(key, Math.max(cursor, routeStart + number(route.get("durationMinutes"))));
+        }
+        return conflicts;
     }
 
     private String orderSignature(List<Map<String, Object>> routes) {
@@ -304,7 +354,7 @@ public class TripReorderService {
             nextStart.put(key, cursor);
         }
         for (Double end : nextStart.values()) completion += Math.max(0D, end - baseStart);
-        return new Score(violations, penalty, completion);
+        return new Score(violations, penalty, completion, totalDistance(routes));
     }
 
     private boolean allows(Map<String, Object> point, int minute) {
@@ -356,7 +406,9 @@ public class TripReorderService {
         if (value != 0) return value;
         value = Double.compare(left.penaltyMinutes, right.penaltyMinutes);
         if (value != 0) return value;
-        return Double.compare(left.completionMinutes, right.completionMinutes);
+        value = Double.compare(left.completionMinutes, right.completionMinutes);
+        if (value != 0) return value;
+        return Double.compare(left.distance, right.distance);
     }
 
     private boolean timeImproved(Score candidate, Score baseline) {
@@ -437,10 +489,12 @@ public class TripReorderService {
         private final int violations;
         private final double penaltyMinutes;
         private final double completionMinutes;
-        private Score(int violations, double penaltyMinutes, double completionMinutes) {
+        private final double distance;
+        private Score(int violations, double penaltyMinutes, double completionMinutes, double distance) {
             this.violations = violations;
             this.penaltyMinutes = penaltyMinutes;
             this.completionMinutes = completionMinutes;
+            this.distance = distance;
         }
     }
 }

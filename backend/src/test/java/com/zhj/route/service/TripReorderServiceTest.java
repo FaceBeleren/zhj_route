@@ -76,6 +76,81 @@ class TripReorderServiceTest {
     }
 
     @Test
+    void defaultOnlyTriesLaterPositionsForEarlyConflict() {
+        Map<String, Object> route = route(1, "v1", "早到点", "05:00", "06:00");
+        List<Map<String, Object>> points = new ArrayList<>(maps(route.get("points")));
+        points.add(2, point(999L, "普通点1", "MIDDLE", null, null, 20D));
+        points.add(3, point(998L, "普通点2", "MIDDLE", null, null, 20D));
+        route.put("points", points);
+        route.put("segments", Arrays.asList(segment(1), segment(2), segment(3), segment(4)));
+        Map<String, Object> response = service.repairPoints(request(Arrays.asList(route)));
+        assertEquals(2, response.get("evaluations"));
+        assertEquals(true, response.get("improved"));
+        assertEquals(1, response.get("afterViolationCount"));
+        assertEquals("TIME_WINDOW", response.get("improvementType"));
+    }
+
+    @Test
+    void reevaluatesFollowingTripAndDoesNotIntroduceItsConflict() {
+        Map<String, Object> first = route(1, "v1", "早到点", "02:25", "03:00");
+        List<Map<String, Object>> points = new ArrayList<>(maps(first.get("points")));
+        points.add(2, point(999L, "普通点", "MIDDLE", null, null, 20D));
+        first.put("points", points);
+        first.put("segments", Arrays.asList(segment(1), segment(2), segment(3)));
+        Map<String, Object> second = route(2, "v1", "后趟限时点", "03:30", "04:00");
+        Map<String, Object> response = service.repairPoints(request(Arrays.asList(first, second)));
+        // Moving the early point resolves it, but advances the next trip outside its window.
+        assertEquals(1, response.get("afterViolationCount"));
+        assertEquals(2, resultRoutes(response).size());
+        assertSame(second, resultRoutes(response).get(1));
+    }
+
+    @Test
+    void movesLatePointEarlierAndStopsWhenAllPass() {
+        Map<String, Object> route = route(1, "v1", "晚到点", "02:00", "02:20");
+        List<Map<String, Object>> points = new ArrayList<>(maps(route.get("points")));
+        points.add(1, point(999L, "普通点", "MIDDLE", null, null, 30D));
+        route.put("points", points);
+        route.put("segments", Arrays.asList(segment(1), segment(2), segment(3)));
+        Map<String, Object> response = service.repairPoints(request(Arrays.asList(route)));
+        assertEquals("CONFLICT_ONLY", response.get("searchMode"));
+        assertEquals(1, response.get("evaluations"));
+        assertEquals(0, response.get("afterViolationCount"));
+        assertEquals("晚到点", maps(resultRoutes(response).get(0).get("points")).get(1).get("facilityName"));
+    }
+
+    @Test
+    void oneRelocationCanResolveTwoConflicts() {
+        Map<String, Object> route = route(1, "v1", "早到点", "02:25", "03:00");
+        List<Map<String, Object>> points = new ArrayList<>(maps(route.get("points")));
+        points.add(2, point(999L, "晚到点", "MIDDLE", "02:00", "02:20", 20D));
+        route.put("points", points);
+        route.put("segments", Arrays.asList(segment(1), segment(2), segment(3)));
+        Map<String, Object> response = service.repairPoints(request(Arrays.asList(route)));
+        assertEquals(2, response.get("beforeViolationCount"));
+        assertEquals(0, response.get("afterViolationCount"));
+        assertEquals(1, response.get("evaluations"));
+    }
+
+    @Test
+    void expandedSearchIsExplicitAndEfficiencyOnlyImprovementIsAccepted() {
+        Map<String, Object> route = route(1, "v1", "禁止点", null, null);
+        middle(route).put("barredTimeBegin", "00:00");
+        middle(route).put("barredTimeEnd", "23:59");
+        List<Map<String, Object>> points = new ArrayList<>(maps(route.get("points")));
+        points.add(2, point(999L, "普通点", "MIDDLE", null, null, 30D));
+        route.put("points", points);
+        route.put("segments", Arrays.asList(segment(1), segment(2), segment(3)));
+        Map<String, Object> input = request(Arrays.asList(route));
+        input.put("searchMode", "EXPANDED");
+        Map<String, Object> response = service.repairPoints(input);
+        assertEquals("EXPANDED", response.get("searchMode"));
+        assertEquals(true, response.get("improved"));
+        assertEquals("EFFICIENCY_ONLY", response.get("improvementType"));
+        assertEquals(1, response.get("afterViolationCount"));
+    }
+
+    @Test
     void repairKeepsImpossibleSinglePointRouteAndTerminates() {
         Map<String, Object> route = route(1, "v1", "不可达点", "05:00", "06:00");
         Map<String, Object> response = service.repairPoints(request(Arrays.asList(route)));
