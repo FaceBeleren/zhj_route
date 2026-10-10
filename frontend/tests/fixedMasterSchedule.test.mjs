@@ -9,11 +9,13 @@ const app = readFileSync(new URL('../src/App.vue', import.meta.url), 'utf8')
 const code = app.slice(app.indexOf('const fixedMaster = ref(null)'), app.indexOf('const assignmentActiveVersionId = ref(null)'))
 const repairCode = app.slice(app.indexOf('async function updateFixedMasterTemplate('), app.indexOf('function openTimeWindowRepair('))
 const modalCode = app.slice(app.indexOf('function openTimeWindowRepair('), app.indexOf('function showAssignmentVersionResult('))
+const compactCode = app.slice(app.indexOf('function assignmentReorderRoutePayload('), app.indexOf('async function requestAssignmentTripReorder('))
+const compactAssignmentReorderResult = new Function('planningSegmentsForSchedule', `${compactCode}; return compactAssignmentReorderResult`)(route => route.roadSegments || route.segments || [])
 const exportCode = app.slice(app.indexOf('function fixedMasterExportSchemes('), app.indexOf('async function exportFixedMaster('))
 function fixture() {
   const requests = []
   const scope = {
-    ref, computed, maskFixedTripTemplate, buildFixedDailyRouteResult,
+    ref, computed, maskFixedTripTemplate, buildFixedDailyRouteResult, compactAssignmentReorderResult,
     assignmentBatchRunning: ref(false), assignmentTripReorderRunning: ref(false),
     timeRepairScope: ref('ASSIGNMENT'), timeRepairFixedOwner: ref(null), timeRepairVersion: ref(null), timeRepairOriginal: ref(null), timeRepairPreview: ref(null), timeRepairError: ref(''), timeRepairVisible: ref(false),
     timeWindowStatsForResult: () => ({ violationCount: 1, reorderable: true }),
@@ -39,7 +41,7 @@ function fixture() {
       return { segments: body.points.slice(1).map(() => ({ distance: 100, durationMinutes: 1, pathSource: 'OD_CACHE', path: [{ longitude: 118, latitude: 36.8 }, { longitude: 118.01, latitude: 36.8 }] })), distance: 100 * (body.points.length - 1), durationMinutes: body.points.length - 1 }
     }
   }
-  const state = new Function('scope', `with (scope) { ${code}; ${repairCode}; ${modalCode}; ${exportCode}; return { generateFixedMaster, fixedMaster, fixedMasterFresh, fixedMasterDays, fixedMasterMessage, updateFixedMasterTemplate, assignmentWorkbookRequest, openTimeWindowRepair }; }`)(scope)
+  const state = new Function('scope', `with (scope) { ${code}; ${repairCode}; ${modalCode}; ${exportCode}; return { generateFixedMaster, fixedMaster, fixedMasterFresh, fixedMasterDays, fixedMasterMessage, fixedMasterCycleTimeWindowStats, updateFixedMasterTemplate, assignmentWorkbookRequest, openTimeWindowRepair, runTimeWindowRepair, applyTimeWindowRepair }; }`)(scope)
   return { scope, state, requests }
 }
 
@@ -116,4 +118,77 @@ test('time-window repair always opens full collection template, never the select
   assert.equal(scope.timeRepairScope.value, 'FIXED')
   assert.equal(scope.timeRepairOriginal.value.routes.some(route => route.points.some(point => point.scheduleSkipped)), false)
   assert.equal(scope.timeRepairFixedOwner.value, state.fixedMaster.value)
+  assert.deepEqual(scope.timeRepairVersion.value.scheduleDays, [{ day: 1, facilityIds: [1, 2, 3] }, { day: 2, facilityIds: [1, 3] }])
+})
+
+test('fixed repair submits all scheduled days and shows daily conflicts even when template passes', async () => {
+  const { state, scope } = fixture()
+  await state.generateFixedMaster()
+  scope.timeWindowStatsForResult = result => ({ violationCount: result === state.fixedMaster.value.template ? 0 : 1, reorderable: true })
+  assert.equal(state.fixedMasterCycleTimeWindowStats.value.violationCount, 2)
+  assert.match(state.fixedMasterCycleTimeWindowStats.value.message, /完整模板：0处冲突/)
+  assert.match(state.fixedMasterCycleTimeWindowStats.value.message, /第2天1处冲突/)
+  assert.match(app, /fixedMasterCycleTimeWindowStats.violationCount === 0/)
+  state.openTimeWindowRepair('FIXED')
+  let request
+  scope.api = async (url, options) => {
+    assert.equal(url, '/api/optimize/repair-time-windows')
+    request = JSON.parse(options.body)
+    return { jointScenarioValidation: true, improved: false, templateAfterViolationCount: 0, dailyAfter: [{ day: 1, violationCount: 0 }, { day: 2, violationCount: 1 }] }
+  }
+  await state.runTimeWindowRepair()
+  assert.deepEqual(request.scheduleDays, [{ day: 1, facilityIds: [1, 2, 3] }, { day: 2, facilityIds: [1, 3] }])
+  assert.equal(request.result.distanceMode, 'ROAD')
+  assert.equal(request.result.routes[0].points.length, 4)
+  assert.equal(scope.timeRepairPreview.value.dailyAfter[1].violationCount, 1)
+  assert.equal(scope.timeRepairError.value, '')
+})
+
+test('ordinary assignment repair does not opt into joint daily validation', async () => {
+  const { state, scope } = fixture()
+  await state.generateFixedMaster()
+  scope.timeRepairOriginal.value = state.fixedMaster.value.template
+  let request
+  scope.api = async (_, options) => { request = JSON.parse(options.body); return { improved: false } }
+  await state.runTimeWindowRepair()
+  assert.equal('scheduleDays' in request, false)
+  assert.equal(scope.timeRepairError.value, '')
+})
+
+test('rejects old backend and stale schedule previews without changing template', async () => {
+  const { state, scope } = fixture()
+  await state.generateFixedMaster()
+  const original = JSON.stringify(state.fixedMaster.value.template)
+  state.openTimeWindowRepair('FIXED')
+  scope.api = async () => ({ improved: true })
+  await state.runTimeWindowRepair()
+  assert.equal(scope.timeRepairPreview.value, null)
+  assert.match(scope.timeRepairError.value, /重启/)
+  scope.api = async () => {
+    scope.optimizeOptions.normalSpeedKmh = 30
+    return { improved: true, jointScenarioValidation: true }
+  }
+  await state.runTimeWindowRepair()
+  assert.equal(scope.timeRepairPreview.value, null)
+  assert.match(scope.timeRepairError.value, /配置已变化/)
+  assert.equal(JSON.stringify(state.fixedMaster.value.template), original)
+})
+
+test('joint repair applies only to fixed template and rebuilds every day before export', async () => {
+  const { state, scope } = fixture()
+  await state.generateFixedMaster()
+  const schemes = JSON.stringify(scope.assignmentVersions.value)
+  const previousApi = scope.api
+  state.openTimeWindowRepair('FIXED')
+  scope.api = async (url, options) => url === '/api/optimize/repair-time-windows'
+    ? { improved: true, jointScenarioValidation: true, message: '完整模板和每日均通过', result: JSON.parse(JSON.stringify(state.fixedMaster.value.template)) }
+    : previousApi(url, options)
+  await state.runTimeWindowRepair()
+  await state.applyTimeWindowRepair()
+  assert.equal(scope.timeRepairVisible.value, false)
+  assert.equal(state.fixedMasterMessage.value, '完整模板和每日均通过')
+  assert.equal(state.fixedMasterDays.value.length, 2)
+  assert.equal(state.fixedMasterDays.value.every(day => day.result.dailyRoadRebuilt), true)
+  assert.equal(JSON.stringify(scope.assignmentVersions.value), schemes)
+  assert.equal(state.assignmentWorkbookRequest(new Map(), true).fixedMaster.schemes.length, 2)
 })

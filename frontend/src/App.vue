@@ -1118,14 +1118,15 @@
           <section v-if="selectedSplitRoute && currentView === 'position-assignment'" class="panel" style="padding:16px">
             <div class="panel-head"><h2>固定主路线按日执行</h2><div class="panel-actions">
               <button :disabled="fixedMasterRunning || assignmentBatchRunning || assignmentTripReorderRunning || !assignmentScheduleExportReady" @click="generateFixedMaster">{{ fixedMasterRunning ? fixedMasterMessage : '独立生成全点多趟方案' }}</button>
-              <button :disabled="!fixedMasterFresh || fixedMasterRunning || assignmentBatchRunning || assignmentTripReorderRunning || fixedMasterTimeWindowStats.violationCount === 0" @click="openTimeWindowRepair('FIXED')">时间窗修正路线</button>
+              <button :disabled="!fixedMasterFresh || fixedMasterRunning || assignmentBatchRunning || assignmentTripReorderRunning || fixedMasterCycleTimeWindowStats.violationCount === 0" @click="openTimeWindowRepair('FIXED')">时间窗修正路线</button>
               <button :disabled="!!fixedMasterTripDisabledReason" :title="fixedMasterTripDisabledReason" @click="tryReorderFixedMasterTrips">尝试修改趟数顺序</button>
               <button :disabled="!fixedMasterFresh || fixedMasterRunning || assignmentBatchRunning || assignmentTripReorderRunning || loading" @click="exportFixedMaster">导出方案</button>
               <button v-if="fixedMaster?.timeWindowOriginalResult" :disabled="!fixedMasterFresh || fixedMasterRunning || assignmentTripReorderRunning" @click="restoreFixedMasterOriginal">恢复修正前全点模板</button>
             </div></div>
-            <p>这是第二套独立方案：按所有点都收生成多趟，趟序调整和时间窗修正只针对完整模板。每日跳过不收点，重新查询道路并计算距离、耗时、到达时间与时间窗；保留原趟次、点位相对顺序和卸料时间，不对每日结果自动调整顺序。</p>
+            <p>这是第二套独立方案：按所有点都收生成多趟。时间窗修正共同检查完整模板和整个排班周期，寻找每天跳点后都满足时间窗的固定顺序；趟序调整仍只针对完整模板。每日跳过不收点，重新查询道路并计算距离、耗时、到达时间与时间窗；保留原趟次和卸料时间，不对每日结果单独重排。不保证一定找到全部通过的固定顺序。</p>
             <p>计划不收依据已确认频次；停排不代表任务已完成。实际满载、漏收、设施关闭等异常需人工调度补收。</p>
             <p v-if="fixedMasterMessage">{{ fixedMasterMessage }}</p>
+            <p v-if="fixedMasterFresh">{{ fixedMasterCycleTimeWindowStats.message }}</p>
             <p v-if="fixedMaster && !fixedMasterFresh" style="color:#c46b00">点位、排班或规划参数已变化，固定方案已失效，请重新生成。旧结果不会用于导出。</p>
             <template v-if="fixedMasterFresh">
               <label>查看 <select v-model.number="fixedMasterDay"><option :value="0">完整模板（所有点都收）</option><option v-for="day in assignmentScheduleCycleDays" :key="day" :value="day">第{{ day }}天</option></select></label>
@@ -2254,6 +2255,7 @@
       <h2>时间窗修正路线 · {{ timeRepairVersion?.name }}</h2>
       <p>调整同一趟内点位顺序，以时间窗满足度为优先目标，可能增加行驶距离。修正结果是运营调整建议，不代表原距离优化结果。确认应用后更新当前方案。</p>
       <p>本阶段按严格时间窗校验，不自动等待；最多评估500个候选、200轮，计算时间预算60秒（正在执行的道路请求完成后停止）。</p>
+      <p v-if="timeRepairScope === 'FIXED'">联合检查完整模板和排班周期内每一天：每个候选都按当天应收点重新计算跳点后道路、作业时间及连续趟次到达时间。同一点在不同天冲突分别计数；冲突方向不同则双向尝试。耗时与距离比较采用整个排班周期合计，不是只看全点模板。</p>
       <p>默认只移动冲突收运点：早到向后挪，晚到向前挪；禁止或跨午夜时间窗双向尝试。每轮重新检查全部点位；即使某个候选全部通过，也继续比较本轮剩余插入位置，依次按冲突数、超窗分钟、总完成时间、总距离选优。本轮结束后全部通过则停止；达到计算上限时可能只比较部分候选，不保证全局最优。</p>
       <button :disabled="assignmentTripReorderRunning" @click="runTimeWindowRepair('CONFLICT_ONLY')">{{ assignmentTripReorderRunning ? '正在计算修正版…' : '开始修正' }}</button>
       <button :disabled="assignmentTripReorderRunning" title="允许移动正常收运点，搜索更广但可能更慢或增加绕行；仍从修正前原方案试算" @click="runTimeWindowRepair('EXPANDED')">扩大搜索</button>
@@ -2261,7 +2263,9 @@
       <p>{{ timeRepairError || timeRepairPreview?.message }}</p>
       <template v-if="timeRepairPreview">
         <p>搜索方式：{{ timeRepairPreview.searchMode === 'EXPANDED' ? '扩大搜索（全部收运点）' : '只挪冲突点' }}；改善类型：{{ timeRepairPreview.improvementType === 'TIME_WINDOW' ? '时间窗改善' : timeRepairPreview.improvementType === 'EFFICIENCY_ONLY' ? '仅耗时或距离改善，时间窗冲突仍需处理' : '无改善' }}</p>
-        <p>距离：{{ formatDistance(timeRepairPreview.beforeDistance) }} → {{ formatDistance(timeRepairPreview.afterDistance) }}；超窗分钟：{{ timeRepairPreview.beforePenaltyMinutes }} → {{ timeRepairPreview.afterPenaltyMinutes }}；累计作业时间：{{ formatDuration(timeRepairPreview.beforeCompletionMinutes) }} → {{ formatDuration(timeRepairPreview.afterCompletionMinutes) }}</p>
+        <p>{{ timeRepairPreview.jointScenarioValidation ? '排班周期合计距离' : '距离' }}：{{ formatDistance(timeRepairPreview.beforeDistance) }} → {{ formatDistance(timeRepairPreview.afterDistance) }}；{{ timeRepairPreview.jointScenarioValidation ? '模板及各天合计超窗分钟' : '超窗分钟' }}：{{ timeRepairPreview.beforePenaltyMinutes }} → {{ timeRepairPreview.afterPenaltyMinutes }}；{{ timeRepairPreview.jointScenarioValidation ? '排班周期合计耗时' : '累计作业时间' }}：{{ formatDuration(timeRepairPreview.beforeCompletionMinutes) }} → {{ formatDuration(timeRepairPreview.afterCompletionMinutes) }}</p>
+        <p v-if="timeRepairPreview.jointScenarioValidation">完整模板：{{ timeRepairPreview.templateBeforeViolationCount }} → {{ timeRepairPreview.templateAfterViolationCount }}处冲突。</p>
+        <p v-for="day in timeRepairPreview.dailyAfter || []" :key="day.day">第{{ day.day }}天：{{ timeRepairPreview.dailyBefore?.find(item => item.day === day.day)?.violationCount }} → {{ day.violationCount }}处冲突；{{ day.violationCount === 0 ? '时间窗通过' : '仍未通过' }}<template v-if="day.dueUnassignedCount">；应收未分配{{ day.dueUnassignedCount }}点</template>。</p>
         <p>已评估 {{ timeRepairPreview.evaluations }} 个候选，执行 {{ timeRepairPreview.iterations }} 轮。</p>
         <article v-for="(route, index) in timeRepairPreview.result?.routes || []" :key="index">
           <strong>第{{ route.routeNo }}趟</strong>
@@ -2665,6 +2669,15 @@ const fixedMasterDayData = computed(() => {
 })
 const fixedMasterSelectedRoute = computed(() => fixedMasterDayData.value?.result?.routes.find(route => route.routeNo === fixedMasterRouteNo.value) || null)
 const fixedMasterTimeWindowStats = computed(() => timeWindowStatsForResult(fixedMasterFresh.value ? fixedMaster.value.template : null))
+const fixedMasterCycleTimeWindowStats = computed(() => {
+  if (!fixedMasterFresh.value) return { violationCount: 0, message: '' }
+  const templateCount = fixedMasterTimeWindowStats.value.violationCount
+  const days = fixedMaster.value.days.map(day => ({ day: day.day, count: timeWindowStatsForResult(day.result).violationCount, missing: Number(day.result?.dueUnassignedCount || 0) }))
+  const dailyCount = days.reduce((sum, day) => sum + day.count, 0)
+  const missing = Number(fixedMaster.value.template.unassignedPointCount || 0) || days.reduce((sum, day) => sum + day.missing, 0)
+  return { violationCount: templateCount + dailyCount,
+    message: `完整模板：${templateCount}处冲突；排班周期：${days.map(day => `第${day.day}天${day.count ? `${day.count}处冲突` : '时间窗通过'}${day.missing ? `（应收未分配${day.missing}点）` : ''}`).join('，')}。${missing ? '仍有未分配点，不代表任务全部可执行。' : ''}` }
+})
 const fixedMasterTripDisabledReason = computed(() => {
   if (fixedMasterRunning.value || assignmentTripReorderRunning.value || assignmentBatchRunning.value) return '正在计算'
   if (!fixedMasterFresh.value) return '请先生成有效全点模板'
@@ -5007,7 +5020,10 @@ function openTimeWindowRepair(scope = 'ASSIGNMENT') {
   timeRepairScope.value = scope === 'FIXED' ? 'FIXED' : 'ASSIGNMENT'
   if (timeRepairScope.value === 'FIXED' && !fixedMasterFresh.value) return
   timeRepairFixedOwner.value = timeRepairScope.value === 'FIXED' ? fixedMaster.value : null
-  timeRepairVersion.value = timeRepairScope.value === 'FIXED' ? { name: '独立全点模板（全部点位都收）' } : assignmentActiveVersion.value
+  timeRepairVersion.value = timeRepairScope.value === 'FIXED' ? {
+    name: '固定模板＋整个排班周期', fingerprint: fixedMasterFingerprint.value,
+    scheduleDays: fixedMaster.value.days.map(day => ({ day: day.day, facilityIds: splitPlanPoints.value.filter((_, index) => day.indices.includes(index)).map(point => point.facilityId) }))
+  } : assignmentActiveVersion.value
   timeRepairOriginal.value = deepClone(timeRepairScope.value === 'FIXED' ? fixedMaster.value.template : multiOptimization.value)
   timeRepairPreview.value = null
   timeRepairError.value = ''
@@ -5027,17 +5043,25 @@ async function runTimeWindowRepair(searchMode = 'CONFLICT_ONLY') {
   assignmentTripReorderRunning.value = true
   timeRepairError.value = ''
   try {
-    timeRepairPreview.value = await api('/api/optimize/repair-time-windows', {
+    const joint = timeRepairScope.value === 'FIXED'
+    const validOwner = () => !joint || (timeRepairFixedOwner.value === fixedMaster.value && fixedMasterFresh.value && timeRepairVersion.value.fingerprint === fixedMasterFingerprint.value)
+    if (!validOwner()) throw new Error('全点模板或排班配置已变化，请重新打开修正窗口')
+    timeRepairPreview.value = null
+    const preview = await api('/api/optimize/repair-time-windows', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         result: compactAssignmentReorderResult(timeRepairOriginal.value),
         searchMode,
+        ...(joint ? { scheduleDays: timeRepairVersion.value.scheduleDays } : {}),
         plannedStartTime: optimizeOptions.plannedStartTime,
         denseSpeedKmh: optimizeOptions.denseSpeedKmh,
         normalSpeedKmh: optimizeOptions.normalSpeedKmh,
         transferSpeedKmh: optimizeOptions.transferSpeedKmh
       })
     })
+    if (!validOwner()) throw new Error('计算期间全点模板或排班配置已变化，请重新打开修正窗口')
+    if (joint && !preview.jointScenarioValidation) throw new Error('后端尚不支持排班周期联合校验，请重启更新后的后端')
+    timeRepairPreview.value = preview
   } catch (err) {
     timeRepairError.value = `修正失败，原方案保留：${err.message || String(err)}`
   } finally {
@@ -5048,7 +5072,7 @@ async function runTimeWindowRepair(searchMode = 'CONFLICT_ONLY') {
 async function applyTimeWindowRepair() {
   if (timeRepairScope.value === 'FIXED') {
     const owner = timeRepairFixedOwner.value
-    if (!timeRepairPreview.value?.improved || owner !== fixedMaster.value || !fixedMasterFresh.value) {
+    if (!timeRepairPreview.value?.improved || !timeRepairPreview.value.jointScenarioValidation || owner !== fixedMaster.value || !fixedMasterFresh.value || timeRepairVersion.value.fingerprint !== fixedMasterFingerprint.value) {
       timeRepairError.value = '全点模板或配置已变化，请重新打开修正窗口'
       return
     }

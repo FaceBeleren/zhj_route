@@ -4,6 +4,7 @@ import com.zhj.route.algorithm.FacilityTimeWindow;
 import org.springframework.stereotype.Service;
 
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.HashMap;
@@ -25,12 +26,15 @@ public class TripReorderService {
         Map<String, Object> source = map(request.get("result"));
         List<Map<String, Object>> original = maps(source.get("routes"));
         double start = startMinutes(request);
-        Score before = score(original, start);
+        long deadline = System.nanoTime() + 60_000_000_000L;
+        ScenarioEvaluator evaluator = new ScenarioEvaluator(request, original, start, deadline);
+        ScenarioEvaluation currentEvaluation = evaluator.evaluate(original);
+        ScenarioEvaluation originalEvaluation = currentEvaluation;
+        Score before = currentEvaluation.score;
         List<Map<String, Object>> current = original;
         Score currentScore = before;
         int evaluations = 0;
         int iterations = 0;
-        long deadline = System.nanoTime() + 60_000_000_000L;
         java.util.Set<String> visited = new java.util.HashSet<String>();
         visited.add(orderSignature(current));
         boolean limited = false;
@@ -39,7 +43,8 @@ public class TripReorderService {
             iterations++;
             List<Map<String, Object>> best = current;
             Score bestScore = currentScore;
-            Map<Integer, Map<Integer, Integer>> conflicts = conflictDirections(current, start);
+            ScenarioEvaluation bestEvaluation = currentEvaluation;
+            Map<Integer, Map<Integer, Integer>> conflicts = evaluator.conflicts(current, currentEvaluation);
             for (int r = 0; r < current.size(); r++) {
                 List<Map<String, Object>> points = maps(current.get(r).get("points"));
                 for (int from = 1; from < points.size() - 1; from++) {
@@ -56,6 +61,7 @@ public class TripReorderService {
                             limited = true;
                             current = best;
                             currentScore = bestScore;
+                            currentEvaluation = bestEvaluation;
                             break search;
                         }
                         List<Map<String, Object>> candidate = new ArrayList<Map<String, Object>>(current);
@@ -68,14 +74,25 @@ public class TripReorderService {
                         evaluations++;
                         // Trip membership and endpoints are fixed: rebuild only the changed trip.
                         List<Map<String, Object>> rebuilt = new ArrayList<Map<String, Object>>(current);
-                        Map<String, Object> changed = rebuildRoutes(Collections.singletonList(route), Collections.singletonList(current.get(r)), request, source).get(0);
-                        changed.put("routeNo", current.get(r).get("routeNo"));
-                        changed.put("tripNo", current.get(r).get("tripNo"));
-                        rebuilt.set(r, changed);
-                        Score candidateScore = score(rebuilt, start);
+                        ScenarioEvaluation candidateEvaluation;
+                        try {
+                            Map<String, Object> changed = rebuildRoutes(Collections.singletonList(route), Collections.singletonList(current.get(r)), request, source).get(0);
+                            changed.put("routeNo", current.get(r).get("routeNo"));
+                            changed.put("tripNo", current.get(r).get("tripNo"));
+                            rebuilt.set(r, changed);
+                            candidateEvaluation = evaluator.evaluate(rebuilt);
+                        } catch (ScenarioBudgetExceeded ex) {
+                            limited = true;
+                            current = best;
+                            currentScore = bestScore;
+                            currentEvaluation = bestEvaluation;
+                            break search;
+                        }
+                        Score candidateScore = candidateEvaluation.score;
                         if (compare(candidateScore, bestScore) < 0) {
                             best = rebuilt;
                             bestScore = candidateScore;
+                            bestEvaluation = candidateEvaluation;
                             // Even after all windows pass, finish this round's insertion
                             // candidates so a later feasible position can be more efficient.
                         }
@@ -85,6 +102,7 @@ public class TripReorderService {
             if (best == current) break;
             current = best;
             currentScore = bestScore;
+            currentEvaluation = bestEvaluation;
         }
         boolean improved = compare(currentScore, before) < 0;
         Map<String, Object> result = copy(source);
@@ -96,17 +114,215 @@ public class TripReorderService {
                 ? (currentScore.violations == 0 ? "时间窗全部通过；已达到计算上限，仅比较了部分候选" : "已达到计算上限，仅比较了部分候选")
                 : currentScore.violations == 0 ? "时间窗全部通过，已完成本轮候选比较" : "当前搜索未找到进一步改善";
         String message = "冲突点由 " + before.violations + " 个变为 " + currentScore.violations + " 个；" + reason;
+        if (evaluator.joint) message = evaluator.summary(currentEvaluation) + "；" + (limited || iterations >= 200 ? "已达到计算上限，仅比较了部分候选" : currentScore.violations == 0 ? "已完成本轮候选比较" : "当前搜索未找到全部场景均通过的固定顺序");
         Map<String, Object> response = response(improved, message, result, before, currentScore);
         response.put("evaluations", evaluations);
         response.put("iterations", iterations);
         response.put("limited", limited || iterations >= 200);
         response.put("searchMode", expanded ? "EXPANDED" : "CONFLICT_ONLY");
         response.put("improvementType", timeImproved(currentScore, before) ? "TIME_WINDOW" : improved ? "EFFICIENCY_ONLY" : "NONE");
-        response.put("beforeDistance", totalDistance(original));
-        response.put("afterDistance", totalDistance(current));
+        response.put("beforeDistance", before.distance);
+        response.put("afterDistance", currentScore.distance);
         response.put("beforeCompletionMinutes", before.completionMinutes);
         response.put("afterCompletionMinutes", currentScore.completionMinutes);
+        if (evaluator.joint) {
+            response.put("jointScenarioValidation", true);
+            response.put("templateBeforeViolationCount", originalEvaluation.templateScore.violations);
+            response.put("templateAfterViolationCount", currentEvaluation.templateScore.violations);
+            response.put("dailyBefore", originalEvaluation.dailySummaries);
+            response.put("dailyAfter", currentEvaluation.dailySummaries);
+            response.put("allScenariosPassed", currentScore.violations == 0 && evaluator.unassignedCount == 0);
+        }
         return response;
+    }
+
+    /** Request-local road cache: evaluate real bypass routes, not full-route travel with service removed. */
+    private class ScenarioEvaluator {
+        private final Map<String, Object> request;
+        private final List<Map<String, Object>> days;
+        private final Map<String, Map<String, Object>> roadCache = new HashMap<>();
+        private final java.util.Set<String> covered = new java.util.HashSet<>();
+        private final double start;
+        private final long deadline;
+        private final boolean joint;
+        private final int unassignedCount;
+
+        ScenarioEvaluator(Map<String, Object> request, List<Map<String, Object>> routes, double start, long deadline) {
+            this.request = request;
+            this.start = start;
+            this.deadline = deadline;
+            days = maps(request.get("scheduleDays"));
+            joint = request.containsKey("scheduleDays");
+            if (joint && (days.isEmpty() || !"ROAD".equalsIgnoreCase(text(map(request.get("result")).get("distanceMode"))))) {
+                throw new IllegalArgumentException("周期联合修正需要完整排班日期和道路模板");
+            }
+            for (Map<String, Object> route : routes) {
+                List<Map<String, Object>> points = maps(route.get("points"));
+                for (int i = 1; i < points.size() - 1; i++) if (isCollectionPoint(points.get(i), i, points.size())) covered.add(text(points.get(i).get("facilityId")));
+            }
+            java.util.Set<String> dayNumbers = new java.util.HashSet<>();
+            java.util.Set<String> missing = new java.util.HashSet<>();
+            for (Map<String, Object> day : days) {
+                if (number(day.get("day")) < 1 || !dayNumbers.add(text(day.get("day"))) || !(day.get("facilityIds") instanceof List)) throw new IllegalArgumentException("排班日期或应收点列表无效");
+                for (String id : dueIds(day)) if (!covered.contains(id)) missing.add(id);
+            }
+            Map<String, Object> result = map(request.get("result"));
+            unassignedCount = Math.max(missing.size(), Math.max(maps(result.get("unassignedPoints")).size(), (int) number(result.get("unassignedPointCount"))));
+        }
+
+        private java.util.Set<String> dueIds(Map<String, Object> day) {
+            java.util.Set<String> due = new java.util.HashSet<>();
+            for (Object id : (List<?>) day.get("facilityIds")) {
+                if (id == null || text(id).isEmpty()) throw new IllegalArgumentException("排班应收点ID不能为空");
+                due.add(text(id));
+            }
+            return due;
+        }
+
+        ScenarioEvaluation evaluate(List<Map<String, Object>> routes) {
+            if (joint) for (Map<String, Object> route : routes) {
+                checkBudget();
+                validateRoad(maps(route.get("segments")), maps(route.get("points")).size() - 1);
+            }
+            Score template = score(routes, start);
+            if (!joint) return new ScenarioEvaluation(template, template, new ArrayList<>(), new ArrayList<>());
+            int violations = template.violations;
+            double penalty = template.penaltyMinutes, completion = 0D, distance = 0D;
+            List<List<Map<String, Object>>> dailyRoutes = new ArrayList<>();
+            List<Map<String, Object>> summaries = new ArrayList<>();
+            for (Map<String, Object> day : days) {
+                checkBudget();
+                java.util.Set<String> due = dueIds(day);
+                List<Map<String, Object>> filtered = new ArrayList<>();
+                for (Map<String, Object> route : routes) {
+                    checkBudget();
+                    List<Map<String, Object>> full = maps(route.get("points"));
+                    List<Map<String, Object>> points = new ArrayList<>();
+                    for (int i = 0; i < full.size(); i++) if (!isCollectionPoint(full.get(i), i, full.size()) || due.contains(text(full.get(i).get("facilityId")))) points.add(full.get(i));
+                    if (points.size() == full.size()) {
+                        validateRoad(maps(route.get("segments")), points.size() - 1);
+                        filtered.add(route);
+                    } else {
+                        Map<String, Object> road = bypassRoad(points);
+                        Map<String, Object> daily = copy(route);
+                        daily.put("points", points);
+                        daily.put("segments", road.get("segments"));
+                        daily.put("distance", road.get("distance"));
+                        double operation = 0D;
+                        for (Map<String, Object> point : points) operation += number(point.get("operationDurationMinutes"));
+                        daily.put("durationMinutes", round(number(road.get("durationMinutes")) + operation));
+                        filtered.add(daily);
+                    }
+                }
+                checkBudget();
+                Score dailyScore = score(filtered, start);
+                violations += dailyScore.violations;
+                penalty += dailyScore.penaltyMinutes;
+                completion += dailyScore.completionMinutes;
+                distance += dailyScore.distance;
+                dailyRoutes.add(filtered);
+                Map<String, Object> summary = new LinkedHashMap<>();
+                summary.put("day", day.get("day"));
+                summary.put("violationCount", dailyScore.violations);
+                summary.put("penaltyMinutes", round(dailyScore.penaltyMinutes));
+                summary.put("completionMinutes", round(dailyScore.completionMinutes));
+                summary.put("distance", round(dailyScore.distance));
+                summary.put("dueUnassignedCount", due.stream().filter(id -> !covered.contains(id)).count());
+                summaries.add(summary);
+            }
+            return new ScenarioEvaluation(new Score(violations, penalty, completion, distance), template, dailyRoutes, summaries);
+        }
+
+        private Map<String, Object> bypassRoad(List<Map<String, Object>> points) {
+            StringBuilder key = new StringBuilder();
+            for (Map<String, Object> point : points) key.append(text(point.get("facilityId"))).append('@').append(point.get("longitude")).append(',').append(point.get("latitude")).append(';');
+            Map<String, Object> road = roadCache.get(key.toString());
+            if (road != null) return road;
+            // An empty later trip remains at the unloading site. Match the frontend's zero-road rule.
+            if (!points.isEmpty() && points.get(0).get("longitude") instanceof Number && points.get(0).get("latitude") instanceof Number
+                    && Double.isFinite(number(points.get(0).get("longitude"))) && Double.isFinite(number(points.get(0).get("latitude")))
+                    && points.stream().allMatch(point -> points.get(0).get("longitude").equals(point.get("longitude")) && points.get(0).get("latitude").equals(point.get("latitude")))) {
+                List<Map<String, Object>> segments = new ArrayList<>();
+                for (int i = 1; i < points.size(); i++) {
+                    Map<String, Object> segment = new LinkedHashMap<>();
+                    segment.put("distance", 0D); segment.put("durationMinutes", 0D); segment.put("pathSource", "SAME_POINT");
+                    segments.add(segment);
+                }
+                road = new LinkedHashMap<>();
+                road.put("segments", segments); road.put("distance", 0D); road.put("durationMinutes", 0D);
+                roadCache.put(key.toString(), road);
+                return road;
+            }
+            Map<String, Object> input = copy(request);
+            input.remove("result");
+            input.remove("scheduleDays");
+            input.put("points", points);
+            input.put("displayRoadPath", true);
+            road = routeOptimizeService.routeSegmentsPreview(input);
+            List<Map<String, Object>> segments = maps(road.get("segments"));
+            validateRoad(segments, points.size() - 1);
+            double travel = 0D, distance = 0D;
+            for (Map<String, Object> segment : segments) { travel += number(segment.get("durationMinutes")); distance += number(segment.get("distance")); }
+            road = copy(road);
+            road.put("durationMinutes", round(travel));
+            road.put("distance", round(distance));
+            roadCache.put(key.toString(), road);
+            return road;
+        }
+
+        private void validateRoad(List<Map<String, Object>> segments, int expected) {
+            if (expected < 1 || segments.size() != expected) throw new IllegalStateException("每日跳点道路分段不完整，未应用修正");
+            for (Map<String, Object> segment : segments) {
+                String source = text(segment.get("pathSource"));
+                if (!Arrays.asList("OD_CACHE", "OD_PRELOAD", "BAIDU_ONLINE", "SAME_POINT").contains(source)) throw new IllegalStateException("每日跳点包含非道路距离，未应用修正");
+            }
+            for (Map<String, Object> segment : segments) for (String field : new String[]{"distance", "durationMinutes"}) {
+                if (segment.get(field) == null || !Double.isFinite(number(segment.get(field))) || number(segment.get(field)) < 0) throw new IllegalStateException("每日跳点道路数据缺失，未应用修正");
+                try { Double.parseDouble(text(segment.get(field))); } catch (NumberFormatException ex) { throw new IllegalStateException("每日跳点道路数据无效，未应用修正"); }
+            }
+        }
+
+        private void checkBudget() {
+            if (System.nanoTime() >= deadline) throw new ScenarioBudgetExceeded();
+        }
+
+        Map<Integer, Map<Integer, Integer>> conflicts(List<Map<String, Object>> template, ScenarioEvaluation evaluation) {
+            Map<Integer, Map<Integer, Integer>> merged = conflictDirections(template, start);
+            for (List<Map<String, Object>> routes : evaluation.dailyRoutes) {
+                Map<Integer, Map<Integer, Integer>> daily = conflictDirections(routes, start);
+                for (Map.Entry<Integer, Map<Integer, Integer>> entry : daily.entrySet()) {
+                    List<Map<String, Object>> points = maps(routes.get(entry.getKey()).get("points"));
+                    List<Map<String, Object>> full = maps(template.get(entry.getKey()).get("points"));
+                    for (Map.Entry<Integer, Integer> conflict : entry.getValue().entrySet()) {
+                        String id = text(points.get(conflict.getKey()).get("facilityId"));
+                        for (int i = 1; i < full.size() - 1; i++) if (id.equals(text(full.get(i).get("facilityId")))) {
+                            merged.computeIfAbsent(entry.getKey(), ignored -> new HashMap<>()).merge(i, conflict.getValue(), (left, right) -> left.equals(right) ? left : 0);
+                        }
+                    }
+                }
+            }
+            return merged;
+        }
+
+        String summary(ScenarioEvaluation evaluation) {
+            StringBuilder text = new StringBuilder("完整模板：").append(evaluation.templateScore.violations).append("处冲突；排班周期：");
+            for (Map<String, Object> day : evaluation.dailySummaries) text.append("第").append(day.get("day")).append("天").append(number(day.get("violationCount")) == 0 ? "通过" : day.get("violationCount") + "处冲突").append("；");
+            if (unassignedCount > 0) text.append("仍有").append(unassignedCount).append("个点未分配，不代表收运任务全部可执行");
+            return text.toString();
+        }
+    }
+
+    private static class ScenarioBudgetExceeded extends IllegalStateException {
+        ScenarioBudgetExceeded() { super("排班周期校验超过计算预算，请缩小周期后重试；未应用不完整校验结果"); }
+    }
+
+    private static class ScenarioEvaluation {
+        final Score score, templateScore;
+        final List<List<Map<String, Object>>> dailyRoutes;
+        final List<Map<String, Object>> dailySummaries;
+        ScenarioEvaluation(Score score, Score templateScore, List<List<Map<String, Object>>> dailyRoutes, List<Map<String, Object>> dailySummaries) {
+            this.score = score; this.templateScore = templateScore; this.dailyRoutes = dailyRoutes; this.dailySummaries = dailySummaries;
+        }
     }
 
     /** Recompute conflicts every round, with continuous execution independently per vehicle. */
