@@ -3282,11 +3282,16 @@ function routeDisplayDistance(route) {
 }
 function routeDisplayTravelDuration(route) {
   if (!route) return 0
-  return Number(route.planningTravelDurationMinutes ?? route.travelDurationMinutes ?? 0)
+  return Number(route.planningTravelDurationMinutes ?? route.travelDurationMinutes
+    ?? (route.segments || []).reduce((sum, segment) => sum + Number(segment.durationMinutes || 0), 0))
 }
 function routeDisplayTotalDuration(route) {
   if (!route) return 0
-  return Number(routeDisplayTravelDuration(route) || 0) + Number(route.operationDurationMinutes || 0)
+  const total = route.planningTotalDurationMinutes ?? route.totalDurationMinutes ?? route.durationMinutes
+  if (total != null) return Number(total)
+  const operation = route.operationDurationMinutes
+    ?? (route.points || []).reduce((sum, point) => sum + Number(point.operationDurationMinutes || 0), 0)
+  return routeDisplayTravelDuration(route) + Number(operation)
 }
 const selectedMultiRouteDisplayTravelDuration = computed(() => {
   const route = selectedMultiRoute.value
@@ -4905,6 +4910,13 @@ function assignmentReorderRoutePayload(route, result) {
     terminalUnloadMinutes: route?.terminalUnloadMinutes,
     distance: segments.reduce((sum, segment) => sum + Number(segment.distance || 0), 0),
     durationMinutes: route?.durationMinutes,
+    travelDurationMinutes: route?.travelDurationMinutes,
+    planningTravelDurationMinutes: route?.planningTravelDurationMinutes,
+    displayTravelDurationMinutes: route?.displayTravelDurationMinutes,
+    operationDurationMinutes: route?.operationDurationMinutes,
+    totalDurationMinutes: route?.totalDurationMinutes,
+    planningTotalDurationMinutes: route?.planningTotalDurationMinutes,
+    displayTotalDurationMinutes: route?.displayTotalDurationMinutes,
     points: (route?.points || []).map(point => ({ ...point })),
     segments
   }
