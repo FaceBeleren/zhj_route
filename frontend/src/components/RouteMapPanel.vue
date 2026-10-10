@@ -357,6 +357,7 @@ function markerIcon(BMap, appearance) {
 }
 
 function markerAppearance(point, fallbackColor) {
+  if (point.scheduleSkipped) return { fill: '#ffffff', stroke: '#71889a', strokeWidth: 2.4, center: '#ffffff' }
   if (props.showPointSemantics) {
     if (point.candidateMultiCollection) return { fill: '#8b5fc6', stroke: '#ffffff', strokeWidth: 2, center: '#ffffff' }
     if (point.candidateShared) return { fill: '#d49a18', stroke: '#ffffff', strokeWidth: 2, center: '#ffffff' }
@@ -372,6 +373,7 @@ function fallbackMarkerStyle(point, fallbackColor) {
 }
 
 function pointSemanticLabel(point) {
+  if (point.scheduleSkipped) return '今日不收（道路仍经过）'
   if (!props.showPointSemantics) return ''
   if (point.candidateMultiCollection) return '多次收运'
   if (point.candidateShared) return '共享点'
@@ -500,7 +502,8 @@ function normalizeRoutePoints(points) {
       label: String(index + 1),
       candidateMultiCollection: Boolean(point.candidateMultiCollection),
       candidateShared: Boolean(point.candidateShared),
-      candidateLowFrequency: Boolean(point.candidateLowFrequency)
+      candidateLowFrequency: Boolean(point.candidateLowFrequency),
+      scheduleSkipped: Boolean(point.scheduleSkipped)
     }))
     .filter((point) => Number.isFinite(point.longitude) && Number.isFinite(point.latitude))
 }

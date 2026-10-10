@@ -76,6 +76,73 @@ class TripReorderServiceTest {
     }
 
     @Test
+    void comparesRemainingFeasiblePositionsAndChoosesShorterRoute() {
+        RouteOptimizeService optimizer = mock(RouteOptimizeService.class);
+        when(optimizer.routeSegmentsPreview(anyMap())).thenAnswer(invocation -> {
+            Map<String, Object> input = invocation.getArgument(0);
+            List<Map<String, Object>> candidate = maps(input.get("points"));
+            // Both positions pass with identical completion time, but the last is shorter.
+            boolean last = "早到点".equals(candidate.get(candidate.size() - 2).get("facilityName"));
+            List<Map<String, Object>> segments = new ArrayList<>();
+            for (int i = 1; i < candidate.size(); i++) {
+                Map<String, Object> segment = segment(i);
+                segment.put("durationMinutes", 5D);
+                segment.put("distance", last ? 1000D : 2000D);
+                segments.add(segment);
+            }
+            Map<String, Object> result = new HashMap<>();
+            result.put("segments", segments);
+            result.put("distance", last ? 4000D : 8000D);
+            result.put("durationMinutes", 20D);
+            return result;
+        });
+        Map<String, Object> route = route(1, "v1", "早到点", "02:25", "04:00");
+        List<Map<String, Object>> points = new ArrayList<>(maps(route.get("points")));
+        points.add(2, point(999L, "普通点1", "MIDDLE", null, null, 20D));
+        points.add(3, point(998L, "普通点2", "MIDDLE", null, null, 20D));
+        route.put("points", points);
+        route.put("segments", Arrays.asList(segment(1), segment(2), segment(3), segment(4)));
+
+        Map<String, Object> response = new TripReorderService(optimizer).repairPoints(request(Arrays.asList(route)));
+
+        assertEquals(2, response.get("evaluations"));
+        assertEquals(1, response.get("iterations"));
+        assertEquals(0, response.get("afterViolationCount"));
+        assertEquals(4000D, ((Number) response.get("afterDistance")).doubleValue());
+        assertEquals("早到点", maps(resultRoutes(response).get(0).get("points")).get(3).get("facilityName"));
+        assertEquals("早到点", points.get(1).get("facilityName"));
+        assertTrue(response.get("message").toString().contains("已完成本轮候选比较"));
+    }
+
+    @Test
+    void keepsEarlierFeasiblePositionWhenMovingFurtherMissesWindow() {
+        Map<String, Object> route = route(1, "v1", "限时点", "02:25", "02:40");
+        List<Map<String, Object>> points = new ArrayList<>(maps(route.get("points")));
+        points.add(2, point(999L, "普通点1", "MIDDLE", null, null, 20D));
+        points.add(3, point(998L, "普通点2", "MIDDLE", null, null, 20D));
+        route.put("points", points);
+        route.put("segments", Arrays.asList(segment(1), segment(2), segment(3), segment(4)));
+        Map<String, Object> response = service.repairPoints(request(Arrays.asList(route)));
+        assertEquals(2, response.get("evaluations"));
+        assertEquals(0, response.get("afterViolationCount"));
+        assertEquals("限时点", maps(resultRoutes(response).get(0).get("points")).get(2).get("facilityName"));
+    }
+
+    @Test
+    void comparesAllEarlierPositionsForLateConflict() {
+        Map<String, Object> route = route(1, "v1", "晚到点", "02:00", "02:50");
+        List<Map<String, Object>> points = new ArrayList<>(maps(route.get("points")));
+        points.add(1, point(999L, "普通点1", "MIDDLE", null, null, 20D));
+        points.add(2, point(998L, "普通点2", "MIDDLE", null, null, 20D));
+        route.put("points", points);
+        route.put("segments", Arrays.asList(segment(1), segment(2), segment(3), segment(4)));
+        Map<String, Object> response = service.repairPoints(request(Arrays.asList(route)));
+        assertEquals(2, response.get("evaluations"));
+        assertEquals(0, response.get("afterViolationCount"));
+        assertEquals(1, response.get("iterations"));
+    }
+
+    @Test
     void defaultOnlyTriesLaterPositionsForEarlyConflict() {
         Map<String, Object> route = route(1, "v1", "早到点", "05:00", "06:00");
         List<Map<String, Object>> points = new ArrayList<>(maps(route.get("points")));

@@ -879,6 +879,7 @@
             </div>
           </section>
 
+
           <section v-if="selectedSplitRoute" class="panel split-panel multi-layout">
             <div>
               <div class="panel-head compact"><h2>原路线点位</h2></div>
@@ -1112,6 +1113,35 @@
               <p v-if="assignmentBatchRunning" class="assignment-version-hint">正在逐套优化，已完成的方案会保留各自结果。</p>
               <p v-else-if="assignmentVersions.some(version => version.selectedIndices.size < 3)" class="assignment-version-hint">请为每一套至少选择 3 个点位，再生成全部方案。</p>
               <div class="assignment-schedule-export"><button type="button" class="secondary" :disabled="!assignmentScheduleExportReady || assignmentBatchRunning || loading" @click="exportAssignmentSchedule">导出排班表</button></div>
+          <section v-if="selectedSplitRoute && currentView === 'position-assignment'" class="panel" style="padding:16px">
+            <div class="panel-head"><h2>固定主路线按日执行</h2><div class="panel-actions">
+              <button :disabled="fixedMasterRunning || assignmentBatchRunning || assignmentTripReorderRunning || !assignmentScheduleExportReady" @click="generateFixedMaster">{{ fixedMasterRunning ? fixedMasterMessage : '独立生成全点多趟方案' }}</button>
+              <button :disabled="!fixedMasterFresh || fixedMasterRunning || assignmentBatchRunning || assignmentTripReorderRunning || fixedMasterTimeWindowStats.violationCount === 0" @click="openTimeWindowRepair('FIXED')">时间窗修正路线</button>
+              <button :disabled="!!fixedMasterTripDisabledReason" :title="fixedMasterTripDisabledReason" @click="tryReorderFixedMasterTrips">尝试修改趟数顺序</button>
+              <button :disabled="!fixedMasterFresh || fixedMasterRunning || assignmentBatchRunning || assignmentTripReorderRunning || loading" @click="exportFixedMaster">导出方案</button>
+              <button v-if="fixedMaster?.timeWindowOriginalResult" :disabled="!fixedMasterFresh || fixedMasterRunning || assignmentTripReorderRunning" @click="restoreFixedMasterOriginal">恢复修正前全点模板</button>
+            </div></div>
+            <p>这是第二套独立方案：按所有点都收生成多趟，趟序调整和时间窗修正只针对完整模板。每日仍沿模板道路，绿色点收、白色点不收；扣除白点收运作业时间后连续推算每天到达时间，保留行驶与卸料时间，不对每日跳点结果自动修正。</p>
+            <p>计划不收依据已确认频次；停排不代表任务已完成。实际满载、漏收、设施关闭等异常需人工调度补收。</p>
+            <p v-if="fixedMasterMessage">{{ fixedMasterMessage }}</p>
+            <p v-if="fixedMaster && !fixedMasterFresh" style="color:#c46b00">点位、排班或规划参数已变化，固定方案已失效，请重新生成。旧结果不会用于导出。</p>
+            <template v-if="fixedMasterFresh">
+              <label>查看 <select v-model.number="fixedMasterDay"><option :value="0">完整模板（所有点都收）</option><option v-for="day in assignmentScheduleCycleDays" :key="day" :value="day">第{{ day }}天</option></select></label>
+              <p>主路线来源：{{ fixedMaster.sourceLabel }}；当天{{ fixedMasterDayData?.disabled ? '已停排' : fixedMasterDayData?.status || '未排班' }}。</p>
+              <p v-if="fixedMasterDayData?.result">完整模板 {{ fixedMasterDayData.result.routeCount }} 趟；全点模板时间窗冲突 {{ fixedMasterTimeWindowStats.violationCount }} 个；当天应收 {{ fixedMasterDayData.indices.length }} 点；当天时间窗冲突 {{ timeWindowStatsForResult(fixedMasterDayData.result).violationCount }} 个；当天应收但模板未分配 {{ fixedMasterDayData.result.dueUnassignedCount || 0 }} 点。</p>
+              <p v-if="fixedMasterDayData?.error" style="color:red">{{ fixedMasterDayData.error }}</p>
+              <div style="max-height:420px;overflow:auto"><table style="width:100%"><thead><tr><th>主序号</th><th>点位</th><th>当天执行</th><th>到达</th></tr></thead><tbody>
+                <tr v-for="(point, index) in fixedMaster.points" :key="index" :style="{ color: fixedMasterToken(point)?.violation ? 'red' : !fixedMasterDayData?.indices.includes(point.masterIndex) || fixedMasterDayData?.disabled ? '#999' : '' }">
+                  <td>{{ point.templateToken }}</td><td>{{ point.facilityName }}</td><td>{{ fixedMasterDayData?.disabled ? '停排' : !fixedMasterDayData?.indices.includes(point.masterIndex) ? '按频次今日不收' : fixedMasterToken(point)?.token || '应收未分配' }}</td><td>{{ fixedMasterToken(point)?.arrival || '—' }}</td>
+                </tr>
+              </tbody></table></div>
+              <article v-for="route in fixedMasterDayData?.result?.routes || []" :key="route.routeNo" class="multi-route-card" :class="{ active: fixedMasterRouteNo === route.routeNo }" @click="fixedMasterRouteNo = route.routeNo">
+                <strong>完整模板第{{ route.tripNo }}趟</strong> · 模板道路 {{ formatDistance(route.displayDistance) }} · 当天预计耗时 {{ formatDuration(route.displayTotalDurationMinutes) }}
+                <div class="sequence route-point-sequence"><span v-for="point in route.points" :key="point.order" :style="point.scheduleSkipped ? { background: '#fff', color: '#777', border: '1px solid #aaa' } : {}" :title="point.scheduleSkipped ? '今日不收，完整道路仍经过该点' : ''">{{ point.facilityName }}{{ point.scheduleSkipped ? '（不收）' : '' }}</span></div>
+              </article>
+              <RouteMapPanel v-if="fixedMasterSelectedRoute" :key="'fixed-master-'+fixedMasterSelectedRoute.routeNo" :original-points="[]" :optimized-points="fixedMasterSelectedRoute.points" :optimized-segments="fixedMasterSelectedRoute.roadSegments" :show-original="false" optimized-label="全点模板道路（白点不收）" />
+            </template>
+          </section>
             </div>
           </section>
 
@@ -1124,7 +1154,7 @@
               </ol>
             </div>
             <div>
-              <div class="panel-head compact"><h2>拆分结果<small v-if="assignmentActiveVersion"> · 当前{{ assignmentActiveVersion.name }}</small></h2><div class="panel-actions"><button type="button" class="secondary" :disabled="!!assignmentBatchTripReorderDisabledReason" :title="assignmentBatchTripReorderDisabledReason" @click="tryReorderAllAssignmentTrips">{{ assignmentTripReorderRunning ? '正在批量调整…' : '尝试调整全部方案趟序' }}</button><button @click="openSaveSplitCurrentRoute" :disabled="!selectedMultiRoute || loading || assignmentTripReorderRunning">另存当前路线</button><button @click="openSaveSplitGroup" :disabled="!multiOptimization || loading || assignmentTripReorderRunning">{{ splitFromSavedRoute ? '保存为新版本' : '另存当前方案整组' }}</button><button @click="exportAssignmentVersions" :disabled="assignmentBatchRunning || assignmentTripReorderRunning || loading || !assignmentVersions.some(version => version.result)">导出全部方案</button></div></div>
+              <div class="panel-head compact"><h2>拆分结果<small v-if="assignmentActiveVersion"> · 当前{{ assignmentActiveVersion.name }}</small></h2><div class="panel-actions"><button type="button" class="secondary" :disabled="!!assignmentBatchTripReorderDisabledReason" :title="assignmentBatchTripReorderDisabledReason" @click="tryReorderAllAssignmentTrips">{{ assignmentTripReorderRunning ? '正在批量调整…' : '尝试调整全部方案趟序' }}</button><button @click="openSaveSplitCurrentRoute" :disabled="!selectedMultiRoute || loading || assignmentTripReorderRunning">另存当前路线</button><button @click="openSaveSplitGroup" :disabled="!multiOptimization || loading || assignmentTripReorderRunning">{{ splitFromSavedRoute ? '保存为新版本' : '另存当前方案整组' }}</button><button @click="exportAssignmentVersions" :disabled="assignmentBatchRunning || assignmentTripReorderRunning || loading || fixedMasterRunning || (!assignmentVersions.some(version => version.result) && !fixedMasterFresh)">导出全部方案</button></div></div>
               <p v-if="assignmentActiveVersion?.applicableDays?.length" class="assignment-applicable-dates">{{ assignmentActiveVersion.name }}适用：{{ assignmentApplicableDaysLabel(assignmentActiveVersion) }}<template v-if="assignmentActiveVersion.applicableDays.length > 1">。修改这套点位会影响所有适用天数。</template></p>
               <div v-if="assignmentVersions.some(version => version.status !== 'IDLE')" class="assignment-result-summary"><button v-for="version in assignmentVersions" :key="'result-'+version.id" type="button" class="assignment-result-version" :class="{ active: assignmentActiveVersionId === version.id }" :aria-pressed="assignmentActiveVersionId === version.id" :disabled="assignmentBatchRunning || assignmentTripReorderRunning" @click="selectAssignmentVersion(version.id)"><strong>{{ version.name }}<template v-if="version.applicableDays?.length > 1"> · 适用{{ version.applicableDays.length }}天</template><template v-else-if="version.cycleDay"> · 第{{ version.cycleDay }}天</template></strong><span>{{ assignmentVersionStatusLabel(version) }}</span><small v-if="version.error">{{ version.error }}</small><small v-else-if="version.status === 'RUNNING'">{{ version.message }}<template v-if="version.percent"> · {{ version.percent }}%</template></small><small v-else-if="version.result">{{ version.result.routeCount || 0 }} 趟 · 已分配 {{ version.result.assignedPointCount || 0 }} 点</small></button></div>
               <p v-if="assignmentVersions.some(version => version.result)" class="assignment-save-scope">点击上方方案切换结果；“当前路线”和“当前方案整组”仅保存所选方案，“导出全部方案”包含本次所有方案及其状态。</p>
@@ -2210,7 +2240,7 @@
       <h2>时间窗修正路线 · {{ timeRepairVersion?.name }}</h2>
       <p>调整同一趟内点位顺序，以时间窗满足度为优先目标，可能增加行驶距离。修正结果是运营调整建议，不代表原距离优化结果。确认应用后更新当前方案。</p>
       <p>本阶段按严格时间窗校验，不自动等待；最多评估500个候选、200轮，计算时间预算60秒（正在执行的道路请求完成后停止）。</p>
-      <p>默认只移动冲突收运点：早到向后挪，晚到向前挪；禁止或跨午夜时间窗双向尝试。每轮重新检查全部点位，选择评分严格改善的顺序。全部通过后停止，不保证全局最优。</p>
+      <p>默认只移动冲突收运点：早到向后挪，晚到向前挪；禁止或跨午夜时间窗双向尝试。每轮重新检查全部点位；即使某个候选全部通过，也继续比较本轮剩余插入位置，依次按冲突数、超窗分钟、总完成时间、总距离选优。本轮结束后全部通过则停止；达到计算上限时可能只比较部分候选，不保证全局最优。</p>
       <button :disabled="assignmentTripReorderRunning" @click="runTimeWindowRepair('CONFLICT_ONLY')">{{ assignmentTripReorderRunning ? '正在计算修正版…' : '开始修正' }}</button>
       <button :disabled="assignmentTripReorderRunning" title="允许移动正常收运点，搜索更广但可能更慢或增加绕行；仍从修正前原方案试算" @click="runTimeWindowRepair('EXPANDED')">扩大搜索</button>
       <button :disabled="assignmentTripReorderRunning" @click="timeRepairVisible = false">关闭</button>
@@ -2236,6 +2266,7 @@ import RouteMapPanel from './components/RouteMapPanel.vue'
 import ClusterMapPanel from './components/ClusterMapPanel.vue'
 import FlowAnalysisPdfReport from './components/FlowAnalysisPdfReport.vue'
 import { balanceAssignmentPhases } from './assignmentPhases.js'
+import { maskFixedTripTemplate } from './fixedTripTemplate.js'
 
 const LOGIN_USERNAME = 'admin'
 const LOGIN_PASSWORD = 'zhj521%@!'
@@ -2592,6 +2623,112 @@ const records = ref([])
 const planPoints = ref([])
 const splitPlanPoints = ref([])
 const assignmentVersions = ref([])
+const fixedMaster = ref(null)
+const fixedMasterRouteNo = ref(null)
+const fixedMasterRunning = ref(false)
+const fixedMasterMessage = ref('')
+const fixedMasterDay = ref(1)
+const fixedMasterFingerprint = computed(() => JSON.stringify({
+  route: selectedSplitRoute.value?.id,
+  points: splitPlanPoints.value,
+  options: optimizeOptions,
+  vehicles: normalizedAssignmentVehicles(),
+  endMode: endAnchorMode.value,
+  ends: normalizedEndCandidates(),
+  schemes: assignmentVersions.value.map(version => ({ id: version.id, days: version.applicableDays, indices: [...version.selectedIndices] }))
+}))
+const fixedMasterFresh = computed(() => !!fixedMaster.value && fixedMaster.value.fingerprint === fixedMasterFingerprint.value)
+const fixedMasterDays = computed(() => !fixedMasterFresh.value ? [] : fixedMaster.value.days.map(day => {
+  const schemes = assignmentVersions.value.filter(version => (version.applicableDays || []).includes(day.day))
+  const disabled = schemes.length > 0 && schemes.every(version => version.scheduleDisabled)
+  return { ...day, disabled, result: disabled ? null : day.result }
+}))
+const fixedMasterDayData = computed(() => {
+  if (!fixedMasterFresh.value) return null
+  if (fixedMasterDay.value === 0) return { indices: splitPlanPoints.value.map((_, index) => index), status: '完整全点收运模板', result: maskFixedTripTemplate(fixedMaster.value.template, new Set(splitPlanPoints.value.map(point => String(point.facilityId)))) }
+  return fixedMasterDays.value.find(day => day.day === fixedMasterDay.value) || null
+})
+const fixedMasterSelectedRoute = computed(() => fixedMasterDayData.value?.result?.routes.find(route => route.routeNo === fixedMasterRouteNo.value) || null)
+const fixedMasterTimeWindowStats = computed(() => timeWindowStatsForResult(fixedMasterFresh.value ? fixedMaster.value.template : null))
+const fixedMasterTripDisabledReason = computed(() => {
+  if (fixedMasterRunning.value || assignmentTripReorderRunning.value || assignmentBatchRunning.value) return '正在计算'
+  if (!fixedMasterFresh.value) return '请先生成有效全点模板'
+  if (!fixedMasterTimeWindowStats.value.violationCount) return '全点模板时间窗均已通过'
+  if (!fixedMasterTimeWindowStats.value.reorderable) return '同一车辆没有两趟以上路线'
+  return ''
+})
+
+function fixedMasterToken(point) {
+  const result = fixedMasterDayData.value?.result
+  if (!result) return null
+  const schedules = buildRouteSchedules(result, optimizeOptions.plannedStartTime)
+  for (const route of result.routes || []) {
+    for (const candidate of route.points || []) {
+      if (candidate.role !== 'MIDDLE' || candidate.scheduleSkipped) continue
+      if (String(candidate.facilityId) !== String(point.facilityId)) continue
+      const schedule = schedules.get(Number(route.routeNo))?.pointsByOrder.get(Number(candidate.order))
+      return { token: candidate.templateToken, arrival: schedule?.arrivalTime, violation: arrivalViolatesTimeWindow(candidate, schedule?.arrivalMinutes) }
+    }
+  }
+  return null
+}
+
+async function generateFixedMaster() {
+  if (fixedMasterRunning.value || !assignmentScheduleExportReady.value || assignmentBatchRunning.value || assignmentTripReorderRunning.value) return
+  const fingerprint = fixedMasterFingerprint.value
+  const originals = deepClone(splitPlanPoints.value)
+  const metadata = new Map(originals.map((point, index) => [String(point.facilityId), { ...point, masterIndex: index }]))
+  const schemes = assignmentVersions.value.map(item => ({ indices: [...item.selectedIndices], days: [...(item.applicableDays || [])] }))
+  const options = { ...optimizeOptions }
+  fixedMasterRunning.value = true
+  fixedMasterMessage.value = '正在独立规划全部岗位点位…'
+  let taskId = null
+  try {
+    if (metadata.size !== originals.length) throw new Error('岗位存在重复点位，请先核对')
+    const request = { ...options, startLongitude: options.startLongitude ?? originals[0]?.longitude, startLatitude: options.startLatitude ?? originals[0]?.latitude, endLongitude: options.endLongitude ?? originals.at(-1)?.longitude, endLatitude: options.endLatitude ?? originals.at(-1)?.latitude, unitId: selectedSplitCompany.value.id, dispatchMode: 'USER_ORDER', vehicles: normalizedAssignmentVehicles(), endSelectionMode: endAnchorMode.value, endCandidates: normalizedEndCandidates(), points: originals, displayRoadPath: false, useRoadPath: options.multiRouteStrategy === 'ROAD_GLOBAL' }
+    let task = await api('/api/optimize/multi-preview/tasks', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(request) })
+    taskId = task.taskId
+    while (!['DONE', 'FAILED', 'CANCELLED', 'NOT_FOUND'].includes(task.status)) {
+      fixedMasterMessage.value = task.message || '正在规划全部点位'
+      await new Promise(resolve => setTimeout(resolve, 1000))
+      if (fingerprint !== fixedMasterFingerprint.value) throw new Error('配置发生变化，请重新生成')
+      task = await api(`/api/optimize/multi-preview/tasks/${taskId}`)
+    }
+    if (task.status !== 'DONE' || !task.result) throw new Error(task.message || '全点方案生成失败')
+    const template = deepClone(task.result)
+    for (const route of template.routes || []) {
+      fixedMasterMessage.value = `正在加载全点模板第${route.tripNo}趟道路折线…`
+      const road = await api('/api/optimize/route-segments', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ...options, points: route.points, displayRoadPath: true }) })
+      if (road.segments?.length !== route.points.length - 1 || road.segments.some(segment => !['OD_CACHE', 'OD_PRELOAD', 'BAIDU_ONLINE'].includes(segment.pathSource) || !segment.path?.length)) throw new Error('未取得完整道路折线，请检查OD缓存或地图服务；不以直线冒充道路')
+      route.segments = road.segments
+      route.roadSegments = road.segments
+      route.displayDistance = road.distance
+      route.displayTravelDurationMinutes = road.durationMinutes
+      route.displayTotalDurationMinutes = Number(road.durationMinutes) + Number(route.operationDurationMinutes || 0)
+      route.distance = route.planningDistance = road.distance
+      route.travelDurationMinutes = route.planningTravelDurationMinutes = road.durationMinutes
+      route.durationMinutes = route.totalDurationMinutes = route.planningTotalDurationMinutes = route.displayTotalDurationMinutes
+    }
+    template.distanceMode = 'ROAD'
+    const masterPoints = template.routes.flatMap(route => route.points.filter(point => point.role === 'MIDDLE').map((point, index) => ({ ...point, masterIndex: metadata.get(String(point.facilityId))?.masterIndex, templateToken: `${String(route.tripNo).padStart(2, '0')}-${String(index + 1).padStart(3, '0')}` })))
+    for (const point of template.unassignedPoints || []) masterPoints.push({ ...point, masterIndex: metadata.get(String(point.facilityId))?.masterIndex, templateToken: '未分配' })
+    const days = []
+    for (let day = 1; day <= assignmentScheduleCycleDays.value; day++) {
+      const applicable = schemes.filter(scheme => scheme.days.includes(day))
+      const indices = [...new Set(applicable.flatMap(scheme => scheme.indices))]
+      const due = new Set(originals.filter((_, index) => indices.includes(index)).map(point => String(point.facilityId)))
+      days.push({ day, indices, status: applicable.length ? '沿模板计算每日到达' : '未排班', result: maskFixedTripTemplate(template, due) })
+    }
+    if (fingerprint !== fixedMasterFingerprint.value) throw new Error('计算期间配置变化，结果已弃用')
+    fixedMaster.value = { fingerprint, template, points: masterPoints, days, sourceLabel: '独立全点多趟模板；每日沿原道路扣除不收点作业时间并推算到达时间' }
+    fixedMasterDay.value = 1
+    fixedMasterRouteNo.value = template.routes?.[0]?.routeNo || null
+    fixedMasterMessage.value = `全点方案已生成${template.routeCount || 0}趟，未分配${template.unassignedPointCount || 0}点。日期切换不改变路径，扣除白点作业时间后重算到达时间。`
+  } catch (err) {
+    if (taskId) await api(`/api/optimize/multi-preview/tasks/${taskId}/cancel`, { method: 'POST' }).catch(() => {})
+    fixedMasterMessage.value = `生成失败：${err.message || String(err)}`
+  } finally { fixedMasterRunning.value = false }
+}
 const assignmentActiveVersionId = ref(null)
 const assignmentBatchRunning = ref(false)
 const assignmentBatchCurrentTaskId = ref('')
@@ -2601,6 +2738,8 @@ const assignmentVehicleLoading = ref(false)
 const assignmentVehicleError = ref('')
 const assignmentTripReorderRunning = ref(false)
 const timeRepairVisible = ref(false)
+const timeRepairScope = ref('ASSIGNMENT')
+const timeRepairFixedOwner = ref(null)
 const timeRepairVersion = ref(null)
 const timeRepairOriginal = ref(null)
 const timeRepairPreview = ref(null)
@@ -3183,7 +3322,7 @@ function timeWindowStatsForResult(result) {
     vehicleTrips.set(vehicleKey, Number(vehicleTrips.get(vehicleKey) || 0) + 1)
     const schedule = schedules.get(Number(route?.routeNo))
     for (const point of (route?.points || [])) {
-      if (point?.role !== 'MIDDLE') continue
+      if (point?.role !== 'MIDDLE' || point.scheduleSkipped) continue
       const arrival = schedule?.pointsByOrder.get(Number(point?.order))?.arrivalMinutes
       if (arrivalViolatesTimeWindow(point, arrival)) {
         violationCount += 1
@@ -3498,6 +3637,8 @@ function createAssignmentVersion(points, selectAll = false) {
 }
 
 function resetAssignmentVersions(points) {
+  fixedMaster.value = null
+  fixedMasterMessage.value = ''
   assignmentBatchRunId += 1
   if (assignmentBatchRunning.value) {
     stopAssignmentVersionGeneration()
@@ -4718,9 +4859,71 @@ async function requestAssignmentTripReorder(result) {
   })
 }
 
-function openTimeWindowRepair() {
-  timeRepairVersion.value = assignmentActiveVersion.value
-  timeRepairOriginal.value = deepClone(multiOptimization.value)
+async function updateFixedMasterTemplate(result, owner) {
+  const template = deepClone(result)
+  template.distanceMode = 'ROAD'
+  const signature = route => JSON.stringify((route.points || []).map(point => [point.facilityId, point.longitude, point.latitude]))
+  const completeRoad = (segments, count) => segments?.length === count && segments.every(segment => ['OD_CACHE', 'OD_PRELOAD', 'BAIDU_ONLINE'].includes(segment.pathSource) && segment.path?.length && Number.isFinite(Number(segment.distance)) && Number.isFinite(Number(segment.durationMinutes)))
+  for (const route of template.routes || []) {
+    const original = owner.template.routes.find(candidate => signature(candidate) === signature(route))
+    const segments = completeRoad(route.roadSegments, route.points.length - 1) ? route.roadSegments : original?.roadSegments
+    const road = completeRoad(segments, route.points.length - 1)
+      ? { segments, distance: segments.reduce((sum, segment) => sum + Number(segment.distance), 0), durationMinutes: segments.reduce((sum, segment) => sum + Number(segment.durationMinutes), 0) }
+      : await api('/api/optimize/route-segments', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ...optimizeOptions, points: route.points, displayRoadPath: true })
+      })
+    if (road.segments?.length !== route.points.length - 1 || road.segments.some(segment => !['OD_CACHE', 'OD_PRELOAD', 'BAIDU_ONLINE'].includes(segment.pathSource) || !segment.path?.length)) throw new Error('未取得完整道路折线')
+    route.segments = route.roadSegments = road.segments
+    route.distance = route.planningDistance = route.displayDistance = road.distance
+    route.travelDurationMinutes = route.planningTravelDurationMinutes = route.displayTravelDurationMinutes = road.durationMinutes
+    route.operationDurationMinutes = route.points.reduce((sum, point) => sum + Number(point.operationDurationMinutes || 0), 0)
+    route.durationMinutes = route.totalDurationMinutes = route.planningTotalDurationMinutes = route.displayTotalDurationMinutes = Number(road.durationMinutes) + route.operationDurationMinutes
+    route.timeExceeded = route.workLimitMinutes > 0 && route.durationMinutes > route.workLimitMinutes
+    route.overdueMinutes = route.workLimitMinutes > 0 ? Math.max(0, route.durationMinutes - route.workLimitMinutes) : 0
+  }
+  if (owner !== fixedMaster.value || !fixedMasterFresh.value) throw new Error('全点模板或参数已变化，未应用结果')
+  const indices = new Map(splitPlanPoints.value.map((point, index) => [String(point.facilityId), index]))
+  const points = template.routes.flatMap(route => route.points.filter(point => point.role === 'MIDDLE').map((point, index) => ({ ...point, masterIndex: indices.get(String(point.facilityId)), templateToken: `${String(route.tripNo).padStart(2, '0')}-${String(index + 1).padStart(3, '0')}` })))
+  for (const point of template.unassignedPoints || []) points.push({ ...point, masterIndex: indices.get(String(point.facilityId)), templateToken: '未分配' })
+  const days = owner.days.map(day => ({ ...day, result: maskFixedTripTemplate(template, new Set(splitPlanPoints.value.filter((_, index) => day.indices.includes(index)).map(point => String(point.facilityId)))) }))
+  // Replace only after all road requests and stale-state checks have succeeded.
+  owner.template = template
+  owner.points = points
+  owner.days = days
+  fixedMasterRouteNo.value = template.routes?.[0]?.routeNo || null
+}
+
+async function tryReorderFixedMasterTrips() {
+  if (fixedMasterTripDisabledReason.value) return
+  const owner = fixedMaster.value
+  assignmentTripReorderRunning.value = true
+  try {
+    const response = await requestAssignmentTripReorder(owner.template)
+    if (response.improved) await updateFixedMasterTemplate(response.result, owner)
+    fixedMasterMessage.value = response.message || '已检查完整全点模板趟序'
+  } catch (err) { fixedMasterMessage.value = `调整失败，原模板保留：${err.message || String(err)}` }
+  finally { assignmentTripReorderRunning.value = false }
+}
+
+async function restoreFixedMasterOriginal() {
+  const owner = fixedMaster.value
+  if (!fixedMasterFresh.value || !owner?.timeWindowOriginalResult) return
+  assignmentTripReorderRunning.value = true
+  try {
+    await updateFixedMasterTemplate(owner.timeWindowOriginalResult, owner)
+    owner.timeWindowOriginalResult = null
+    fixedMasterMessage.value = '已恢复修正前的全点模板，并更新每天到达时间'
+  } catch (err) { fixedMasterMessage.value = `恢复失败：${err.message || String(err)}` }
+  finally { assignmentTripReorderRunning.value = false }
+}
+
+function openTimeWindowRepair(scope = 'ASSIGNMENT') {
+  timeRepairScope.value = scope === 'FIXED' ? 'FIXED' : 'ASSIGNMENT'
+  if (timeRepairScope.value === 'FIXED' && !fixedMasterFresh.value) return
+  timeRepairFixedOwner.value = timeRepairScope.value === 'FIXED' ? fixedMaster.value : null
+  timeRepairVersion.value = timeRepairScope.value === 'FIXED' ? { name: '独立全点模板（全部点位都收）' } : assignmentActiveVersion.value
+  timeRepairOriginal.value = deepClone(timeRepairScope.value === 'FIXED' ? fixedMaster.value.template : multiOptimization.value)
   timeRepairPreview.value = null
   timeRepairError.value = ''
   timeRepairVisible.value = true
@@ -4757,7 +4960,23 @@ async function runTimeWindowRepair(searchMode = 'CONFLICT_ONLY') {
   }
 }
 
-function applyTimeWindowRepair() {
+async function applyTimeWindowRepair() {
+  if (timeRepairScope.value === 'FIXED') {
+    const owner = timeRepairFixedOwner.value
+    if (!timeRepairPreview.value?.improved || owner !== fixedMaster.value || !fixedMasterFresh.value) {
+      timeRepairError.value = '全点模板或配置已变化，请重新打开修正窗口'
+      return
+    }
+    assignmentTripReorderRunning.value = true
+    try {
+      await updateFixedMasterTemplate(timeRepairPreview.value.result, owner)
+      if (!owner.timeWindowOriginalResult) owner.timeWindowOriginalResult = timeRepairOriginal.value
+      fixedMasterMessage.value = timeRepairPreview.value.message
+      timeRepairVisible.value = false
+    } catch (err) { timeRepairError.value = `应用失败，原模板保留：${err.message || String(err)}` }
+    finally { assignmentTripReorderRunning.value = false }
+    return
+  }
   const version = timeRepairVersion.value
   if (!version || !timeRepairPreview.value?.improved) return
   if (!assignmentVersions.value.includes(version)) {
@@ -5934,6 +6153,7 @@ function assignmentExportPoint(point, metadata = new Map()) {
   return {
     order: point?.order, facilityId: point?.facilityId, sourceFacilityId: point?.sourceFacilityId,
     facilityName: point?.facilityName || source.facilityName, role: point?.role,
+    scheduleSkipped: !!point?.scheduleSkipped, templateToken: point?.templateToken,
     facilityTypeName: point?.facilityTypeName || source.facilityTypeName,
     allowTimeBegin: point?.allowTimeBegin || source.allowTimeBegin, allowTimeEnd: point?.allowTimeEnd || source.allowTimeEnd,
     barredTimeBegin: point?.barredTimeBegin || source.barredTimeBegin, barredTimeEnd: point?.barredTimeEnd || source.barredTimeEnd,
@@ -5967,7 +6187,7 @@ function assignmentExportRoute(route, metadata, schedule) {
         ...exported,
         plannedArrivalTime: pointSchedule?.arrivalTime,
         plannedDepartureTime: pointSchedule?.departureTime,
-        timeWindowViolation: arrivalViolatesTimeWindow(exported, pointSchedule?.arrivalMinutes)
+        timeWindowViolation: !point?.scheduleSkipped && arrivalViolatesTimeWindow(exported, pointSchedule?.arrivalMinutes)
       }
     }),
     segments: (route?.roadSegments || route?.segments || []).map(assignmentExportSegment)
@@ -6023,34 +6243,54 @@ async function exportAssignmentSchedule() {
   })
 }
 
+function fixedMasterExportSchemes(metadata) {
+  return fixedMasterDays.value.map(day => ({ name: `第${day.day}天（沿完整模板）`, applicableDays: [day.day], scheduleDisabled: day.disabled,
+    selectedIndices: day.indices, status: day.status, result: assignmentExportResult(day.result, metadata) }))
+}
+
+function assignmentWorkbookRequest(metadata, fixedOnly = false) {
+  const dailySchemes = assignmentVersions.value.map(version => ({
+    name: version.name, cycleDay: version.cycleDay, applicableDays: version.applicableDays || [], scheduleDisabled: !!version.scheduleDisabled,
+    selectedIndices: Array.from(version.selectedIndices || []), status: version.status, error: version.error, message: version.message,
+    result: assignmentExportResult(version.result, metadata)
+  }))
+  const fixedSchemes = fixedMasterFresh.value ? fixedMasterExportSchemes(metadata) : []
+  const fullScheme = fixedMasterFresh.value ? [{ name: '独立全点模板（全部点位都收）', applicableDays: [],
+    status: fixedMaster.value.template.status || 'DONE', selectedIndices: splitPlanPoints.value.map((_, index) => index),
+    result: assignmentExportResult(fixedMaster.value.template, metadata) }] : []
+  return {
+    company: selectedSplitCompany.value, sourceRoute: selectedSplitRoute.value, generatedAt: new Date().toISOString(),
+    scheduleStartDate: toDateInput(new Date()), cycleDays: assignmentScheduleCycleDays.value,
+    points: splitPlanPoints.value.map((point, index) => ({ index, facilityId: point.facilityId, facilityName: point.facilityName || point.facilityId, originalOrder: point.originalOrder || index + 1 })),
+    schemes: [...(fixedOnly ? [] : dailySchemes), ...fullScheme],
+    scheduleSchemes: fixedOnly ? fixedSchemes : dailySchemes,
+    fixedMaster: fixedMasterFresh.value ? { sourceLabel: fixedMaster.value.sourceLabel, points: fixedMaster.value.points, schemes: fixedSchemes } : null,
+    fixedDailySchemes: fixedSchemes
+  }
+}
+
+async function exportFixedMaster() {
+  if (!fixedMasterFresh.value || fixedMasterRunning.value || assignmentTripReorderRunning.value || assignmentBatchRunning.value || loading.value) return
+  await withLoading(async () => {
+    const response = await fetch('/api/optimize/assignment-export', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(assignmentWorkbookRequest(assignmentPointMetadata(splitPlanPoints.value), true))
+    })
+    if (!response.ok) throw new Error(`${response.status} ${response.statusText}`)
+    const routeName = sanitizeFilename(selectedSplitRoute.value?.routeName || '路线')
+    downloadBlob(await response.blob(), `${routeName}-独立全点多趟方案-${toDateInput(new Date())}.xlsx`)
+  })
+}
+
 async function exportAssignmentVersions() {
   const versions = assignmentVersions.value
-  if (assignmentBatchRunning.value || !versions.some(version => version.result)) return
+  if (assignmentBatchRunning.value || assignmentTripReorderRunning.value || fixedMasterRunning.value || (!versions.some(version => version.result) && !fixedMasterFresh.value)) return
   const pointMetadata = assignmentPointMetadata(splitPlanPoints.value)
   await withLoading(async () => {
     const response = await fetch('/api/optimize/assignment-export', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        company: selectedSplitCompany.value,
-        sourceRoute: selectedSplitRoute.value,
-        generatedAt: new Date().toISOString(),
-        scheduleStartDate: toDateInput(new Date()),
-        cycleDays: assignmentScheduleCycleDays.value,
-        points: splitPlanPoints.value.map((point, index) => ({
-          index,
-          facilityId: point.facilityId,
-          facilityName: point.facilityName || point.facilityId,
-          originalOrder: point.originalOrder || index + 1
-        })),
-        schemes: versions.map(version => ({
-          name: version.name, cycleDay: version.cycleDay, applicableDays: version.applicableDays || [],
-          scheduleDisabled: !!version.scheduleDisabled,
-          selectedIndices: Array.from(version.selectedIndices || []),
-          status: version.status, error: version.error, message: version.message,
-          result: assignmentExportResult(version.result, pointMetadata)
-        }))
-      })
+      body: JSON.stringify(assignmentWorkbookRequest(pointMetadata))
     })
     if (!response.ok) throw new Error(`${response.status} ${response.statusText}`)
     const routeName = sanitizeFilename(selectedSplitRoute.value?.routeName || selectedSplitRoute.value?.routeCode || '路线')

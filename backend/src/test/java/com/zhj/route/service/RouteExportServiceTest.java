@@ -17,6 +17,90 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 class RouteExportServiceTest {
 
     @Test
+    void parallelExportSeparatesFullTemplateDetailsFromDailyScheduleAndArrivalRows() throws Exception {
+        Map<String, Object> request = new HashMap<>();
+        request.put("cycleDays", 1);
+        request.put("scheduleStartDate", "2026-10-09");
+        request.put("points", Arrays.asList(exportPoint(0, "A", "A点"), exportPoint(1, "B", "B点")));
+        Map<String, Object> full = scheme(Arrays.asList(), Arrays.asList(0, 1));
+        full.put("name", "独立全点模板");
+        Map<String, Object> route = new HashMap<>();
+        route.put("tripNo", 1);
+        Map<String, Object> a = routePoint("A", "A点", "MIDDLE");
+        a.put("templateToken", "01-001");
+        a.put("plannedArrivalTime", "02:10");
+        Map<String, Object> b = routePoint("B", "B点", "MIDDLE");
+        route.put("points", Arrays.asList(a, b));
+        Map<String, Object> result = new HashMap<>();
+        result.put("routes", Arrays.asList(route));
+        full.put("result", result);
+        request.put("schemes", Arrays.asList(full));
+        Map<String, Object> day = scheme(Arrays.asList(1), Arrays.asList(0));
+        day.put("name", "第1天沿完整模板");
+        Map<String, Object> skipped = new HashMap<>(b);
+        skipped.put("scheduleSkipped", true);
+        skipped.put("operationDurationMinutes", 0D);
+        skipped.put("plannedArrivalTime", "02:20");
+        skipped.put("plannedDepartureTime", "02:20");
+        Map<String, Object> dailyRoute = new HashMap<>(route);
+        dailyRoute.put("points", Arrays.asList(a, skipped));
+        Map<String, Object> dailyResult = new HashMap<>();
+        dailyResult.put("routes", Arrays.asList(dailyRoute));
+        day.put("result", dailyResult);
+        request.put("scheduleSchemes", Arrays.asList(day));
+        request.put("fixedDailySchemes", Arrays.asList(day));
+        try (XSSFWorkbook workbook = new XSSFWorkbook(new ByteArrayInputStream(new RouteExportService().exportAssignmentVersions(request)))) {
+            assertEquals("独立全点模板", workbook.getSheet("点位顺序").getRow(1).getCell(0).getStringCellValue());
+            assertEquals("√", workbook.getSheet("排班表").getRow(1).getCell(1).getStringCellValue());
+            assertEquals("", workbook.getSheet("排班表").getRow(1).getCell(2).getStringCellValue());
+            assertEquals("", workbook.getSheet("优化排班表").getRow(2).getCell(1).getStringCellValue());
+            Sheet arrivals = workbook.getSheet("每日到达时间");
+            assertEquals("02:10", arrivals.getRow(1).getCell(13).getStringCellValue());
+            assertEquals("经过不收", arrivals.getRow(2).getCell(7).getStringCellValue());
+            assertEquals(0D, arrivals.getRow(2).getCell(15).getNumericCellValue());
+        }
+    }
+
+    @Test
+    void fixedMasterSheetKeepsMasterOrderAndDailyTripTokens() throws Exception {
+        Map<String, Object> request = new HashMap<>();
+        request.put("cycleDays", 2);
+        request.put("scheduleStartDate", "2026-10-09");
+        request.put("points", Arrays.asList(exportPoint(0, "A", "A点"), exportPoint(1, "B", "B点")));
+        request.put("schemes", Arrays.asList(scheme(Arrays.asList(1, 2), Arrays.asList(0, 1))));
+        Map<String, Object> master = new HashMap<>();
+        Map<String, Object> templatePoint = exportPoint(1, "B", "B点");
+        templatePoint.put("templateToken", "01-001");
+        master.put("points", Arrays.asList(templatePoint, exportPoint(0, "A", "A点")));
+        Map<String, Object> first = scheme(Arrays.asList(1), Arrays.asList(0));
+        Map<String, Object> violating = routePoint("A", "A点", "MIDDLE");
+        violating.put("timeWindowViolation", true);
+        Map<String, Object> route = new HashMap<>();
+        route.put("tripNo", 2);
+        violating.put("templateToken", "02-003");
+        Map<String, Object> skipped = routePoint("B", "B点", "MIDDLE");
+        skipped.put("scheduleSkipped", true);
+        route.put("points", Arrays.asList(skipped, violating));
+        Map<String, Object> result = new HashMap<>();
+        result.put("routes", Arrays.asList(route));
+        first.put("result", result);
+        Map<String, Object> disabled = scheme(Arrays.asList(2), Arrays.asList(0, 1));
+        disabled.put("scheduleDisabled", true);
+        master.put("schemes", Arrays.asList(first, disabled));
+        request.put("fixedMaster", master);
+        try (XSSFWorkbook workbook = new XSSFWorkbook(new ByteArrayInputStream(new RouteExportService().exportAssignmentVersions(request)))) {
+            Sheet sheet = workbook.getSheet("固定主路线排班表");
+            assertEquals("B点", sheet.getRow(1).getCell(1).getStringCellValue());
+            assertEquals("01-001", sheet.getRow(1).getCell(0).getStringCellValue());
+            assertEquals("—", sheet.getRow(1).getCell(2).getStringCellValue());
+            assertEquals("02-003", sheet.getRow(2).getCell(2).getStringCellValue());
+            assertEquals("停排", sheet.getRow(2).getCell(3).getStringCellValue());
+            assertEquals(org.apache.poi.ss.usermodel.IndexedColors.RED.getIndex(), workbook.getFontAt(sheet.getRow(2).getCell(2).getCellStyle().getFontIndex()).getColor());
+            assertEquals(2, sheet.getPaneInformation().getVerticalSplitPosition());
+        }
+    }
+
+    @Test
     void expandsMergedSchemesIntoDailyScheduleMatrix() throws Exception {
         Map<String, Object> request = new HashMap<String, Object>();
         request.put("scheduleStartDate", "2026-10-08");

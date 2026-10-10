@@ -76,11 +76,8 @@ public class TripReorderService {
                         if (compare(candidateScore, bestScore) < 0) {
                             best = rebuilt;
                             bestScore = candidateScore;
-                            if (bestScore.violations == 0) {
-                                current = best;
-                                currentScore = bestScore;
-                                break search;
-                            }
+                            // Even after all windows pass, finish this round's insertion
+                            // candidates so a later feasible position can be more efficient.
                         }
                     }
                 }
@@ -95,7 +92,9 @@ public class TripReorderService {
             result.put("routes", current);
             result.put("timeWindowRepaired", true);
         }
-        String reason = currentScore.violations == 0 ? "时间窗全部通过" : limited || iterations >= 200 ? "已达到计算上限" : "当前搜索未找到进一步改善";
+        String reason = limited || iterations >= 200
+                ? (currentScore.violations == 0 ? "时间窗全部通过；已达到计算上限，仅比较了部分候选" : "已达到计算上限，仅比较了部分候选")
+                : currentScore.violations == 0 ? "时间窗全部通过，已完成本轮候选比较" : "当前搜索未找到进一步改善";
         String message = "冲突点由 " + before.violations + " 个变为 " + currentScore.violations + " 个；" + reason;
         Map<String, Object> response = response(improved, message, result, before, currentScore);
         response.put("evaluations", evaluations);

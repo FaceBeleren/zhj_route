@@ -53,8 +53,25 @@ public class RouteExportService {
             writeAssignmentRoutes(workbook, headerStyle, schemeStyles, schemes);
             writeAssignmentPoints(workbook, headerStyle, schemeStyles, schemes);
             writeAssignmentSegments(workbook, headerStyle, schemeStyles, schemes);
-            writeAssignmentSchedule(workbook, request);
-            writeOptimizedAssignmentSchedule(workbook, request);
+            Map<String, Object> scheduleRequest = new HashMap<>(request);
+            if (request.get("scheduleSchemes") instanceof List) scheduleRequest.put("schemes", request.get("scheduleSchemes"));
+            writeAssignmentSchedule(workbook, scheduleRequest);
+            writeOptimizedAssignmentSchedule(workbook, scheduleRequest);
+            Map<String, Object> master = map(request.get("fixedMaster"));
+            Map<String, Object> fixedRequest = new HashMap<>(request);
+            fixedRequest.put("points", master.isEmpty() ? request.get("points") : master.get("points"));
+            List<Map<String, Object>> fixedSchemes = new ArrayList<>();
+            for (Map<String, Object> scheme : maps(master.isEmpty() ? request.get("schemes") : master.get("schemes"))) {
+                Map<String, Object> fixedScheme = new HashMap<>(scheme);
+                if (master.isEmpty()) fixedScheme.remove("result");
+                fixedSchemes.add(fixedScheme);
+            }
+            fixedRequest.put("schemes", fixedSchemes);
+            fixedRequest.put("masterSourceLabel", master.isEmpty() ? "未生成有效主路线，此页仅显示原点位排班，不代表固定执行路线。" : "主路线来源：" + value(master.get("sourceLabel")));
+            if (!master.isEmpty()) writeOptimizedAssignmentSchedule(workbook, fixedRequest, "固定主路线排班表", true);
+            if (!maps(request.get("fixedDailySchemes")).isEmpty()) {
+                writeAssignmentPoints(workbook, headerStyle, schemeStyles, maps(request.get("fixedDailySchemes")), "每日到达时间");
+            }
             workbook.write(out);
             return out.toByteArray();
         } catch (IOException e) {
@@ -230,7 +247,12 @@ public class RouteExportService {
     }
 
     private void writeAssignmentPoints(Workbook workbook, CellStyle headerStyle, List<CellStyle> schemeStyles, List<Map<String, Object>> schemes) {
-        Sheet sheet = workbook.createSheet("点位顺序");
+        writeAssignmentPoints(workbook, headerStyle, schemeStyles, schemes, "点位顺序");
+    }
+
+    private void writeAssignmentPoints(Workbook workbook, CellStyle headerStyle, List<CellStyle> schemeStyles, List<Map<String, Object>> schemes, String sheetName) {
+        Sheet sheet = workbook.createSheet(sheetName);
+        CellStyle skippedStyle = scheduleDisabledStyle(workbook);
         writeHeader(sheet, headerStyle, "方案", "适用日", "路线", "车辆", "车型", "第几趟", "顺序", "点位角色", "点位ID", "点位名称", "设施类型", "经度", "纬度", "预计到达", "时间窗", "点位作业min", "预计离开", "预计重量kg", "预计体积L");
         int rowIndex = 1;
         for (int schemeIndex = 0; schemeIndex < schemes.size(); schemeIndex++) {
@@ -246,7 +268,7 @@ public class RouteExportService {
                     write(row, 4, vehicleType(route));
                     write(row, 5, route.get("tripNo"));
                     write(row, 6, point.get("order"));
-                    write(row, 7, pointRoleLabel(point.get("role")));
+                    write(row, 7, Boolean.TRUE.equals(point.get("scheduleSkipped")) ? "经过不收" : pointRoleLabel(point.get("role")));
                     write(row, 8, point.get("facilityId"));
                     write(row, 9, point.get("facilityName"));
                     write(row, 10, firstNonBlank(point.get("facilityTypeName"), "未配置"));
@@ -259,7 +281,7 @@ public class RouteExportService {
                     write(row, 17, point.get("estimatedWeightKg"));
                     write(row, 18, point.get("estimatedVolumeLiter"));
                     CellStyle rowStyle = schemeStyles.get(schemeIndex % schemeStyles.size());
-                    applyRowStyle(row, timeWindowViolation(point) ? redCopy(workbook, rowStyle) : rowStyle);
+                    applyRowStyle(row, Boolean.TRUE.equals(point.get("scheduleSkipped")) ? skippedStyle : timeWindowViolation(point) ? redCopy(workbook, rowStyle) : rowStyle);
                 }
             }
         }
@@ -370,6 +392,10 @@ public class RouteExportService {
     }
 
     private void writeOptimizedAssignmentSchedule(Workbook workbook, Map<String, Object> request) {
+        writeOptimizedAssignmentSchedule(workbook, request, "优化排班表", false);
+    }
+
+    private void writeOptimizedAssignmentSchedule(Workbook workbook, Map<String, Object> request, String sheetName, boolean fixed) {
         List<Map<String, Object>> points = maps(request.get("points"));
         List<Map<String, Object>> schemes = maps(request.get("schemes"));
         int cycleDays = Math.max(1, Math.min(366, (int) Math.round(number(request.get("cycleDays")))));
@@ -391,11 +417,13 @@ public class RouteExportService {
 
         List<Map<Integer, String>> sequenceByDay = new ArrayList<Map<Integer, String>>(cycleDays + 1);
         List<Set<Integer>> violationByDay = new ArrayList<Set<Integer>>(cycleDays + 1);
+        List<Set<Integer>> selectedByDay = new ArrayList<>();
         Set<Integer> disabledDays = new HashSet<Integer>();
         Set<Integer> activeDays = new HashSet<Integer>();
         for (int day = 0; day <= cycleDays; day++) {
             sequenceByDay.add(new HashMap<Integer, String>());
             violationByDay.add(new HashSet<Integer>());
+            selectedByDay.add(new HashSet<Integer>());
         }
         for (Map<String, Object> scheme : schemes) {
             boolean scheduleDisabled = Boolean.TRUE.equals(scheme.get("scheduleDisabled"))
@@ -406,17 +434,27 @@ public class RouteExportService {
                 continue;
             }
             activeDays.addAll(applicable);
+            Set<Integer> selected = integerSet(scheme.get("selectedIndices"));
+            for (Integer day : applicable) {
+                if (day < 1 || day > cycleDays) continue;
+                for (int p = 0; p < points.size(); p++) {
+                    Map<String, Object> point = points.get(p);
+                    int index = (int) number(point.containsKey("masterIndex") ? point.get("masterIndex") : point.get("index"));
+                    if (selected.contains(index)) selectedByDay.get(day).add(p);
+                }
+            }
             Map<String, Object> result = map(scheme.get("result"));
             for (Map<String, Object> route : maps(result.get("routes"))) {
                 int tripNo = Math.max(1, (int) Math.round(number(route.get("tripNo"))));
                 int collectionOrder = 0;
                 for (Map<String, Object> point : maps(route.get("points"))) {
                     if (!"MIDDLE".equals(value(point.get("role")))) continue;
+                    if (Boolean.TRUE.equals(point.get("scheduleSkipped"))) continue;
                     collectionOrder++;
                     Integer pointRow = pointRows.get("ID:" + value(point.get("facilityId")));
                     if (pointRow == null) pointRow = pointRows.get("NAME:" + value(point.get("facilityName")));
                     if (pointRow == null) continue;
-                    String token = String.format("%02d-%03d", tripNo, collectionOrder);
+                    String token = point.get("templateToken") != null ? value(point.get("templateToken")) : String.format("%02d-%03d", tripNo, collectionOrder);
                     for (Integer day : applicable) {
                         if (day < 1 || day > cycleDays) continue;
                         Map<Integer, String> sequences = sequenceByDay.get(day);
@@ -428,7 +466,8 @@ public class RouteExportService {
             }
         }
 
-        Sheet sheet = workbook.createSheet("优化排班表");
+        Sheet sheet = workbook.createSheet(sheetName);
+        int offset = fixed ? 1 : 0;
         CellStyle header = headerStyle(workbook);
         CellStyle pointStyle = scheduleDayStyle(workbook);
         CellStyle emptyStyle = scheduleCellStyle(workbook, false);
@@ -437,37 +476,52 @@ public class RouteExportService {
         CellStyle disabledStyle = scheduleDisabledStyle(workbook);
         Row headerRow = sheet.createRow(0);
         headerRow.setHeightInPoints(36);
-        writeStyled(headerRow, 0, "点位名称（排序值=趟次-顺序）", header);
+        if (fixed) writeStyled(headerRow, 0, "主序号", header);
+        writeStyled(headerRow, offset, "点位名称（排序值=趟次-顺序）", header);
         for (int day = 1; day <= cycleDays; day++) {
             boolean disabled = disabledDays.contains(day) && !activeDays.contains(day);
             String suffix = disabled ? "，已停排" : activeDays.contains(day) && sequenceByDay.get(day).isEmpty() ? "，未优化" : "";
             String title = startDate.plusDays(day - 1L) + "（第" + day + "天" + suffix + "）";
-            writeStyled(headerRow, day, title, disabled ? disabledStyle : header);
+            writeStyled(headerRow, day + offset, title, disabled ? disabledStyle : header);
         }
 
         for (int pointIndex = 0; pointIndex < points.size(); pointIndex++) {
             Row row = sheet.createRow(pointIndex + 1);
             row.setHeightInPoints(22);
             Map<String, Object> point = points.get(pointIndex);
-            writeStyled(row, 0, firstNonBlank(point.get("facilityName"), point.get("facilityId")), pointStyle);
+            if (fixed) {
+                if (point.get("templateToken") != null) writeStyled(row, 0, value(point.get("templateToken")), pointStyle);
+                else row.createCell(0).setCellValue(pointIndex + 1);
+            }
+            writeStyled(row, offset, firstNonBlank(point.get("facilityName"), point.get("facilityId")), pointStyle);
             for (int day = 1; day <= cycleDays; day++) {
                 boolean disabled = disabledDays.contains(day) && !activeDays.contains(day);
                 String token = sequenceByDay.get(day).get(pointIndex);
                 boolean violation = violationByDay.get(day).contains(pointIndex);
-                writeStyled(row, day, token == null ? "" : token,
-                        disabled ? disabledStyle : token == null ? emptyStyle : violation ? violationStyle : sequenceStyle);
+                String missing = fixed ? selectedByDay.get(day).contains(pointIndex) ? "待计算或未分配" : "—" : "";
+                writeStyled(row, day + offset, disabled && fixed ? "停排" : token == null ? missing : token,
+                        disabled || (fixed && token == null) ? disabledStyle : token == null ? emptyStyle : violation ? violationStyle : sequenceStyle);
             }
         }
 
-        sheet.createFreezePane(1, 1);
-        if (!points.isEmpty()) sheet.setAutoFilter(new CellRangeAddress(0, points.size(), 0, cycleDays));
+        sheet.createFreezePane(1 + offset, 1);
+        if (!points.isEmpty()) sheet.setAutoFilter(new CellRangeAddress(0, points.size(), 0, cycleDays + offset));
         int pointNameWidth = 18;
         for (Map<String, Object> point : points) {
             String name = firstNonBlank(point.get("facilityName"), point.get("facilityId"));
             pointNameWidth = Math.max(pointNameWidth, Math.min(36, name.length() * 2 + 2));
         }
-        sheet.setColumnWidth(0, pointNameWidth * 256);
-        for (int day = 1; day <= cycleDays; day++) sheet.setColumnWidth(day, 24 * 256);
+        if (fixed) sheet.setColumnWidth(0, 10 * 256);
+        sheet.setColumnWidth(offset, pointNameWidth * 256);
+        for (int day = 1; day <= cycleDays; day++) sheet.setColumnWidth(day + offset, 24 * 256);
+        if (fixed) {
+            Row note = sheet.createRow(points.size() + 2);
+            note.setHeightInPoints(60);
+            CellStyle noteStyle = scheduleCellStyle(workbook, false);
+            noteStyle.setWrapText(true);
+            writeStyled(note, 0, value(request.get("masterSourceLabel")) + " 固定顺序模板不代表一趟收完，不保证每日里程最优。—表示按排班今日不收；停排不代表任务已完成；待计算或未分配不可视为执行顺序。红色序号表示时间窗冲突，临时漏收需调度补收。", noteStyle);
+            sheet.addMergedRegion(new CellRangeAddress(points.size() + 2, points.size() + 2, 0, cycleDays + offset));
+        }
         sheet.setAutobreaks(true);
         sheet.getPrintSetup().setLandscape(true);
         sheet.getPrintSetup().setFitWidth((short) 1);
@@ -761,4 +815,3 @@ public class RouteExportService {
         return value == null ? "" : String.valueOf(value);
     }
 }
-
