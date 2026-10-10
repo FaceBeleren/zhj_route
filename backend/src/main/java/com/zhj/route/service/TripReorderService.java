@@ -21,13 +21,12 @@ public class TripReorderService {
         this.routeOptimizeService = routeOptimizeService;
     }
 
-    /** Bounded point relocation search; returns a preview without modifying the input. */
+    /** Point relocation search until feasible or no strict improvement; does not modify the input. */
     public Map<String, Object> repairPoints(Map<String, Object> request) {
         Map<String, Object> source = map(request.get("result"));
         List<Map<String, Object>> original = maps(source.get("routes"));
         double start = startMinutes(request);
-        long deadline = System.nanoTime() + 60_000_000_000L;
-        ScenarioEvaluator evaluator = new ScenarioEvaluator(request, original, start, deadline);
+        ScenarioEvaluator evaluator = new ScenarioEvaluator(request, original, start);
         ScenarioEvaluation currentEvaluation = evaluator.evaluate(original);
         ScenarioEvaluation originalEvaluation = currentEvaluation;
         Score before = currentEvaluation.score;
@@ -37,9 +36,8 @@ public class TripReorderService {
         int iterations = 0;
         java.util.Set<String> visited = new java.util.HashSet<String>();
         visited.add(orderSignature(current));
-        boolean limited = false;
         boolean expanded = "EXPANDED".equalsIgnoreCase(text(request.get("searchMode")));
-        search: while (currentScore.violations > 0 && iterations < 200) {
+        while (currentScore.violations > 0) {
             iterations++;
             List<Map<String, Object>> best = current;
             Score bestScore = currentScore;
@@ -57,13 +55,6 @@ public class TripReorderService {
                         int to = from + (step % 2 == 1 ? offset : -offset);
                         if (to < 1 || to >= points.size() - 1) continue;
                         if (!expanded && ((direction == 1 && to < from) || (direction == -1 && to > from))) continue;
-                        if (evaluations >= 500 || System.nanoTime() >= deadline) {
-                            limited = true;
-                            current = best;
-                            currentScore = bestScore;
-                            currentEvaluation = bestEvaluation;
-                            break search;
-                        }
                         List<Map<String, Object>> candidate = new ArrayList<Map<String, Object>>(current);
                         Map<String, Object> route = copy(current.get(r));
                         List<Map<String, Object>> moved = new ArrayList<Map<String, Object>>(points);
@@ -74,20 +65,11 @@ public class TripReorderService {
                         evaluations++;
                         // Trip membership and endpoints are fixed: rebuild only the changed trip.
                         List<Map<String, Object>> rebuilt = new ArrayList<Map<String, Object>>(current);
-                        ScenarioEvaluation candidateEvaluation;
-                        try {
-                            Map<String, Object> changed = rebuildRoutes(Collections.singletonList(route), Collections.singletonList(current.get(r)), request, source).get(0);
-                            changed.put("routeNo", current.get(r).get("routeNo"));
-                            changed.put("tripNo", current.get(r).get("tripNo"));
-                            rebuilt.set(r, changed);
-                            candidateEvaluation = evaluator.evaluate(rebuilt);
-                        } catch (ScenarioBudgetExceeded ex) {
-                            limited = true;
-                            current = best;
-                            currentScore = bestScore;
-                            currentEvaluation = bestEvaluation;
-                            break search;
-                        }
+                        Map<String, Object> changed = rebuildRoutes(Collections.singletonList(route), Collections.singletonList(current.get(r)), request, source).get(0);
+                        changed.put("routeNo", current.get(r).get("routeNo"));
+                        changed.put("tripNo", current.get(r).get("tripNo"));
+                        rebuilt.set(r, changed);
+                        ScenarioEvaluation candidateEvaluation = evaluator.evaluate(rebuilt);
                         Score candidateScore = candidateEvaluation.score;
                         if (compare(candidateScore, bestScore) < 0) {
                             best = rebuilt;
@@ -110,15 +92,13 @@ public class TripReorderService {
             result.put("routes", current);
             result.put("timeWindowRepaired", true);
         }
-        String reason = limited || iterations >= 200
-                ? (currentScore.violations == 0 ? "时间窗全部通过；已达到计算上限，仅比较了部分候选" : "已达到计算上限，仅比较了部分候选")
-                : currentScore.violations == 0 ? "时间窗全部通过，已完成本轮候选比较" : "当前搜索未找到进一步改善";
+        String reason = currentScore.violations == 0 ? "时间窗全部通过，已完成本轮候选比较" : "当前搜索未找到进一步改善";
         String message = "冲突点由 " + before.violations + " 个变为 " + currentScore.violations + " 个；" + reason;
-        if (evaluator.joint) message = evaluator.summary(currentEvaluation) + "；" + (limited || iterations >= 200 ? "已达到计算上限，仅比较了部分候选" : currentScore.violations == 0 ? "已完成本轮候选比较" : "当前搜索未找到全部场景均通过的固定顺序");
+        if (evaluator.joint) message = evaluator.summary(currentEvaluation) + "；" + (currentScore.violations == 0 ? "已完成本轮候选比较" : "当前搜索未找到全部场景均通过的固定顺序");
         Map<String, Object> response = response(improved, message, result, before, currentScore);
         response.put("evaluations", evaluations);
         response.put("iterations", iterations);
-        response.put("limited", limited || iterations >= 200);
+        response.put("limited", false); // Keep the response field for existing clients; search has no artificial cap.
         response.put("searchMode", expanded ? "EXPANDED" : "CONFLICT_ONLY");
         response.put("improvementType", timeImproved(currentScore, before) ? "TIME_WINDOW" : improved ? "EFFICIENCY_ONLY" : "NONE");
         response.put("beforeDistance", before.distance);
@@ -143,14 +123,12 @@ public class TripReorderService {
         private final Map<String, Map<String, Object>> roadCache = new HashMap<>();
         private final java.util.Set<String> covered = new java.util.HashSet<>();
         private final double start;
-        private final long deadline;
         private final boolean joint;
         private final int unassignedCount;
 
-        ScenarioEvaluator(Map<String, Object> request, List<Map<String, Object>> routes, double start, long deadline) {
+        ScenarioEvaluator(Map<String, Object> request, List<Map<String, Object>> routes, double start) {
             this.request = request;
             this.start = start;
-            this.deadline = deadline;
             days = maps(request.get("scheduleDays"));
             joint = request.containsKey("scheduleDays");
             if (joint && (days.isEmpty() || !"ROAD".equalsIgnoreCase(text(map(request.get("result")).get("distanceMode"))))) {
@@ -181,7 +159,6 @@ public class TripReorderService {
 
         ScenarioEvaluation evaluate(List<Map<String, Object>> routes) {
             if (joint) for (Map<String, Object> route : routes) {
-                checkBudget();
                 validateRoad(maps(route.get("segments")), maps(route.get("points")).size() - 1);
             }
             Score template = score(routes, start);
@@ -191,11 +168,9 @@ public class TripReorderService {
             List<List<Map<String, Object>>> dailyRoutes = new ArrayList<>();
             List<Map<String, Object>> summaries = new ArrayList<>();
             for (Map<String, Object> day : days) {
-                checkBudget();
                 java.util.Set<String> due = dueIds(day);
                 List<Map<String, Object>> filtered = new ArrayList<>();
                 for (Map<String, Object> route : routes) {
-                    checkBudget();
                     List<Map<String, Object>> full = maps(route.get("points"));
                     List<Map<String, Object>> points = new ArrayList<>();
                     for (int i = 0; i < full.size(); i++) if (!isCollectionPoint(full.get(i), i, full.size()) || due.contains(text(full.get(i).get("facilityId")))) points.add(full.get(i));
@@ -214,7 +189,6 @@ public class TripReorderService {
                         filtered.add(daily);
                     }
                 }
-                checkBudget();
                 Score dailyScore = score(filtered, start);
                 violations += dailyScore.violations;
                 penalty += dailyScore.penaltyMinutes;
@@ -282,10 +256,6 @@ public class TripReorderService {
             }
         }
 
-        private void checkBudget() {
-            if (System.nanoTime() >= deadline) throw new ScenarioBudgetExceeded();
-        }
-
         Map<Integer, Map<Integer, Integer>> conflicts(List<Map<String, Object>> template, ScenarioEvaluation evaluation) {
             Map<Integer, Map<Integer, Integer>> merged = conflictDirections(template, start);
             for (List<Map<String, Object>> routes : evaluation.dailyRoutes) {
@@ -310,10 +280,6 @@ public class TripReorderService {
             if (unassignedCount > 0) text.append("仍有").append(unassignedCount).append("个点未分配，不代表收运任务全部可执行");
             return text.toString();
         }
-    }
-
-    private static class ScenarioBudgetExceeded extends IllegalStateException {
-        ScenarioBudgetExceeded() { super("排班周期校验超过计算预算，请缩小周期后重试；未应用不完整校验结果"); }
     }
 
     private static class ScenarioEvaluation {

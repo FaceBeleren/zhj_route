@@ -200,6 +200,38 @@ class JointTimeWindowRepairTest {
         assertEquals(0, response.get("afterViolationCount"));
     }
 
+    @Test
+    void continuesPastFiveHundredCandidatesAndFindsLaterImprovement() {
+        RouteOptimizeService optimizer = optimizer();
+        doAnswer(invocation -> {
+            List<Map<String, Object>> points = maps(((Map<?, ?>) invocation.getArgument(0)).get("points"));
+            Map<String, Object> road = road(points);
+            // Only a move generated late in the round improves efficiency; the window is impossible.
+            if (points.get(1).get("facilityId").equals(25L)) {
+                maps(road.get("segments")).forEach(segment -> segment.put("durationMinutes", 1D));
+                road.put("durationMinutes", points.size() - 1D);
+            }
+            return road;
+        }).when(optimizer).routeSegmentsPreview(anyMap());
+        List<Map<String, Object>> points = new ArrayList<>();
+        List<Long> ids = new ArrayList<>();
+        for (long id = 1; id <= 25; id++) { points.add(point(id, 0, null, null)); ids.add(id); }
+        points.get(0).put("barredTimeBegin", "00:00");
+        points.get(0).put("barredTimeEnd", "23:59");
+        Map<String, Object> original = route(1, points.toArray(new Map[0]));
+        String snapshot = original.toString();
+        Map<String, Object> request = request(Arrays.asList(original), day(1, ids.toArray(new Long[0])));
+        request.put("searchMode", "EXPANDED");
+        Map<String, Object> response = new TripReorderService(optimizer).repairPoints(request);
+        assertTrue(((Number) response.get("evaluations")).intValue() > 500);
+        assertEquals(false, response.get("limited"));
+        assertEquals(true, response.get("improved"));
+        assertEquals("EFFICIENCY_ONLY", response.get("improvementType"));
+        assertEquals(25L, maps(maps(map(response.get("result")).get("routes")).get(0).get("points")).get(1).get("facilityId"));
+        assertEquals(snapshot, original.toString());
+        assertFalse(response.get("message").toString().contains("计算上限"));
+    }
+
     @SuppressWarnings("unchecked") private Map<String, Object> map(Object value) { return (Map<String, Object>) value; }
     @SuppressWarnings("unchecked") private List<Map<String, Object>> maps(Object value) { return (List<Map<String, Object>>) value; }
 }

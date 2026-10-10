@@ -2254,9 +2254,9 @@
     <section style="background:white;padding:24px;border-radius:12px;width:min(900px,90vw);max-height:85vh;overflow:auto">
       <h2>时间窗修正路线 · {{ timeRepairVersion?.name }}</h2>
       <p>调整同一趟内点位顺序，以时间窗满足度为优先目标，可能增加行驶距离。修正结果是运营调整建议，不代表原距离优化结果。确认应用后更新当前方案。</p>
-      <p>本阶段按严格时间窗校验，不自动等待；最多评估500个候选、200轮，计算时间预算60秒（正在执行的道路请求完成后停止）。</p>
+      <p>本阶段按严格时间窗校验，不自动等待；不设置候选数、轮数或计算时长上限。复杂排班及扩大搜索可能耗时较长，请等待计算完成。</p>
       <p v-if="timeRepairScope === 'FIXED'">联合检查完整模板和排班周期内每一天：每个候选都按当天应收点重新计算跳点后道路、作业时间及连续趟次到达时间。同一点在不同天冲突分别计数；冲突方向不同则双向尝试。耗时与距离比较采用整个排班周期合计，不是只看全点模板。</p>
-      <p>默认只移动冲突收运点：早到向后挪，晚到向前挪；禁止或跨午夜时间窗双向尝试。每轮重新检查全部点位；即使某个候选全部通过，也继续比较本轮剩余插入位置，依次按冲突数、超窗分钟、总完成时间、总距离选优。本轮结束后全部通过则停止；达到计算上限时可能只比较部分候选，不保证全局最优。</p>
+      <p>默认只移动冲突收运点：早到向后挪，晚到向前挪；禁止或跨午夜时间窗双向尝试。每轮重新检查全部点位；即使某个候选全部通过，也继续比较本轮剩余插入位置，依次按冲突数、超窗分钟、总完成时间、总距离选优。本轮结束后全部通过或未找到进一步改善则停止；跳过重复顺序，不保证全局最优。</p>
       <button :disabled="assignmentTripReorderRunning" @click="runTimeWindowRepair('CONFLICT_ONLY')">{{ assignmentTripReorderRunning ? '正在计算修正版…' : '开始修正' }}</button>
       <button :disabled="assignmentTripReorderRunning" title="允许移动正常收运点，搜索更广但可能更慢或增加绕行；仍从修正前原方案试算" @click="runTimeWindowRepair('EXPANDED')">扩大搜索</button>
       <button :disabled="assignmentTripReorderRunning" @click="timeRepairVisible = false">关闭</button>

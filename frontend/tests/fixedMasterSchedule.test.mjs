@@ -192,3 +192,11 @@ test('joint repair applies only to fixed template and rebuilds every day before 
   assert.equal(JSON.stringify(scope.assignmentVersions.value), schemes)
   assert.equal(state.assignmentWorkbookRequest(new Map(), true).fixedMaster.schemes.length, 2)
 })
+
+test('repair dialog describes uncapped search and its natural stopping conditions', () => {
+  const dialog = app.slice(app.indexOf('<div v-if="timeRepairVisible"'), app.indexOf('<script setup>'))
+  assert.match(dialog, /不设置候选数、轮数或计算时长上限/)
+  assert.match(dialog, /全部通过或未找到进一步改善则停止/)
+  assert.match(dialog, /跳过重复顺序/)
+  assert.doesNotMatch(dialog, /最多评估500|200轮|预算60秒|达到计算上限/)
+})
