@@ -838,6 +838,7 @@
             </div>
             <div class="optimizer-controls">
               <label>额定载重 kg<input v-model.number="optimizeOptions.ratedCapacityKg" type="number" min="1" step="100" /></label>
+              <label>垃圾密度 kg/m³<input v-model.number="optimizeOptions.garbageDensityKgM3" type="number" min="0.01" step="1" :placeholder="garbageDensityPlaceholder" :disabled="loading || assignmentBatchRunning || assignmentTripReorderRunning || fixedMasterRunning" /><small>{{ garbageDensityError || '留空沿用原配置；修改后重新生成方案' }}</small></label>
               <label>目标装载率<input v-model.number="optimizeOptions.targetLoadRate" type="number" min="0.1" max="1" step="0.05" /></label>
               <label>最大趟数<input v-model.number="optimizeOptions.maxRoutes" type="number" min="1" step="1" /></label>
               <label>标准工时 h<input v-model.number="optimizeOptions.workHours" type="number" min="1" max="24" step="0.5" /></label>
@@ -1053,6 +1054,7 @@
                 <small v-else-if="assignmentVehicleError" class="assignment-vehicle-hint error-text">{{ assignmentVehicleError }}</small>
               </label>
               <label>额定载重 kg<input v-model.number="optimizeOptions.ratedCapacityKg" type="number" min="1" step="100" /><small class="assignment-vehicle-hint">可按车辆自动回填，也可手工修改</small></label>
+              <label>垃圾密度 kg/m³<input v-model.number="optimizeOptions.garbageDensityKgM3" type="number" min="0.01" step="1" :placeholder="garbageDensityPlaceholder" :disabled="loading || assignmentBatchRunning || assignmentTripReorderRunning || fixedMasterRunning" /><small>{{ garbageDensityError || '留空沿用原配置；重量=桶容积÷1000×密度，修改后重新生成方案' }}</small></label>
               <label>目标装载率<input v-model.number="optimizeOptions.targetLoadRate" type="number" min="0.1" max="1" step="0.05" /></label>
               <label>最大趟数<input v-model.number="optimizeOptions.maxRoutes" type="number" min="1" step="1" /></label>
               <label>标准工时 h<input v-model.number="optimizeOptions.workHours" type="number" min="1" max="24" step="0.5" /></label>
@@ -1121,12 +1123,21 @@
               <button :disabled="!fixedMasterFresh || fixedMasterRunning || assignmentBatchRunning || assignmentTripReorderRunning || loading" @click="exportFixedMaster">导出方案</button>
               <button v-if="fixedMaster?.timeWindowOriginalResult" :disabled="!fixedMasterFresh || fixedMasterRunning || assignmentTripReorderRunning" @click="restoreFixedMasterOriginal">恢复修正前全点模板</button>
             </div></div>
-            <p>这是第二套独立方案：按所有点都收生成多趟，趟序调整和时间窗修正只针对完整模板。每日仍沿模板道路，绿色点收、白色点不收；扣除白点收运作业时间后连续推算每天到达时间，保留行驶与卸料时间，不对每日跳点结果自动修正。</p>
+            <p>这是第二套独立方案：按所有点都收生成多趟，趟序调整和时间窗修正只针对完整模板。每日跳过不收点，重新查询道路并计算距离、耗时、到达时间与时间窗；保留原趟次、点位相对顺序和卸料时间，不对每日结果自动调整顺序。</p>
             <p>计划不收依据已确认频次；停排不代表任务已完成。实际满载、漏收、设施关闭等异常需人工调度补收。</p>
             <p v-if="fixedMasterMessage">{{ fixedMasterMessage }}</p>
             <p v-if="fixedMaster && !fixedMasterFresh" style="color:#c46b00">点位、排班或规划参数已变化，固定方案已失效，请重新生成。旧结果不会用于导出。</p>
             <template v-if="fixedMasterFresh">
               <label>查看 <select v-model.number="fixedMasterDay"><option :value="0">完整模板（所有点都收）</option><option v-for="day in assignmentScheduleCycleDays" :key="day" :value="day">第{{ day }}天</option></select></label>
+              <div class="route-display-toggle">
+                <span>地图展示</span>
+                <button :class="{ active: fixedMasterMapMode === 'DIRECT' }" @click="fixedMasterMapMode = 'DIRECT'">点位直线</button>
+                <button :class="{ active: fixedMasterMapMode === 'ROAD' }" @click="fixedMasterMapMode = 'ROAD'">道路折线</button>
+                <span>点位范围</span>
+                <button :disabled="fixedMasterDay === 0" :class="{ active: fixedMasterDay !== 0 && !fixedMasterMapIncludeSkipped }" @click="fixedMasterMapIncludeSkipped = false">仅当日收运点</button>
+                <button :disabled="fixedMasterDay === 0" :class="{ active: fixedMasterDay === 0 || fixedMasterMapIncludeSkipped }" @click="fixedMasterMapIncludeSkipped = true">保留全部点位</button>
+              </div>
+              <p class="muted">每日到达时间、时间窗校验和导出统一按跳点后道路计算。“保留全部点位”仅对照模板连线，不改变每日计算结果。两种道路耗时均扣除当日不收点的作业时间。</p>
               <p>主路线来源：{{ fixedMaster.sourceLabel }}；当天{{ fixedMasterDayData?.disabled ? '已停排' : fixedMasterDayData?.status || '未排班' }}。</p>
               <p v-if="fixedMasterDayData?.result">完整模板 {{ fixedMasterDayData.result.routeCount }} 趟；全点模板时间窗冲突 {{ fixedMasterTimeWindowStats.violationCount }} 个；当天应收 {{ fixedMasterDayData.indices.length }} 点；当天时间窗冲突 {{ timeWindowStatsForResult(fixedMasterDayData.result).violationCount }} 个；当天应收但模板未分配 {{ fixedMasterDayData.result.dueUnassignedCount || 0 }} 点。</p>
               <p v-if="fixedMasterDayData?.error" style="color:red">{{ fixedMasterDayData.error }}</p>
@@ -1136,10 +1147,12 @@
                 </tr>
               </tbody></table></div>
               <article v-for="route in fixedMasterDayData?.result?.routes || []" :key="route.routeNo" class="multi-route-card" :class="{ active: fixedMasterRouteNo === route.routeNo }" @click="fixedMasterRouteNo = route.routeNo">
-                <strong>完整模板第{{ route.tripNo }}趟</strong> · 模板道路 {{ formatDistance(route.displayDistance) }} · 当天预计耗时 {{ formatDuration(route.displayTotalDurationMinutes) }}
-                <div class="sequence route-point-sequence"><span v-for="point in route.points" :key="point.order" :style="point.scheduleSkipped ? { background: '#fff', color: '#777', border: '1px solid #aaa' } : {}" :title="point.scheduleSkipped ? '今日不收，完整道路仍经过该点' : ''">{{ point.facilityName }}{{ point.scheduleSkipped ? '（不收）' : '' }}</span></div>
+                <strong>完整模板第{{ route.tripNo }}趟</strong>
+                <div v-if="fixedMasterDay !== 0">保留全部点位道路：{{ formatDistance(route.retainedRoadDistance) }} · 当天耗时 {{ formatDuration(route.retainedRoadTotalDurationMinutes) }}</div>
+                <div>{{ fixedMasterDay === 0 ? '全点收运' : '跳点后道路' }}：{{ formatDistance(route.displayDistance) }} · {{ fixedMasterDay === 0 ? '模板耗时' : '当天耗时' }} {{ formatDuration(route.displayTotalDurationMinutes) }}</div>
+                <div class="sequence route-point-sequence"><span v-for="point in fixedMasterVisiblePoints(route)" :key="point.order" :style="point.scheduleSkipped ? { background: '#fff', color: '#777', border: '1px solid #aaa' } : {}" :title="point.scheduleSkipped ? '今日不收，完整道路仍经过该点' : ''">{{ point.facilityName }}{{ point.scheduleSkipped ? '（不收）' : '' }}</span></div>
               </article>
-              <RouteMapPanel v-if="fixedMasterSelectedRoute" :key="'fixed-master-'+fixedMasterSelectedRoute.routeNo" :original-points="[]" :optimized-points="fixedMasterSelectedRoute.points" :optimized-segments="fixedMasterSelectedRoute.roadSegments" :show-original="false" optimized-label="全点模板道路（白点不收）" />
+              <RouteMapPanel v-if="fixedMasterSelectedRoute" :key="'fixed-master-'+fixedMasterSelectedRoute.routeNo" :original-points="[]" :optimized-points="fixedMasterMapPoints" :optimized-segments="fixedMasterMapSegments" :show-original="false" :optimized-label="fixedMasterDay === 0 || fixedMasterMapIncludeSkipped ? '完整模板连线' : '当日收运点连线'" />
             </template>
           </section>
             </div>
@@ -1255,6 +1268,7 @@
                 额定载重 kg
                 <input v-model.number="optimizeOptions.ratedCapacityKg" type="number" min="1" step="100" />
               </label>
+              <label>垃圾密度 kg/m³<input v-model.number="optimizeOptions.garbageDensityKgM3" type="number" min="0.01" step="1" :placeholder="garbageDensityPlaceholder" :disabled="loading || assignmentBatchRunning || assignmentTripReorderRunning || fixedMasterRunning" /><small>{{ garbageDensityError || '留空沿用原配置；修改后重新生成方案' }}</small></label>
               <label>
                 目标装载率
                 <input v-model.number="optimizeOptions.targetLoadRate" type="number" min="0.1" max="1" step="0.05" />
@@ -2266,7 +2280,8 @@ import RouteMapPanel from './components/RouteMapPanel.vue'
 import ClusterMapPanel from './components/ClusterMapPanel.vue'
 import FlowAnalysisPdfReport from './components/FlowAnalysisPdfReport.vue'
 import { balanceAssignmentPhases } from './assignmentPhases.js'
-import { maskFixedTripTemplate } from './fixedTripTemplate.js'
+import { maskFixedTripTemplate, buildFixedDailyRouteResult } from './fixedTripTemplate.js'
+import { applyGarbageDensity } from './garbageDensity.js'
 
 const LOGIN_USERNAME = 'admin'
 const LOGIN_PASSWORD = 'zhj521%@!'
@@ -2717,17 +2732,38 @@ async function generateFixedMaster() {
       const applicable = schemes.filter(scheme => scheme.days.includes(day))
       const indices = [...new Set(applicable.flatMap(scheme => scheme.indices))]
       const due = new Set(originals.filter((_, index) => indices.includes(index)).map(point => String(point.facilityId)))
-      days.push({ day, indices, status: applicable.length ? '沿模板计算每日到达' : '未排班', result: maskFixedTripTemplate(template, due) })
+      days.push({ day, indices, status: applicable.length ? '按跳点后道路计算' : '未排班', due })
     }
+    const calculatedDays = await calculateFixedMasterDays(template, days, options)
     if (fingerprint !== fixedMasterFingerprint.value) throw new Error('计算期间配置变化，结果已弃用')
-    fixedMaster.value = { fingerprint, template, points: masterPoints, days, sourceLabel: '独立全点多趟模板；每日沿原道路扣除不收点作业时间并推算到达时间' }
+    fixedMaster.value = { fingerprint, template, points: masterPoints, days: calculatedDays, sourceLabel: '独立全点多趟模板；每日按跳点后道路计算距离、耗时与到达时间' }
     fixedMasterDay.value = 1
     fixedMasterRouteNo.value = template.routes?.[0]?.routeNo || null
-    fixedMasterMessage.value = `全点方案已生成${template.routeCount || 0}趟，未分配${template.unassignedPointCount || 0}点。日期切换不改变路径，扣除白点作业时间后重算到达时间。`
+    fixedMasterMessage.value = `全点方案已生成${template.routeCount || 0}趟，未分配${template.unassignedPointCount || 0}点。每日跳点道路和到达时间已计算，日期切换复用结果。`
   } catch (err) {
     if (taskId) await api(`/api/optimize/multi-preview/tasks/${taskId}/cancel`, { method: 'POST' }).catch(() => {})
     fixedMasterMessage.value = `生成失败：${err.message || String(err)}`
   } finally { fixedMasterRunning.value = false }
+}
+async function calculateFixedMasterDays(template, days, options) {
+  const cache = new Map()
+  const resolveRoad = async points => {
+    const key = JSON.stringify(points.map(point => [point.facilityId, point.longitude, point.latitude]))
+    if (!cache.has(key)) cache.set(key, (async () => {
+      if (Number.isFinite(Number(points[0].longitude)) && Number.isFinite(Number(points[0].latitude)) && points.every(point => point.longitude === points[0].longitude && point.latitude === points[0].latitude)) {
+        return { segments: points.slice(1).map((point, index) => ({ order: index + 1, distance: 0, durationMinutes: 0, pathSource: 'SAME_POINT', path: [points[index], point] })) }
+      }
+      return api('/api/optimize/route-segments', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ...options, points, displayRoadPath: true }) })
+    })())
+    return cache.get(key)
+  }
+  const calculated = []
+  for (const day of days) {
+    fixedMasterMessage.value = `正在计算第${day.day}天跳点后道路与到达时间…`
+    const due = day.due || new Set(splitPlanPoints.value.filter((_, index) => day.indices.includes(index)).map(point => String(point.facilityId)))
+    calculated.push({ day: day.day, indices: day.indices, status: day.status, result: await buildFixedDailyRouteResult(template, due, resolveRoad) })
+  }
+  return calculated
 }
 const assignmentActiveVersionId = ref(null)
 const assignmentBatchRunning = ref(false)
@@ -3021,6 +3057,7 @@ watch(currentView, (view, previousView) => {
   }
 })
 const optimizeOptions = reactive({
+  garbageDensityKgM3: null,
   ratedCapacityKg: 5000,
   targetLoadRate: 0.9,
   maxRoutes: 10,
@@ -3045,6 +3082,26 @@ const optimizeOptions = reactive({
   endFacilityId: null,
   endFacilityName: null
 })
+
+const garbageDensityError = computed(() => optimizeOptions.garbageDensityKgM3 != null && optimizeOptions.garbageDensityKgM3 !== '' && (!(Number(optimizeOptions.garbageDensityKgM3) > 0) || !Number.isFinite(Number(optimizeOptions.garbageDensityKgM3))) ? '密度必须为大于0的数值' : '')
+const garbageDensityPlaceholder = computed(() => {
+  const values = [...new Set((splitPlanPoints.value.length ? splitPlanPoints.value : planPoints.value).map(point => Number(point.litersPerTon)).filter(value => value > 0))]
+  return values.length === 1 ? `原配置 ${Math.round(1000000 / values[0] * 100) / 100}` : '沿用各点位原配置'
+})
+watch([() => optimizeOptions.garbageDensityKgM3, splitPlanPoints, planPoints, companyPoints], (values, previous) => {
+  for (const points of values.slice(1)) applyGarbageDensity(points, values[0])
+  if (previous && values[0] !== previous[0]) {
+    optimization.value = null
+    multiOptimization.value = null
+    for (const version of assignmentVersions.value) {
+      version.result = null
+      version.timeWindowOriginalResult = null
+      version.status = 'PENDING'
+      version.message = '垃圾密度已变化，请重新生成方案'
+    }
+    fixedMasterMessage.value = '垃圾密度已变化，请重新生成全点模板；按垃圾量均衡排班时也需重新按频次生成。'
+  }
+}, { flush: 'sync' })
 
 const filteredCompanies = computed(() => {
   const keyword = companyKeyword.value.trim().toLowerCase()
@@ -3530,6 +3587,21 @@ function savedRouteSpeedKmh(route) {
   const speed = Number(value)
   return Number.isFinite(speed) && speed > 0 ? speed : 20
 }
+// Independent display state: never write display-only bypass paths into planning results.
+const fixedMasterMapMode = ref('ROAD')
+const fixedMasterMapIncludeSkipped = ref(false)
+function fixedMasterVisiblePoints(route) {
+  if (fixedMasterDay.value === 0 || fixedMasterMapIncludeSkipped.value) return route?.fullTemplatePoints || route?.points || []
+  return (route?.points || []).filter(point => !point.scheduleSkipped)
+}
+const fixedMasterMapPoints = computed(() => fixedMasterVisiblePoints(fixedMasterSelectedRoute.value))
+const fixedMasterMapSegments = computed(() => {
+  if (fixedMasterMapMode.value === 'DIRECT') return buildDirectRouteSegments(fixedMasterMapPoints.value)
+  const route = fixedMasterSelectedRoute.value
+  if (fixedMasterDay.value !== 0 && fixedMasterMapIncludeSkipped.value) return route?.fullTemplateSegments || route?.roadSegments || []
+  return route?.roadSegments || []
+})
+
 function buildDirectRouteSegments(points, speedKmh = 20) {
   const segments = []
   for (let i = 0; i < points.length - 1; i += 1) {
@@ -4886,7 +4958,8 @@ async function updateFixedMasterTemplate(result, owner) {
   const indices = new Map(splitPlanPoints.value.map((point, index) => [String(point.facilityId), index]))
   const points = template.routes.flatMap(route => route.points.filter(point => point.role === 'MIDDLE').map((point, index) => ({ ...point, masterIndex: indices.get(String(point.facilityId)), templateToken: `${String(route.tripNo).padStart(2, '0')}-${String(index + 1).padStart(3, '0')}` })))
   for (const point of template.unassignedPoints || []) points.push({ ...point, masterIndex: indices.get(String(point.facilityId)), templateToken: '未分配' })
-  const days = owner.days.map(day => ({ ...day, result: maskFixedTripTemplate(template, new Set(splitPlanPoints.value.filter((_, index) => day.indices.includes(index)).map(point => String(point.facilityId)))) }))
+  const days = await calculateFixedMasterDays(template, owner.days, { ...optimizeOptions })
+  if (owner !== fixedMaster.value || !fixedMasterFresh.value) throw new Error('每日道路计算期间模板或参数变化，未应用结果')
   // Replace only after all road requests and stale-state checks have succeeded.
   owner.template = template
   owner.points = points
@@ -6244,7 +6317,7 @@ async function exportAssignmentSchedule() {
 }
 
 function fixedMasterExportSchemes(metadata) {
-  return fixedMasterDays.value.map(day => ({ name: `第${day.day}天（沿完整模板）`, applicableDays: [day.day], scheduleDisabled: day.disabled,
+  return fixedMasterDays.value.map(day => ({ name: `第${day.day}天（跳点后道路）`, applicableDays: [day.day], scheduleDisabled: day.disabled,
     selectedIndices: day.indices, status: day.status, result: assignmentExportResult(day.result, metadata) }))
 }
 

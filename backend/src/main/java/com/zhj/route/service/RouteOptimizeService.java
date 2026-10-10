@@ -201,11 +201,11 @@ public class RouteOptimizeService {
         if (inlinePointMode) {
             @SuppressWarnings("unchecked")
             List<Map<String, Object>> rows = (List<Map<String, Object>>) pointsValue;
-            sourcePoints = toRoutePoints(rows);
+            sourcePoints = toRoutePoints(normalizeInputAnchorIds(rows, request));
         } else {
-            sourcePoints = toRoutePoints(companyMode
+            sourcePoints = toRoutePoints(normalizeInputAnchorIds(companyMode
                     ? routeQueryService.companyFacilityPoints(unitId)
-                    : routeQueryService.routePlanPoints(routeId));
+                    : routeQueryService.routePlanPoints(routeId), request));
         }
         sourcePoints = filterByRequestedFacilities(sourcePoints, request);
         boolean explicitAnchors = hasAnchorCoordinate(request, "start") || hasAnchorCoordinate(request, "end");
@@ -436,9 +436,23 @@ public class RouteOptimizeService {
     }
 
     private List<Map<String, Object>> normalizeInputAnchorIds(List<Map<String, Object>> rows, Map<String, Object> request) {
+        Object densityValue = request.get("garbageDensityKgM3");
+        Double density = densityValue == null || String.valueOf(densityValue).trim().isEmpty() ? null : toDouble(densityValue);
+        if (densityValue != null && !String.valueOf(densityValue).trim().isEmpty()
+                && (density == null || !Double.isFinite(density) || density <= 0)) {
+            throw new IllegalArgumentException("垃圾密度必须为大于0的数值，单位kg/m³");
+        }
         List<Map<String, Object>> normalized = new ArrayList<Map<String, Object>>();
         for (Map<String, Object> source : rows) {
             Map<String, Object> row = new LinkedHashMap<String, Object>(source);
+            if (density != null && !"ANCHOR".equalsIgnoreCase(String.valueOf(row.get("weightSource")))) {
+                Double volume = toDouble(row.get("estimatedVolumeLiter"));
+                if (volume != null && Double.isFinite(volume) && volume >= 0) {
+                    row.put("estimatedWeightKg", round(volume / 1000D * density));
+                    row.put("litersPerTon", 1_000_000D / density);
+                    row.put("weightSource", "DENSITY_OVERRIDE");
+                }
+            }
             Long facilityId = toLong(row.get("facilityId"));
             String prefix = facilityId != null && facilityId == -2L ? "end" : (facilityId != null && facilityId == -1L ? "start" : null);
             if (prefix != null) {
@@ -2052,5 +2066,4 @@ public class RouteOptimizeService {
         }
     }
 }
-
 
