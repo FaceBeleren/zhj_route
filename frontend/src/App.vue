@@ -843,7 +843,7 @@
               <label>最大趟数<input v-model.number="optimizeOptions.maxRoutes" type="number" min="1" step="1" /></label>
               <label>标准工时 h<input v-model.number="optimizeOptions.workHours" type="number" min="1" max="24" step="0.5" /></label>
               <label>首趟发车时间<input v-model="optimizeOptions.plannedStartTime" type="time" /></label>
-              <label>每桶秒<input v-model.number="optimizeOptions.secondsPerContainer" type="number" min="1" step="1" /></label>
+              <label>每处理单位耗时（秒）<input v-model.number="optimizeOptions.secondsPerContainer" type="number" min="1" step="1" /><small>1个660L桶或2个240L桶算一个处理单位；另加每点固定作业时间。</small></label>
               <label>每点分钟<input v-model.number="optimizeOptions.minutesPerPoint" type="number" min="0" step="0.5" /></label>
               <label>处理厂/中转站卸料 min<input v-model.number="optimizeOptions.terminalUnloadMinutes" type="number" min="0" step="1" /></label>
               <label>密集路段速度 km/h<input v-model.number="optimizeOptions.denseSpeedKmh" type="number" min="1" step="1" /></label>
@@ -1059,7 +1059,7 @@
               <label>最大趟数<input v-model.number="optimizeOptions.maxRoutes" type="number" min="1" step="1" /></label>
               <label>标准工时 h<input v-model.number="optimizeOptions.workHours" type="number" min="1" max="24" step="0.5" /></label>
               <label>首趟发车时间<input v-model="optimizeOptions.plannedStartTime" type="time" /></label>
-              <label>每桶秒<input v-model.number="optimizeOptions.secondsPerContainer" type="number" min="1" step="1" /></label>
+              <label>每处理单位耗时（秒）<input v-model.number="optimizeOptions.secondsPerContainer" type="number" min="1" step="1" /><small>1个660L桶或2个240L桶算一个处理单位；另加每点固定作业时间。</small></label>
               <label>每点分钟<input v-model.number="optimizeOptions.minutesPerPoint" type="number" min="0" step="0.5" /></label>
               <label>处理厂/中转站卸料 min<input v-model.number="optimizeOptions.terminalUnloadMinutes" type="number" min="0" step="1" /></label>
               <label>密集路段速度 km/h<input v-model.number="optimizeOptions.denseSpeedKmh" type="number" min="1" step="1" /></label>
@@ -1289,8 +1289,9 @@
                 <input v-model="optimizeOptions.plannedStartTime" type="time" />
               </label>
               <label>
-                每桶秒
+                每处理单位耗时（秒）
                 <input v-model.number="optimizeOptions.secondsPerContainer" type="number" min="1" step="1" />
+                <small>1个660L桶或2个240L桶算一个处理单位；另加每点固定作业时间。</small>
               </label>
               <label>
                 每点分钟
@@ -1767,7 +1768,7 @@
             </div>
             <div class="cluster-time-config">
               <span class="muted">作业统计口径（仅用于展示，不参与聚类）</span>
-              <label>每桶秒<input v-model.number="clusterTimeConfig.secondsPerContainer" type="number" min="1" step="1" /></label>
+              <label>每处理单位耗时（秒）<input v-model.number="clusterTimeConfig.secondsPerContainer" type="number" min="1" step="1" /><small>1个660L桶或2个240L桶算一个处理单位；另加每点固定作业时间。</small></label>
               <label>每点分钟<input v-model.number="clusterTimeConfig.minutesPerPoint" type="number" min="0" step="0.5" /></label>
               <span v-if="selectedClusterGroup" class="cluster-current">当前优化对象：{{ selectedClusterGroup.groupName }} · {{ selectedClusterGroup.pointCount }} 点</span>
               <span v-else class="muted">选择聚类后某一堆后，多路线生成会优先使用该堆点位。</span>
