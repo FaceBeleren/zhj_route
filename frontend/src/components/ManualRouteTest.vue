@@ -7,8 +7,10 @@
         <label>选择编辑趟次 <select v-model.number="tripIndex" :disabled="busy" @change="clearDrag"><option v-for="(route,index) in draft.routes" :key="index" :value="index">{{ route.vehicleName || '车辆' }} 第{{ route.tripNo || route.routeNo }}趟</option></select></label>
         <button :disabled="busy" @click="reset">恢复系统顺序</button>
         <button :disabled="busy" @click="calculate">{{ busy ? '正在计算…' : '确定并计算对比' }}</button>
+        <button :disabled="busy" @click="saveManual">保存手动方案（全部趟次）</button>
       </div>
       <p>拖动点位到目标行的上方或下方调整顺序，也可使用前移／后移按钮。固定锚点不能移动或跨越；拖动后需点击“确定并计算对比”。</p>
+      <p>保存会另存全部趟次，不覆盖原方案；无论是否更优、是否超窗都可保存。保存不代表可执行认证。尚未计算时会先计算，计算失败则保留编辑内容供重试。</p>
       <div class="manual-test-editor">
         <div v-for="(point,index) in draft.routes[tripIndex].points" :key="point.manualToken" class="manual-test-point" :class="{ 'is-dragging': dragging?.index === index, 'drop-before': dropTarget?.index === index && !dropTarget.after, 'drop-after': dropTarget?.index === index && dropTarget.after }" :draggable="!busy && movable(index)" @dragstart="startDrag($event,index)" @dragover="overDrag($event,index)" @drop="dropPoint($event,index)" @dragend="clearDrag">
           <span><span v-if="movable(index)" class="drag-handle" aria-hidden="true">⠿</span>{{ index + 1 }}. {{ point.facilityName || point.facilityId }} <small>{{ windowLabel(point) }}</small></span>
@@ -38,10 +40,10 @@
 <script setup>
 import { computed, onBeforeUnmount, ref } from 'vue'
 import RouteMapPanel from './RouteMapPanel.vue'
-import { buildManualComparison, COMPARISON_COLORS, createManualDraft, moveManualPoint, reorderManualPoint } from '../manualRouteTest.js'
+import { buildManualComparison, buildManualSavePayload, COMPARISON_COLORS, createManualDraft, moveManualPoint, reorderManualPoint } from '../manualRouteTest.js'
 
-const props = defineProps({ result: Object, options: Object, scheduleDays: { type: Array, default: () => [] }, title: String, initialRouteNo: Number, resolveRoad: Function, buildSchedules: Function, isViolation: Function })
-defineEmits(['close'])
+const props = defineProps({ result: Object, options: Object, saveContext: Object, scheduleDays: { type: Array, default: () => [] }, title: String, initialRouteNo: Number, resolveRoad: Function, buildSchedules: Function, isViolation: Function })
+const emit = defineEmits(['close', 'save'])
 const original = createManualDraft(props.result)
 const draft = ref(createManualDraft(props.result))
 const tripIndex = ref(Math.max(0, draft.value.routes.findIndex(route => Number(route.routeNo) === Number(props.initialRouteNo))))
@@ -98,6 +100,12 @@ function move(index, direction) {
   if (moveManualPoint(draft.value, tripIndex.value, index, direction)) { comparison.value = null; error.value = '' }
 }
 function reset() { if (!busy.value) { clearDrag(); draft.value = createManualDraft(props.result); comparison.value = null; error.value = '' } }
+async function saveManual() {
+  if (busy.value) return
+  if (!comparison.value) await calculate()
+  if (!comparison.value) return
+  emit('save', buildManualSavePayload(comparison.value, props.saveContext || { title: props.title }, props.options, props.scheduleDays))
+}
 async function calculate() {
   if (busy.value) return
   const id = ++requestId

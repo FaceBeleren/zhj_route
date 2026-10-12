@@ -1,7 +1,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
-import { assertManualMembership, buildManualComparison, compareManualMetrics, createManualDraft, moveManualPoint, reorderManualPoint } from '../src/manualRouteTest.js'
+import { assertManualMembership, buildManualComparison, buildManualSavePayload, compareManualMetrics, createManualDraft, moveManualPoint, reorderManualPoint } from '../src/manualRouteTest.js'
 
 const app = readFileSync(new URL('../src/App.vue', import.meta.url), 'utf8')
 const clock = app.slice(app.indexOf('function parseClockMinutes('), app.indexOf('function planningSegmentsForSchedule('))
@@ -24,6 +24,27 @@ function fixture() {
   const calculate = extra => buildManualComparison({ original, draft, options, resolveRoad, buildSchedules, isViolation, ...extra })
   return { result, original, draft, requests, calculate, resolveRoad }
 }
+
+test('manual save allows worse and conflicting routes and saves full template, not selected day', async () => {
+  const f = fixture()
+  const comparison = await f.calculate()
+  comparison.manualConflicts = 2
+  comparison.verdict = { generated: 'green', manual: 'red', message: '系统更优' }
+  comparison.scenarios.push({ day: 2, label: '第2天', manual: { result: { routes: [] }, violations: 2, missing: 0, distance: 100, duration: 20 } })
+  const before = JSON.stringify(comparison)
+  const payload = buildManualSavePayload(comparison, { unitId: 1, originRouteName: '原岗位', request: { vehicles: ['v1'] } }, f.options, [{ day: 2, facilityIds: [1] }])
+  assert.equal(payload.mode, 'group')
+  assert.equal(payload.sourceType, 'EDIT')
+  assert.equal(payload.defaultDisplayMode, 'ROAD')
+  assert.equal(payload.routes.length, 1)
+  assert.deepEqual(payload.routes[0].points.map(p => p.facilityId), [-1, 1, 2, 3, -2])
+  assert.equal(payload.summary.timeWindowConflictCount, 2)
+  assert.equal(payload.summary.scenarioChecks[1].violations, 2)
+  assert.deepEqual(payload.request.vehicles, ['v1'])
+  assert.deepEqual(payload.request.scheduleDays, [{ day: 2, facilityIds: [1] }])
+  payload.routes[0].points.reverse()
+  assert.equal(JSON.stringify(comparison), before)
+})
 
 test('drag moves points in both directions and preserves membership and original data', () => {
   const { original, draft } = fixture()
@@ -167,7 +188,8 @@ test('both entry points capture isolated result and parameter snapshots; fixed e
     fixedMasterFresh: value(true), fixedMaster: value({ template: f.result, days: [{ day: 1, indices: [0, 2] }] }),
     multiOptimization: value(f.result), optimizeOptions: { plannedStartTime: '02:00', denseSpeedKmh: 15 },
     manualTest: value(null), fixedMasterRouteNo: value(1), selectedMultiRouteNo: value(1), assignmentActiveVersion: value({ name: '方案1' }),
-    splitPlanPoints: value([point(1), point(2), point(3)]), deepClone: value => JSON.parse(JSON.stringify(value))
+    splitPlanPoints: value([point(1), point(2), point(3)]), deepClone: value => JSON.parse(JSON.stringify(value)),
+    selectedSplitCompany: value({ id: 1, depName: '测试公司' }), selectedSplitRoute: value({ id: 10, routeName: '测试岗位' }), buildCurrentRouteRequestSnapshot: () => ({ vehicles: ['v1'] })
   }
   const code = app.slice(app.indexOf('function openManualRouteTest('), app.indexOf('function openTimeWindowRepair('))
   const open = new Function('scope', `with(scope) { ${code}; return openManualRouteTest }`)(scope)

@@ -50,6 +50,27 @@ export function assertManualMembership(original, draft) {
   })
 }
 
+export function buildManualSavePayload(comparison, context, options, scheduleDays = []) {
+  const scenario = comparison.scenarios.find(item => item.day === 0) || comparison.scenarios[0]
+  if (!scenario?.manual?.result?.routes?.length) throw new Error('请先完成手动路线计算')
+  const result = clone(scenario.manual.result)
+  const { routes, ...summary } = result
+  return {
+    mode: 'group', sourceType: 'EDIT', operationType: 'EDIT',
+    groupName: `${context.originRouteName || context.title || '路线'} 手动调整方案`,
+    unitId: context.unitId, unitName: context.unitName,
+    originRouteId: context.originRouteId, originRouteName: context.originRouteName,
+    planningStrategy: result.planningStrategy || context.planningStrategy,
+    defaultDisplayMode: 'ROAD',
+    routes,
+    remark: `人工调整保存，不代表优化或可执行认证；所校验场景合计时间窗冲突${comparison.manualConflicts}次。`,
+    summary: { ...summary, manualAdjustment: true, timeWindowConflictCount: comparison.manualConflicts,
+      comparisonMessage: comparison.verdict.message,
+      scenarioChecks: comparison.scenarios.map(item => ({ day: item.day, label: item.label, violations: item.manual.violations, missing: item.manual.missing || 0, distance: item.manual.distance, duration: item.manual.duration })) },
+    request: { ...clone(context.request || {}), optimizeOptions: clone(options || {}), scheduleDays: clone(scheduleDays), manualAdjustment: true }
+  }
+}
+
 export function compareManualMetrics(generated, manual, manualConflicts) {
   const difference = manual.distance - generated.distance
   // Less than one meter / 0.01 minute is treated as equal, not a meaningful improvement.

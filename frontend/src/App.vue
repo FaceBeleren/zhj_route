@@ -2252,7 +2252,7 @@
     <div v-if="error" class="toast error">{{ error }}</div>
     <div v-if="loading" class="toast">加载中...</div>
   </main>
-  <ManualRouteTest v-if="manualTest" :result="manualTest.result" :options="manualTest.options" :schedule-days="manualTest.scheduleDays" :title="manualTest.title" :initial-route-no="manualTest.initialRouteNo" :resolve-road="resolveManualTestRoad" :build-schedules="buildRouteSchedules" :is-violation="arrivalViolatesTimeWindow" @close="manualTest = null" />
+  <ManualRouteTest v-if="manualTest" :result="manualTest.result" :options="manualTest.options" :save-context="manualTest.saveContext" :schedule-days="manualTest.scheduleDays" :title="manualTest.title" :initial-route-no="manualTest.initialRouteNo" :resolve-road="resolveManualTestRoad" :build-schedules="buildRouteSchedules" :is-violation="arrivalViolatesTimeWindow" @save="saveManualTestPlan" @close="manualTest = null" />
   <div v-if="timeRepairVisible" style="position:fixed;inset:0;background:#0008;z-index:1000;display:flex;align-items:center;justify-content:center">
     <section style="background:white;padding:24px;border-radius:12px;width:min(900px,90vw);max-height:85vh;overflow:auto">
       <h2>时间窗修正路线 · {{ timeRepairVersion?.name }}</h2>
@@ -5029,10 +5029,15 @@ function openManualRouteTest(scope = 'ASSIGNMENT') {
   if (!result?.routes?.length) return
   manualTest.value = {
     result: deepClone(result), options: deepClone({ ...optimizeOptions }),
+    saveContext: deepClone({ unitId: selectedSplitCompany.value?.id, unitName: selectedSplitCompany.value?.depName, originRouteId: selectedSplitRoute.value?.id, originRouteName: selectedSplitRoute.value?.routeName, title: fixed ? '独立全点模板' : assignmentActiveVersion.value?.name, planningStrategy: result.planningStrategy, request: buildCurrentRouteRequestSnapshot() }),
     title: fixed ? '独立全点模板及每日排班' : assignmentActiveVersion.value?.name || '当前生成方案',
     initialRouteNo: Number(fixed ? fixedMasterRouteNo.value : selectedMultiRouteNo.value),
     scheduleDays: fixed ? fixedMaster.value.days.map(day => ({ day: day.day, facilityIds: splitPlanPoints.value.filter((_, index) => day.indices.includes(index)).map(point => point.facilityId) })) : []
   }
+}
+function saveManualTestPlan(payload) {
+  manualTest.value = null
+  openSaveDialog('保存手动调整方案（即使更差或有时间窗冲突也允许保存）', payload)
 }
 async function resolveManualTestRoad(points, options) {
   return api('/api/optimize/route-segments', {
