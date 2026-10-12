@@ -435,6 +435,61 @@ public class RouteOptimizeService {
         return result;
     }
 
+    /** Materialize each directed OD once; exhaustive candidates use only this request-local matrix. */
+    public java.util.function.Function<List<Map<String, Object>>, Map<String, Object>> prepareJointRoads(
+            Map<String, Object> request, List<Map<String, Object>> rows, Runnable checkCancelled) {
+        List<RoutePoint> pool = toRoutePoints(rows);
+        DistanceContext context = new DistanceContext(true, false);
+        context.preload(pool);
+        for (RoutePoint from : pool) for (RoutePoint to : pool) {
+            checkCancelled.run();
+            if (sameJointCoordinate(from, to)) continue;
+            RouteMapPathService.ResolvedPath path = context.resolvePath(from, to);
+            if (!isRoadResolvedPath(path) || path.getPath().size() < 2 || path.getDistanceMeters() == null)
+                throw new IllegalStateException("联合规划道路矩阵不完整，不使用直线回退");
+        }
+        SpeedProfile profile = speedProfile(request);
+        return points -> {
+            checkCancelled.run();
+            List<RoutePoint> parsed = toRoutePoints(points);
+            List<Map<String, Object>> segments = new ArrayList<>();
+            for (int i = 0; i < parsed.size() - 1; i++) {
+                RoutePoint from = parsed.get(i), to = parsed.get(i + 1);
+                Map<String, Object> segment = new HashMap<>();
+                boolean same = sameJointCoordinate(from, to);
+                RouteMapPathService.ResolvedPath path = same ? null : context.resolvePath(from, to);
+                double distance = same ? 0D : path.getDistanceMeters();
+                SpeedDecision speed = profile.forSegment(parsed, i, distance);
+                segment.put("order", i + 1); segment.put("fromFacilityId", from.getFacilityId()); segment.put("toFacilityId", to.getFacilityId());
+                segment.put("distance", round(distance)); segment.put("durationMinutes", round(minutes(distance, speed.kmh)));
+                segment.put("speedKmh", speed.kmh); segment.put("speedClass", speed.speedClass); segment.put("speedReason", speed.reason);
+                segment.put("durationSource", "SEGMENT_SPEED_ESTIMATE");
+                segment.put("pathSource", same ? "SAME_POINT" : path.getSource());
+                segment.put("path", same ? java.util.Arrays.asList(coordinate(from), coordinate(to)) : path.getPath());
+                segments.add(segment);
+            }
+            Map<String, Object> road = new HashMap<>();
+            road.put("segments", segments); road.put("distance", round(sumSegmentDistance(segments)));
+            road.put("durationMinutes", round(sumSegmentDuration(segments)));
+            return road;
+        };
+    }
+
+    private boolean sameJointCoordinate(RoutePoint from, RoutePoint to) {
+        return from.hasCoordinate() && to.hasCoordinate() && from.getLongitude().equals(to.getLongitude()) && from.getLatitude().equals(to.getLatitude());
+    }
+
+    public List<Map<String, Object>> jointCollectionPoints(Map<String, Object> request, List<Map<String, Object>> rows) {
+        List<RoutePoint> points = toRoutePoints(normalizeInputAnchorIds(rows, request));
+        List<Map<String, Object>> result = new ArrayList<>();
+        for (RoutePoint point : points) {
+            // pointViews normally treats list endpoints as anchors; wrap each collection occurrence.
+            Map<String, Object> view = pointViews(java.util.Arrays.asList(point, point, point), request).get(1);
+            result.add(view);
+        }
+        return result;
+    }
+
     private List<Map<String, Object>> normalizeInputAnchorIds(List<Map<String, Object>> rows, Map<String, Object> request) {
         Object densityValue = request.get("garbageDensityKgM3");
         Double density = densityValue == null || String.valueOf(densityValue).trim().isEmpty() ? null : toDouble(densityValue);

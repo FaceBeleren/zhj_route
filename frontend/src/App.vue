@@ -1118,6 +1118,7 @@
           <section v-if="selectedSplitRoute && currentView === 'position-assignment'" class="panel" style="padding:16px">
             <div class="panel-head"><h2>固定主路线按日执行</h2><div class="panel-actions">
               <button :disabled="fixedMasterRunning || assignmentBatchRunning || assignmentTripReorderRunning || !assignmentScheduleExportReady" @click="generateFixedMaster">{{ fixedMasterRunning ? fixedMasterMessage : '独立生成全点多趟方案' }}</button>
+              <button :disabled="!!smallWindowReason" :title="smallWindowReason || '固定无时间窗点基础顺序，联合枚举时间窗点的插入位置及先后顺序'" @click="generateSmallWindowPlan">少量时间窗联合规划（{{ smallWindowCount }}点）</button>
               <button :disabled="!fixedMasterFresh || fixedMasterRunning || assignmentBatchRunning || assignmentTripReorderRunning || fixedMasterCycleTimeWindowStats.violationCount === 0" @click="openTimeWindowRepair('FIXED')">时间窗修正路线</button>
               <button :disabled="!fixedMasterFresh || fixedMasterRunning || assignmentBatchRunning || assignmentTripReorderRunning" @click="openManualRouteTest('FIXED')">手动调整测试</button>
               <button :disabled="!!fixedMasterTripDisabledReason" :title="fixedMasterTripDisabledReason" @click="tryReorderFixedMasterTrips">尝试修改趟数顺序</button>
@@ -1126,6 +1127,7 @@
             </div></div>
             <p>这是第二套独立方案：按所有点都收生成多趟。时间窗修正共同检查完整模板和整个排班周期，寻找每天跳点后都满足时间窗的固定顺序；趟序调整仍只针对完整模板。每日跳过不收点，重新查询道路并计算距离、耗时、到达时间与时间窗；保留原趟次和卸料时间，不对每日结果单独重排。不保证一定找到全部通过的固定顺序。</p>
             <p>计划不收依据已确认频次；停排不代表任务已完成。实际满载、漏收、设施关闭等异常需人工调度补收。</p>
+            <p>少量时间窗联合规划仅支持1～5个时间窗点；允许、禁收时段均计入。同车配置趟次内联合插入，固定无时间窗点的基础顺序和归属，非全局最优。<template v-if="smallWindowReason"> {{ smallWindowReason }}</template></p>
             <p v-if="fixedMasterMessage">{{ fixedMasterMessage }}</p>
             <p v-if="fixedMasterFresh">{{ fixedMasterCycleTimeWindowStats.message }}</p>
             <p v-if="fixedMaster && !fixedMasterFresh" style="color:#c46b00">点位、排班或规划参数已变化，固定方案已失效，请重新生成。旧结果不会用于导出。</p>
@@ -2253,6 +2255,26 @@
     <div v-if="error" class="toast error">{{ error }}</div>
     <div v-if="loading" class="toast">加载中...</div>
   </main>
+  <div v-if="smallWindowDialog.visible" class="modal-mask" style="z-index:1090">
+    <section class="modal-card" style="width:min(1000px,94vw);max-height:90vh;overflow:auto;padding:24px;background:white;border-radius:12px">
+      <h2>少量时间窗联合规划</h2>
+      <p>先规划无时间窗点，再联合枚举有时间窗点的插入位置和先后顺序；校验完整模板及每日跳点路线、载重和同车累计工作时长，不自动等待。按完整模板道路里程优先、耗时次之。固定基础顺序下的最佳插入，不代表全局最优。</p>
+      <p>{{ smallWindowDialog.message }} · 已评估 {{ smallWindowDialog.evaluations }} 个完整候选<template v-if="smallWindowDialog.candidateUpperBound"> · 插入组合上界 {{ smallWindowDialog.candidateUpperBound }}（容量剪枝会减少实际数量）</template></p>
+      <p>道路仍使用现有OD缓存／百度算路策略；本次升级不改变出入口和百度路线偏好。预览不覆盖当前模板，确认应用后地图及导出才更新。</p>
+      <p v-if="smallWindowDialog.error" class="route-import-warning">{{ smallWindowDialog.error }}</p>
+      <template v-if="smallWindowDialog.response">
+        <p>{{ smallWindowDialog.response.message }}</p>
+        <p v-if="smallWindowDialog.response.result">候选：{{ formatDistance(smallWindowDialog.response.distance) }} · {{ formatDuration(smallWindowDialog.response.durationMinutes) }} · {{ smallWindowDialog.response.result.routes.length }}趟；通过全部约束的候选 {{ smallWindowDialog.response.feasibleCandidates }} 个。</p>
+        <p v-for="day in smallWindowDialog.response.checks?.dailyChecks || []" :key="day.day">第{{ day.day }}天：时间窗冲突{{ day.violationCount }}处，未分配{{ day.dueUnassignedCount }}点。</p>
+        <div v-for="route in smallWindowDialog.response.result?.routes || []" :key="route.routeNo" class="route-summary-card"><strong>第{{ route.tripNo }}趟 · {{ formatDistance(route.distance) }} · {{ formatDuration(route.durationMinutes) }}</strong><p>{{ route.points.map(point => point.facilityName || point.facilityId).join(' → ') }}</p></div>
+      </template>
+      <div class="panel-actions">
+        <button v-if="smallWindowDialog.running && !smallWindowDialog.applying" @click="cancelSmallWindowPlan">取消计算</button>
+        <button :disabled="smallWindowDialog.running || !smallWindowDialog.response?.allScenariosPassed || !smallWindowDialog.response?.result" @click="applySmallWindowPlan">应用并替换全点模板</button>
+        <button :disabled="smallWindowDialog.running" @click="smallWindowDialog.visible = false">关闭</button>
+      </div>
+    </section>
+  </div>
   <ManualRouteTest v-if="manualTest" :result="manualTest.result" :options="manualTest.options" :save-context="manualTest.saveContext" :apply-result="manualTest.applyResult" :schedule-days="manualTest.scheduleDays" :title="manualTest.title" :initial-route-no="manualTest.initialRouteNo" :resolve-road="resolveManualTestRoad" :build-schedules="buildRouteSchedules" :is-violation="arrivalViolatesTimeWindow" @save="saveManualTestPlan" @close="manualTest = null" />
   <div v-if="timeRepairVisible" style="position:fixed;inset:0;background:#0008;z-index:1000;display:flex;align-items:center;justify-content:center">
     <section style="background:white;padding:24px;border-radius:12px;width:min(900px,90vw);max-height:85vh;overflow:auto">
@@ -2286,6 +2308,7 @@
 import { computed, nextTick, onMounted, reactive, ref, watch } from 'vue'
 import RouteMapPanel from './components/RouteMapPanel.vue'
 import ManualRouteTest from './components/ManualRouteTest.vue'
+import { planningWindowCount, smallWindowDisabledReason } from './smallWindowPlanning.js'
 import ClusterMapPanel from './components/ClusterMapPanel.vue'
 import FlowAnalysisPdfReport from './components/FlowAnalysisPdfReport.vue'
 import { balanceAssignmentPhases } from './assignmentPhases.js'
@@ -2706,6 +2729,65 @@ function fixedMasterToken(point) {
   return null
 }
 
+async function generateSmallWindowPlan() {
+  if (smallWindowReason.value) return
+  if (!window.confirm(`将对${smallWindowCount.value}个时间窗点联合枚举。点数、可用趟数和周期较多时可能计算很久，可随时取消。继续吗？`)) return
+  const fingerprint = fixedMasterFingerprint.value
+  const originals = deepClone(splitPlanPoints.value)
+  const schemes = assignmentVersions.value.map(item => ({ indices: [...item.selectedIndices], days: [...(item.applicableDays || [])] }))
+  const days = []
+  for (let day = 1; day <= assignmentScheduleCycleDays.value; day++) {
+    const applicable = schemes.filter(scheme => scheme.days.includes(day))
+    const indices = [...new Set(applicable.flatMap(scheme => scheme.indices))]
+    days.push({ day, indices, status: applicable.length ? '按跳点后道路计算' : '未排班' })
+  }
+  const options = deepClone(optimizeOptions)
+  const request = { ...options, startLongitude: options.startLongitude ?? originals[0]?.longitude, startLatitude: options.startLatitude ?? originals[0]?.latitude, endLongitude: options.endLongitude ?? originals.at(-1)?.longitude, endLatitude: options.endLatitude ?? originals.at(-1)?.latitude, unitId: selectedSplitCompany.value.id, dispatchMode: 'USER_ORDER', vehicles: normalizedAssignmentVehicles(), endSelectionMode: endAnchorMode.value, endCandidates: normalizedEndCandidates(), points: originals, displayRoadPath: false, useRoadPath: options.multiRouteStrategy === 'ROAD_GLOBAL', scheduleDays: days.map(day => ({ day: day.day, facilityIds: originals.filter((_, index) => day.indices.includes(index)).map(point => point.facilityId) })) }
+  Object.assign(smallWindowDialog, { visible: true, taskId: '', running: true, applying: false, cancelled: false, response: null, error: '', message: '正在提交联合规划', evaluations: 0, candidateUpperBound: '', fingerprint, days, options })
+  fixedMasterRunning.value = true
+  try {
+    let task = await api('/api/optimize/small-window/tasks', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(request) })
+    smallWindowDialog.taskId = task.taskId
+    while (true) {
+      if (smallWindowDialog.cancelled || fingerprint !== fixedMasterFingerprint.value) {
+        await api(`/api/optimize/small-window/tasks/${task.taskId}/cancel`, { method: 'POST' })
+        if (fingerprint !== fixedMasterFingerprint.value) throw new Error('配置已变化，旧任务已取消')
+        smallWindowDialog.message = '已取消，原模板未改变'; break
+      }
+      smallWindowDialog.message = fixedMasterMessage.value = task.message || '正在联合枚举'
+      smallWindowDialog.evaluations = task.evaluations || 0
+      smallWindowDialog.candidateUpperBound = task.candidateUpperBound || ''
+      if (task.status === 'DONE') { smallWindowDialog.response = task.response; break }
+      if (['FAILED', 'CANCELLED', 'NOT_FOUND'].includes(task.status)) throw new Error(task.message || '任务已结束，未取得结果')
+      await new Promise(resolve => setTimeout(resolve, 1000))
+      task = await api(`/api/optimize/small-window/tasks/${task.taskId}`)
+    }
+  } catch (err) {
+    if (smallWindowDialog.taskId) await api(`/api/optimize/small-window/tasks/${smallWindowDialog.taskId}/cancel`, { method: 'POST' }).catch(() => {})
+    smallWindowDialog.error = err.message || String(err)
+  } finally { smallWindowDialog.running = false; fixedMasterRunning.value = false }
+}
+function cancelSmallWindowPlan() { smallWindowDialog.cancelled = true }
+async function applySmallWindowPlan() {
+  if (smallWindowDialog.running || !smallWindowDialog.response?.allScenariosPassed || !smallWindowDialog.response?.result) return
+  if (smallWindowDialog.fingerprint !== fixedMasterFingerprint.value) { smallWindowDialog.error = '配置已变化，请重新联合规划'; return }
+  smallWindowDialog.running = true; smallWindowDialog.applying = true; fixedMasterRunning.value = true
+  try {
+    const template = deepClone(smallWindowDialog.response.result)
+    const days = await calculateFixedMasterDays(template, smallWindowDialog.days, smallWindowDialog.options)
+    if (smallWindowDialog.fingerprint !== fixedMasterFingerprint.value) throw new Error('刷新每日结果期间配置变化，原模板保留')
+    if (timeWindowStatsForResult(template).violationCount || days.some(day => timeWindowStatsForResult(day.result).violationCount)) throw new Error('道路刷新后时间窗校验不通过，请重新联合规划；原模板保留')
+    const indices = new Map(splitPlanPoints.value.map((point, index) => [String(point.facilityId), index]))
+    const points = template.routes.flatMap(route => route.points.filter(point => point.role === 'MIDDLE').map((point, index) => ({ ...point, masterIndex: indices.get(String(point.facilityId)), templateToken: `${String(route.tripNo).padStart(2, '0')}-${String(index + 1).padStart(3, '0')}` })))
+    const old = fixedMaster.value?.template
+    fixedMaster.value = { fingerprint: smallWindowDialog.fingerprint, template, points, days, sourceLabel: '少量时间窗联合规划；固定无时间窗点基础顺序下的最佳插入', timeWindowOriginalResult: old ? deepClone(old) : null }
+    fixedMasterRouteNo.value = template.routes[0]?.routeNo || null
+    fixedMasterDay.value = 0
+    fixedMasterMessage.value = smallWindowDialog.response.message
+    smallWindowDialog.visible = false
+  } catch (err) { smallWindowDialog.error = `应用失败，原模板保留：${err.message || String(err)}` }
+  finally { smallWindowDialog.running = false; smallWindowDialog.applying = false; fixedMasterRunning.value = false }
+}
 async function generateFixedMaster() {
   if (fixedMasterRunning.value || !assignmentScheduleExportReady.value || assignmentBatchRunning.value || assignmentTripReorderRunning.value) return
   const fingerprint = fixedMasterFingerprint.value
@@ -2793,6 +2875,9 @@ const assignmentVehicleError = ref('')
 const assignmentTripReorderRunning = ref(false)
 const timeRepairVisible = ref(false)
 const manualTest = ref(null)
+const smallWindowDialog = reactive({ visible: false, taskId: '', running: false, cancelled: false, message: '', evaluations: 0, response: null, fingerprint: '', error: '' })
+const smallWindowCount = computed(() => planningWindowCount(splitPlanPoints.value))
+const smallWindowReason = computed(() => smallWindowDisabledReason(splitPlanPoints.value, assignmentScheduleExportReady.value, fixedMasterRunning.value || assignmentBatchRunning.value || assignmentTripReorderRunning.value))
 const timeRepairScope = ref('ASSIGNMENT')
 const timeRepairFixedOwner = ref(null)
 const timeRepairVersion = ref(null)

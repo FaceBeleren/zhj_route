@@ -11,6 +11,7 @@ import com.zhj.route.service.RoutePlanService;
 import com.zhj.route.service.OdCacheService;
 import com.zhj.route.service.FlowAnalysisService;
 import com.zhj.route.service.TripReorderService;
+import com.zhj.route.service.SmallWindowPlanningService;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
@@ -42,6 +43,7 @@ public class RouteDataController {
     private final OdCacheService odCacheService;
     private final FlowAnalysisService flowAnalysisService;
     private final TripReorderService tripReorderService;
+    private final SmallWindowPlanningService smallWindowPlanningService;
 
     public RouteDataController(
             RouteQueryService routeQueryService,
@@ -54,7 +56,8 @@ public class RouteDataController {
             RoutePlanService routePlanService,
             OdCacheService odCacheService,
             FlowAnalysisService flowAnalysisService,
-            TripReorderService tripReorderService) {
+            TripReorderService tripReorderService,
+            SmallWindowPlanningService smallWindowPlanningService) {
         this.routeQueryService = routeQueryService;
         this.routeConformanceService = routeConformanceService;
         this.routeOptimizeService = routeOptimizeService;
@@ -66,6 +69,7 @@ public class RouteDataController {
         this.odCacheService = odCacheService;
         this.flowAnalysisService = flowAnalysisService;
         this.tripReorderService = tripReorderService;
+        this.smallWindowPlanningService = smallWindowPlanningService;
     }
 
 
@@ -281,6 +285,15 @@ public class RouteDataController {
     public Map<String, Object> routeSegmentsPreview(@RequestBody Map<String, Object> request) {
         return routeOptimizeService.routeSegmentsPreview(request);
     }
+
+    @PostMapping("/optimize/small-window/tasks")
+    public Map<String,Object> startSmallWindow(@RequestBody Map<String,Object> request) { return smallWindowPlanningService.start(request); }
+
+    @GetMapping("/optimize/small-window/tasks/{taskId}")
+    public Map<String,Object> smallWindowStatus(@PathVariable String taskId) { return smallWindowPlanningService.get(taskId); }
+
+    @PostMapping("/optimize/small-window/tasks/{taskId}/cancel")
+    public Map<String,Object> cancelSmallWindow(@PathVariable String taskId) { return smallWindowPlanningService.cancel(taskId); }
 
     @PostMapping("/optimize/multi-export")
     public ResponseEntity<byte[]> exportMultiPreview(@RequestBody Map<String, Object> request) {

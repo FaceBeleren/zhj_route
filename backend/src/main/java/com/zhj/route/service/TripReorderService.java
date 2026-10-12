@@ -117,6 +117,22 @@ public class TripReorderService {
     }
 
     /** Request-local road cache: evaluate real bypass routes, not full-route travel with service removed. */
+    public java.util.function.Function<List<Map<String, Object>>, Map<String, Object>> jointScenarioChecker(
+            Map<String, Object> request, java.util.function.Function<List<Map<String, Object>>, Map<String, Object>> roads) {
+        ScenarioEvaluator evaluator = new ScenarioEvaluator(request, maps(map(request.get("result")).get("routes")), startMinutes(request));
+        evaluator.localRoads = roads;
+        return routes -> {
+            ScenarioEvaluation evaluation = evaluator.evaluate(routes);
+            Map<String, Object> out = new LinkedHashMap<>();
+            out.put("violations", evaluation.score.violations);
+            out.put("templateViolations", evaluation.templateScore.violations);
+            out.put("dailyChecks", evaluation.dailySummaries);
+            out.put("message", evaluator.summary(evaluation));
+            out.put("allScenariosPassed", evaluation.score.violations == 0 && evaluator.unassignedCount == 0);
+            return out;
+        };
+    }
+
     private class ScenarioEvaluator {
         private final Map<String, Object> request;
         private final List<Map<String, Object>> days;
@@ -125,6 +141,7 @@ public class TripReorderService {
         private final double start;
         private final boolean joint;
         private final int unassignedCount;
+        private java.util.function.Function<List<Map<String, Object>>, Map<String, Object>> localRoads;
 
         ScenarioEvaluator(Map<String, Object> request, List<Map<String, Object>> routes, double start) {
             this.request = request;
@@ -161,7 +178,8 @@ public class TripReorderService {
             if (joint) for (Map<String, Object> route : routes) {
                 validateRoad(maps(route.get("segments")), maps(route.get("points")).size() - 1);
             }
-            Score template = score(routes, start);
+            Score template = score(routes, start, localRoads == null);
+            if (localRoads != null && template.violations > 0) return new ScenarioEvaluation(template, template, new ArrayList<>(), new ArrayList<>());
             if (!joint) return new ScenarioEvaluation(template, template, new ArrayList<>(), new ArrayList<>());
             int violations = template.violations;
             double penalty = template.penaltyMinutes, completion = 0D, distance = 0D;
@@ -189,7 +207,7 @@ public class TripReorderService {
                         filtered.add(daily);
                     }
                 }
-                Score dailyScore = score(filtered, start);
+                Score dailyScore = score(filtered, start, localRoads == null);
                 violations += dailyScore.violations;
                 penalty += dailyScore.penaltyMinutes;
                 completion += dailyScore.completionMinutes;
@@ -203,11 +221,13 @@ public class TripReorderService {
                 summary.put("distance", round(dailyScore.distance));
                 summary.put("dueUnassignedCount", due.stream().filter(id -> !covered.contains(id)).count());
                 summaries.add(summary);
+                if (localRoads != null && dailyScore.violations > 0) break;
             }
             return new ScenarioEvaluation(new Score(violations, penalty, completion, distance), template, dailyRoutes, summaries);
         }
 
         private Map<String, Object> bypassRoad(List<Map<String, Object>> points) {
+            if (localRoads != null) return localRoads.apply(points);
             StringBuilder key = new StringBuilder();
             for (Map<String, Object> point : points) key.append(text(point.get("facilityId"))).append('@').append(point.get("longitude")).append(',').append(point.get("latitude")).append(';');
             Map<String, Object> road = roadCache.get(key.toString());
@@ -508,6 +528,10 @@ public class TripReorderService {
     }
 
     private Score score(List<Map<String, Object>> routes, double baseStart) {
+        return score(routes, baseStart, true);
+    }
+
+    private Score score(List<Map<String, Object>> routes, double baseStart, boolean calculatePenalty) {
         Map<String, Double> nextStart = new HashMap<String, Double>();
         int violations = 0;
         double penalty = 0D;
@@ -524,7 +548,7 @@ public class TripReorderService {
                     int minute = minuteOfDay(cursor);
                     if (!allows(point, minute)) {
                         violations++;
-                        penalty += windowDistance(point, minute);
+                        if (calculatePenalty) penalty += windowDistance(point, minute);
                     }
                 }
                 cursor += number(point.get("operationDurationMinutes"));
