@@ -1,7 +1,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
-import { assertManualMembership, buildManualComparison, compareManualMetrics, createManualDraft, moveManualPoint } from '../src/manualRouteTest.js'
+import { assertManualMembership, buildManualComparison, compareManualMetrics, createManualDraft, moveManualPoint, reorderManualPoint } from '../src/manualRouteTest.js'
 
 const app = readFileSync(new URL('../src/App.vue', import.meta.url), 'utf8')
 const clock = app.slice(app.indexOf('function parseClockMinutes('), app.indexOf('function planningSegmentsForSchedule('))
@@ -24,6 +24,28 @@ function fixture() {
   const calculate = extra => buildManualComparison({ original, draft, options, resolveRoad, buildSchedules, isViolation, ...extra })
   return { result, original, draft, requests, calculate, resolveRoad }
 }
+
+test('drag moves points in both directions and preserves membership and original data', () => {
+  const { original, draft } = fixture()
+  const snapshot = JSON.stringify(original)
+  assert.equal(reorderManualPoint(draft, 0, 1, 3), true)
+  assert.deepEqual(draft.routes[0].points.map(p => p.facilityId), [-1, 2, 3, 1, -2])
+  assert.deepEqual(draft.routes[0].points.map(p => p.order), [1, 2, 3, 4, 5])
+  assertManualMembership(original, draft)
+  assert.equal(reorderManualPoint(draft, 0, 3, 1), true)
+  assert.equal(JSON.stringify(original), snapshot)
+  assertManualMembership(original, draft)
+})
+
+test('drag rejects endpoints, invalid indexes, no-op and crossing internal anchors', () => {
+  const { draft } = fixture()
+  for (const [from, to] of [[0, 2], [2, 4], [1, 1], [-1, 2], [1, 99], [1.5, 2]]) assert.equal(reorderManualPoint(draft, 0, from, to), false)
+  assert.equal(reorderManualPoint(draft, 9, 1, 2), false)
+  draft.routes[0].points[2].weightSource = 'ANCHOR'
+  const before = JSON.stringify(draft)
+  for (const [from, to] of [[1, 3], [3, 1], [2, 1], [1, 2]]) assert.equal(reorderManualPoint(draft, 0, from, to), false)
+  assert.equal(JSON.stringify(draft), before)
+})
 
 test('move changes only order, keeps duplicates and operation, locks endpoints and rejects deletion', () => {
   const { result, original, draft } = fixture()

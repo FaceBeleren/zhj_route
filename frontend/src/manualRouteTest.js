@@ -20,6 +20,19 @@ export function moveManualPoint(draft, routeIndex, pointIndex, direction) {
   return true
 }
 
+export function reorderManualPoint(draft, routeIndex, fromIndex, toIndex) {
+  const route = draft.routes[routeIndex]
+  if (!route || !Number.isInteger(fromIndex) || !Number.isInteger(toIndex) || fromIndex === toIndex) return false
+  const points = route.points
+  if (Math.min(fromIndex, toIndex) < 1 || Math.max(fromIndex, toIndex) >= points.length - 1) return false
+  // Keep every fixed anchor in place, including anchors inside a trip.
+  if (points.slice(Math.min(fromIndex, toIndex), Math.max(fromIndex, toIndex) + 1).some(point => ['START', 'END'].includes(point.role) || point.weightSource === 'ANCHOR')) return false
+  const [point] = points.splice(fromIndex, 1)
+  points.splice(toIndex, 0, point)
+  points.forEach((item, index) => { item.order = item.orderNum = index + 1 })
+  return true
+}
+
 export function assertManualMembership(original, draft) {
   if (original.routes.length !== draft.routes.length) throw new Error('不能增加或删除趟次')
   const identity = point => {
