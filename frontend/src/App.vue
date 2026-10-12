@@ -1119,6 +1119,7 @@
             <div class="panel-head"><h2>固定主路线按日执行</h2><div class="panel-actions">
               <button :disabled="fixedMasterRunning || assignmentBatchRunning || assignmentTripReorderRunning || !assignmentScheduleExportReady" @click="generateFixedMaster">{{ fixedMasterRunning ? fixedMasterMessage : '独立生成全点多趟方案' }}</button>
               <button :disabled="!fixedMasterFresh || fixedMasterRunning || assignmentBatchRunning || assignmentTripReorderRunning || fixedMasterCycleTimeWindowStats.violationCount === 0" @click="openTimeWindowRepair('FIXED')">时间窗修正路线</button>
+              <button :disabled="!fixedMasterFresh || fixedMasterRunning || assignmentBatchRunning || assignmentTripReorderRunning" @click="openManualRouteTest('FIXED')">手动调整测试</button>
               <button :disabled="!!fixedMasterTripDisabledReason" :title="fixedMasterTripDisabledReason" @click="tryReorderFixedMasterTrips">尝试修改趟数顺序</button>
               <button :disabled="!fixedMasterFresh || fixedMasterRunning || assignmentBatchRunning || assignmentTripReorderRunning || loading" @click="exportFixedMaster">导出方案</button>
               <button v-if="fixedMaster?.timeWindowOriginalResult" :disabled="!fixedMasterFresh || fixedMasterRunning || assignmentTripReorderRunning" @click="restoreFixedMasterOriginal">恢复修正前全点模板</button>
@@ -1177,6 +1178,7 @@
                 <p>{{ multiOptimization.message }}</p>
                 <div class="optimization-metrics"><span>拆分路线 {{ multiOptimization.routeCount || 0 }}</span><span>已分配 {{ multiOptimization.assignedPointCount || 0 }}</span><span>未分配 {{ multiOptimization.unassignedPointCount || 0 }}</span><span>已分配量 {{ formatWeight(multiOptimization.assignedWeightKg) }}</span></div>
                 <div class="assignment-trip-reorder-bar">
+                  <button type="button" class="secondary" :disabled="assignmentTripReorderRunning || assignmentBatchRunning || !multiOptimization?.routes?.length" @click="openManualRouteTest('ASSIGNMENT')">手动调整测试</button>
                   <button type="button" class="secondary" :disabled="assignmentTripReorderRunning || assignmentBatchRunning || !multiOptimization?.routes?.length || assignmentTimeWindowStats.violationCount === 0" @click="openTimeWindowRepair">时间窗修正路线</button>
                   <button v-if="assignmentActiveVersion?.timeWindowOriginalResult" type="button" class="secondary" :disabled="assignmentTripReorderRunning || assignmentBatchRunning" @click="restoreTimeWindowOriginal">恢复修正前路线</button>
                   <button type="button" class="secondary" :disabled="!!assignmentTripReorderDisabledReason" :title="assignmentTripReorderDisabledReason" @click="tryReorderAssignmentTrips">{{ assignmentTripReorderRunning ? '正在尝试重排…' : '尝试修改趟数顺序' }}</button>
@@ -2250,6 +2252,7 @@
     <div v-if="error" class="toast error">{{ error }}</div>
     <div v-if="loading" class="toast">加载中...</div>
   </main>
+  <ManualRouteTest v-if="manualTest" :result="manualTest.result" :options="manualTest.options" :schedule-days="manualTest.scheduleDays" :title="manualTest.title" :initial-route-no="manualTest.initialRouteNo" :resolve-road="resolveManualTestRoad" :build-schedules="buildRouteSchedules" :is-violation="arrivalViolatesTimeWindow" @close="manualTest = null" />
   <div v-if="timeRepairVisible" style="position:fixed;inset:0;background:#0008;z-index:1000;display:flex;align-items:center;justify-content:center">
     <section style="background:white;padding:24px;border-radius:12px;width:min(900px,90vw);max-height:85vh;overflow:auto">
       <h2>时间窗修正路线 · {{ timeRepairVersion?.name }}</h2>
@@ -2281,6 +2284,7 @@
 <script setup>
 import { computed, nextTick, onMounted, reactive, ref, watch } from 'vue'
 import RouteMapPanel from './components/RouteMapPanel.vue'
+import ManualRouteTest from './components/ManualRouteTest.vue'
 import ClusterMapPanel from './components/ClusterMapPanel.vue'
 import FlowAnalysisPdfReport from './components/FlowAnalysisPdfReport.vue'
 import { balanceAssignmentPhases } from './assignmentPhases.js'
@@ -2787,6 +2791,7 @@ const assignmentVehicleLoading = ref(false)
 const assignmentVehicleError = ref('')
 const assignmentTripReorderRunning = ref(false)
 const timeRepairVisible = ref(false)
+const manualTest = ref(null)
 const timeRepairScope = ref('ASSIGNMENT')
 const timeRepairFixedOwner = ref(null)
 const timeRepairVersion = ref(null)
@@ -5014,6 +5019,26 @@ async function restoreFixedMasterOriginal() {
     fixedMasterMessage.value = '已恢复修正前的全点模板，并更新每天到达时间'
   } catch (err) { fixedMasterMessage.value = `恢复失败：${err.message || String(err)}` }
   finally { assignmentTripReorderRunning.value = false }
+}
+
+function openManualRouteTest(scope = 'ASSIGNMENT') {
+  if (assignmentTripReorderRunning.value || assignmentBatchRunning.value || fixedMasterRunning.value) return
+  const fixed = scope === 'FIXED'
+  if (fixed && !fixedMasterFresh.value) return
+  const result = fixed ? fixedMaster.value.template : multiOptimization.value
+  if (!result?.routes?.length) return
+  manualTest.value = {
+    result: deepClone(result), options: deepClone({ ...optimizeOptions }),
+    title: fixed ? '独立全点模板及每日排班' : assignmentActiveVersion.value?.name || '当前生成方案',
+    initialRouteNo: Number(fixed ? fixedMasterRouteNo.value : selectedMultiRouteNo.value),
+    scheduleDays: fixed ? fixedMaster.value.days.map(day => ({ day: day.day, facilityIds: splitPlanPoints.value.filter((_, index) => day.indices.includes(index)).map(point => point.facilityId) })) : []
+  }
+}
+async function resolveManualTestRoad(points, options) {
+  return api('/api/optimize/route-segments', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ ...options, points, displayRoadPath: true })
+  })
 }
 
 function openTimeWindowRepair(scope = 'ASSIGNMENT') {

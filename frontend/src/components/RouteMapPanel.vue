@@ -11,9 +11,9 @@
           <span class="line-swatch"></span>
           {{ originalLabel }}
         </label>
-        <label class="route-line-toggle optimized" :class="{ muted: !showOptimizedLine }">
+        <label class="route-line-toggle optimized" :class="{ muted: !showOptimizedLine }" :style="{ color: props.optimizedColor, borderColor: props.optimizedColor }">
           <input v-model="showOptimizedLine" type="checkbox" />
-          <span class="line-swatch"></span>
+          <span class="line-swatch" :style="{ background: props.optimizedColor }"></span>
           {{ optimizedLabel }}
         </label>
         <button v-if="!expanded" class="map-expand-button" type="button" @click="expanded = true">最大化</button>
@@ -96,6 +96,7 @@
             v-if="showOptimizedLine && routePlot.compare.optimizedLine"
             :points="routePlot.compare.optimizedLine"
             class="plot-line optimized"
+            :style="{ stroke: props.optimizedColor }"
           />
           <circle
             v-if="fallbackPlaybackPoint"
@@ -105,7 +106,7 @@
             class="plot-vehicle"
           />
           <g v-for="point in routePlot.compare.points" :key="point.key">
-            <circle :cx="point.x" :cy="point.y" r="2.2" :style="fallbackMarkerStyle(point, '#475569')">
+            <circle :cx="point.x" :cy="point.y" r="2.2" :style="fallbackMarkerStyle(point, props.showOriginal ? '#475569' : props.markerColor)">
               <title>{{ pointTitle(point) }}</title>
             </circle>
             <text v-if="point.labelAlways || labelsVisible" :x="point.x + 2.8" :y="point.y - 2">
@@ -132,9 +133,9 @@
         <div v-if="showOptimizedLine" class="plot-card">
           <div class="plot-title">{{ optimizedLabel }}顺序</div>
           <svg viewBox="0 0 100 100" role="img" aria-label="优化后路线坐标预览">
-            <polyline :points="routePlot.optimized.line" class="plot-line optimized" />
+            <polyline :points="routePlot.optimized.line" class="plot-line optimized" :style="{ stroke: props.optimizedColor }" />
             <g v-for="point in routePlot.optimized.points" :key="point.key">
-              <circle :cx="point.x" :cy="point.y" r="2.2" class="plot-point-optimized" :style="fallbackMarkerStyle(point, '#16a34a')">
+              <circle :cx="point.x" :cy="point.y" r="2.2" class="plot-point-optimized" :style="fallbackMarkerStyle(point, props.markerColor)">
                 <title>{{ pointTitle(point) }}</title>
               </circle>
               <text v-if="point.labelAlways || labelsVisible" :x="point.x + 2.8" :y="point.y - 2">
@@ -152,6 +153,8 @@
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 
 const props = defineProps({
+  optimizedColor: { type: String, default: '#1f6fca' },
+  markerColor: { type: String, default: '#16a34a' },
   originalPoints: {
     type: Array,
     default: () => []
@@ -273,7 +276,7 @@ onBeforeUnmount(() => {
 })
 
 watch(
-  () => [props.originalPoints, props.optimizedPoints, props.originalSegments, props.optimizedSegments, props.optimizedFacilityIds, labelsVisible.value, showOriginalLine.value, showOptimizedLine.value, playbackRoute.value, expanded.value],
+  () => [props.originalPoints, props.optimizedPoints, props.originalSegments, props.optimizedSegments, props.optimizedFacilityIds, props.optimizedColor, props.markerColor, labelsVisible.value, showOriginalLine.value, showOptimizedLine.value, playbackRoute.value, expanded.value],
   () => renderMap(),
   { deep: true }
 )
@@ -322,15 +325,15 @@ function drawBaiduMap(BMap) {
     drawPolyline(BMap, originalGeometryPoints.value, '#d84f4f', 4, 0.8, 'dashed')
   }
   if (showOptimizedLine.value) {
-    drawPolyline(BMap, optimizedGeometryPoints.value, '#1f6fca', 5, 0.9, 'solid')
+    drawPolyline(BMap, optimizedGeometryPoints.value, props.optimizedColor, 5, 0.9, 'solid')
   }
   const optimizedMode = showOptimizedLine.value && optimizedAllPoints.value.length && (playbackRoute.value === 'optimized' || !showOriginalLine.value)
   markerPoints.value.forEach((point, index) => {
     const isOptimizedPoint = optimizedMode && (props.optimizedFacilityIds === null || optimizedFacilityIdSet.value.has(String(point.facilityId)))
-    const appearance = markerAppearance(point, isOptimizedPoint ? '#16a34a' : '#dc2626')
+    const appearance = markerAppearance(point, isOptimizedPoint ? props.markerColor : '#dc2626')
     const marker = new BMap.Marker(new BMap.Point(point.longitude, point.latitude), { icon: markerIcon(BMap, appearance) })
     const semanticLabel = pointSemanticLabel(point)
-    marker.setTitle(`${point.facilityName || String(point.facilityId || index + 1)}${semanticLabel ? `（${semanticLabel}）` : ''}`)
+    marker.setTitle(`${point.facilityName || String(point.facilityId || index + 1)}${semanticLabel ? `（${semanticLabel}）` : ''}${point.comparisonArrivalTime ? ` 到达${point.comparisonArrivalTime}` : ''}`)
     mapInstance.addOverlay(marker)
     if (labelsVisible.value) {
       const label = new BMap.Label(String(index + 1), {
@@ -357,6 +360,7 @@ function markerIcon(BMap, appearance) {
 }
 
 function markerAppearance(point, fallbackColor) {
+  if (point.timeWindowViolation) return { fill: '#dc2626', stroke: '#ffffff', strokeWidth: 2.4, center: '#ffffff' }
   if (point.scheduleSkipped) return { fill: '#ffffff', stroke: '#71889a', strokeWidth: 2.4, center: '#ffffff' }
   if (props.showPointSemantics) {
     if (point.candidateMultiCollection) return { fill: '#8b5fc6', stroke: '#ffffff', strokeWidth: 2, center: '#ffffff' }
@@ -373,6 +377,7 @@ function fallbackMarkerStyle(point, fallbackColor) {
 }
 
 function pointSemanticLabel(point) {
+  if (point.timeWindowViolation) return '到达时间超出时间窗'
   if (point.scheduleSkipped) return '今日不收（道路仍经过）'
   if (!props.showPointSemantics) return ''
   if (point.candidateMultiCollection) return '多次收运'
@@ -503,7 +508,9 @@ function normalizeRoutePoints(points) {
       candidateMultiCollection: Boolean(point.candidateMultiCollection),
       candidateShared: Boolean(point.candidateShared),
       candidateLowFrequency: Boolean(point.candidateLowFrequency),
-      scheduleSkipped: Boolean(point.scheduleSkipped)
+      scheduleSkipped: Boolean(point.scheduleSkipped),
+      timeWindowViolation: Boolean(point.timeWindowViolation),
+      comparisonArrivalTime: point.comparisonArrivalTime
     }))
     .filter((point) => Number.isFinite(point.longitude) && Number.isFinite(point.latitude))
 }
