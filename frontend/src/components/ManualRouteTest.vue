@@ -1,16 +1,17 @@
 <template>
   <div class="manual-test-overlay" role="dialog" aria-modal="true" aria-label="手动调整测试">
     <section class="manual-test-dialog">
-      <header><div><h2>手动调整测试 · {{ title }}</h2><p>只调整趟内点位顺序，不删除点位、不改变起终点和趟次归属；测试不会覆盖原方案。</p></div><button @click="$emit('close')">关闭</button></header>
+      <header><div><h2>手动调整测试 · {{ title }}</h2><p>只调整趟内点位顺序，不删除点位、不改变起终点和趟次归属；仅计算不会覆盖原方案，点击“保存并替换”才应用。</p></div><button :disabled="busy" @click="$emit('close')">关闭</button></header>
       <p>比较规则：总道路里程优先，差异不足1米时比较总耗时。{{ scheduleDays.length ? '编辑完整模板，同时检查周期内每天的跳点结果；排名依据完整模板总里程。' : '重新计算两边实际道路；多趟按同一车辆连续计时。' }} 这只能检验当前人工候选，不能证明全局最优。</p>
       <div class="manual-test-controls">
         <label>选择编辑趟次 <select v-model.number="tripIndex" :disabled="busy" @change="clearDrag"><option v-for="(route,index) in draft.routes" :key="index" :value="index">{{ route.vehicleName || '车辆' }} 第{{ route.tripNo || route.routeNo }}趟</option></select></label>
         <button :disabled="busy" @click="reset">恢复系统顺序</button>
         <button :disabled="busy" @click="calculate">{{ busy ? '正在计算…' : '确定并计算对比' }}</button>
-        <button :disabled="busy" @click="saveManual">保存手动方案（全部趟次）</button>
+        <button :disabled="busy" @click="applyManual">保存并替换当前方案（全部趟次）</button>
+        <button :disabled="busy" @click="saveManual">另存到方案库</button>
       </div>
       <p>拖动点位到目标行的上方或下方调整顺序，也可使用前移／后移按钮。固定锚点不能移动或跨越；拖动后需点击“确定并计算对比”。</p>
-      <p>保存会另存全部趟次，不覆盖原方案；无论是否更优、是否超窗都可保存。保存不代表可执行认证。尚未计算时会先计算，计算失败则保留编辑内容供重试。</p>
+      <p>“保存并替换”会将手动路线应用到当前方案的地图、统计与导出；“另存到方案库”独立持久保存。不论是否更优、是否超窗都允许操作，超窗提示仍保留。尚未计算时会先计算，失败则保留编辑内容。</p>
       <div class="manual-test-editor">
         <div v-for="(point,index) in draft.routes[tripIndex].points" :key="point.manualToken" class="manual-test-point" :class="{ 'is-dragging': dragging?.index === index, 'drop-before': dropTarget?.index === index && !dropTarget.after, 'drop-after': dropTarget?.index === index && dropTarget.after }" :draggable="!busy && movable(index)" @dragstart="startDrag($event,index)" @dragover="overDrag($event,index)" @drop="dropPoint($event,index)" @dragend="clearDrag">
           <span><span v-if="movable(index)" class="drag-handle" aria-hidden="true">⠿</span>{{ index + 1 }}. {{ point.facilityName || point.facilityId }} <small>{{ windowLabel(point) }}</small></span>
@@ -42,7 +43,7 @@ import { computed, onBeforeUnmount, ref } from 'vue'
 import RouteMapPanel from './RouteMapPanel.vue'
 import { buildManualComparison, buildManualSavePayload, COMPARISON_COLORS, createManualDraft, moveManualPoint, reorderManualPoint } from '../manualRouteTest.js'
 
-const props = defineProps({ result: Object, options: Object, saveContext: Object, scheduleDays: { type: Array, default: () => [] }, title: String, initialRouteNo: Number, resolveRoad: Function, buildSchedules: Function, isViolation: Function })
+const props = defineProps({ result: Object, options: Object, saveContext: Object, applyResult: Function, scheduleDays: { type: Array, default: () => [] }, title: String, initialRouteNo: Number, resolveRoad: Function, buildSchedules: Function, isViolation: Function })
 const emit = defineEmits(['close', 'save'])
 const original = createManualDraft(props.result)
 const draft = ref(createManualDraft(props.result))
@@ -105,6 +106,19 @@ async function saveManual() {
   if (!comparison.value) await calculate()
   if (!comparison.value) return
   emit('save', buildManualSavePayload(comparison.value, props.saveContext || { title: props.title }, props.options, props.scheduleDays))
+}
+async function applyManual() {
+  if (busy.value) return
+  if (!comparison.value) await calculate()
+  if (!comparison.value) return
+  busy.value = true; error.value = ''; progress.value = '正在替换当前方案并刷新每日路线…'
+  try {
+    // Always apply the full manual result, never the currently selected daily mask.
+    const full = comparison.value.scenarios.find(item => item.day === 0)
+    await props.applyResult(full.manual.result, comparison.value.manualConflicts)
+    emit('close')
+  } catch (err) { error.value = `应用失败，编辑内容保留：${err.message || String(err)}` }
+  finally { busy.value = false }
 }
 async function calculate() {
   if (busy.value) return

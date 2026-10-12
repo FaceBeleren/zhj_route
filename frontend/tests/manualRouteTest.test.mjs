@@ -180,17 +180,21 @@ test('map preserves time-window annotations and gives conflict markers red prior
   assert.match(app, /openManualRouteTest\('ASSIGNMENT'\)/)
 })
 
-test('both entry points capture isolated result and parameter snapshots; fixed entry always edits full template', () => {
+test('both entry points snapshot and replace their own full result even with conflicts; stale state rejected', async () => {
   const f = fixture()
   const value = value => ({ value })
   const scope = {
     assignmentTripReorderRunning: value(false), assignmentBatchRunning: value(false), fixedMasterRunning: value(false),
     fixedMasterFresh: value(true), fixedMaster: value({ template: f.result, days: [{ day: 1, indices: [0, 2] }] }),
     multiOptimization: value(f.result), optimizeOptions: { plannedStartTime: '02:00', denseSpeedKmh: 15 },
-    manualTest: value(null), fixedMasterRouteNo: value(1), selectedMultiRouteNo: value(1), assignmentActiveVersion: value({ name: '方案1' }),
+    manualTest: value(null), fixedMasterRouteNo: value(1), selectedMultiRouteNo: value(1), assignmentActiveVersion: value({ name: '方案1', result: f.result }),
     splitPlanPoints: value([point(1), point(2), point(3)]), deepClone: value => JSON.parse(JSON.stringify(value)),
-    selectedSplitCompany: value({ id: 1, depName: '测试公司' }), selectedSplitRoute: value({ id: 10, routeName: '测试岗位' }), buildCurrentRouteRequestSnapshot: () => ({ vehicles: ['v1'] })
+    selectedSplitCompany: value({ id: 1, depName: '测试公司' }), selectedSplitRoute: value({ id: 10, routeName: '测试岗位' }), buildCurrentRouteRequestSnapshot: () => ({ vehicles: ['v1'] }),
+    assignmentVersions: value([]), fixedMasterMessage: value(''), multiRouteDisplayModes: value({}),
+    updateFixedMasterTemplate: async (result, owner) => { owner.template = result; owner.days = [{ day: 1, result }] },
+    showAssignmentVersionResult: owner => { scope.multiOptimization.value = owner.result }
   }
+  scope.assignmentVersions.value = [scope.assignmentActiveVersion.value]
   const code = app.slice(app.indexOf('function openManualRouteTest('), app.indexOf('function openTimeWindowRepair('))
   const open = new Function('scope', `with(scope) { ${code}; return openManualRouteTest }`)(scope)
   open('FIXED')
@@ -198,9 +202,23 @@ test('both entry points capture isolated result and parameter snapshots; fixed e
   assert.equal(scope.manualTest.value.result.routes[0].points.length, 5)
   scope.optimizeOptions.denseSpeedKmh = 20
   assert.equal(scope.manualTest.value.options.denseSpeedKmh, 15)
+  await assert.rejects(scope.manualTest.value.applyResult(f.draft, 2), /配置已变化/)
   scope.manualTest.value.result.routes[0].points.reverse()
   assert.equal(f.result.routes[0].points[0].facilityId, -1)
   open('ASSIGNMENT')
   assert.equal(scope.manualTest.value.title, '方案1')
   assert.deepEqual(scope.manualTest.value.scheduleDays, [])
+  const changed = structuredClone(f.result)
+  changed.routes[0].points = [point(-1,'START',0), point(3), point(2), point(1), point(-2,'END',15)]
+  await scope.manualTest.value.applyResult(changed, 3)
+  assert.deepEqual(scope.assignmentActiveVersion.value.result.routes[0].points.map(p => p.facilityId), [-1,3,2,1,-2])
+  assert.match(scope.assignmentActiveVersion.value.message, /冲突3次/)
+  assert.equal(scope.multiRouteDisplayModes.value[1], 'ROAD')
+  assert.equal(f.result.routes[0].points[1].facilityId, 1)
+  await assert.rejects(scope.manualTest.value.applyResult(changed, 0), /原方案已变化/)
+  open('FIXED')
+  await scope.manualTest.value.applyResult(changed, 4)
+  assert.deepEqual(scope.fixedMaster.value.template.routes[0].points.map(p => p.facilityId), [-1,3,2,1,-2])
+  assert.equal(scope.fixedMaster.value.days[0].result.routes.length, 1)
+  assert.match(scope.fixedMasterMessage.value, /冲突4次/)
 })

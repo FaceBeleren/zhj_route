@@ -2252,7 +2252,7 @@
     <div v-if="error" class="toast error">{{ error }}</div>
     <div v-if="loading" class="toast">加载中...</div>
   </main>
-  <ManualRouteTest v-if="manualTest" :result="manualTest.result" :options="manualTest.options" :save-context="manualTest.saveContext" :schedule-days="manualTest.scheduleDays" :title="manualTest.title" :initial-route-no="manualTest.initialRouteNo" :resolve-road="resolveManualTestRoad" :build-schedules="buildRouteSchedules" :is-violation="arrivalViolatesTimeWindow" @save="saveManualTestPlan" @close="manualTest = null" />
+  <ManualRouteTest v-if="manualTest" :result="manualTest.result" :options="manualTest.options" :save-context="manualTest.saveContext" :apply-result="manualTest.applyResult" :schedule-days="manualTest.scheduleDays" :title="manualTest.title" :initial-route-no="manualTest.initialRouteNo" :resolve-road="resolveManualTestRoad" :build-schedules="buildRouteSchedules" :is-violation="arrivalViolatesTimeWindow" @save="saveManualTestPlan" @close="manualTest = null" />
   <div v-if="timeRepairVisible" style="position:fixed;inset:0;background:#0008;z-index:1000;display:flex;align-items:center;justify-content:center">
     <section style="background:white;padding:24px;border-radius:12px;width:min(900px,90vw);max-height:85vh;overflow:auto">
       <h2>时间窗修正路线 · {{ timeRepairVersion?.name }}</h2>
@@ -5027,8 +5027,30 @@ function openManualRouteTest(scope = 'ASSIGNMENT') {
   if (fixed && !fixedMasterFresh.value) return
   const result = fixed ? fixedMaster.value.template : multiOptimization.value
   if (!result?.routes?.length) return
+  const owner = fixed ? fixedMaster.value : assignmentActiveVersion.value
+  const optionsSignature = JSON.stringify(optimizeOptions)
   manualTest.value = {
     result: deepClone(result), options: deepClone({ ...optimizeOptions }),
+    applyResult: async (manualResult, conflicts) => {
+      if (JSON.stringify(optimizeOptions) !== optionsSignature || assignmentTripReorderRunning.value || assignmentBatchRunning.value || fixedMasterRunning.value) throw new Error('配置已变化或正在计算，请重新打开手动调整窗口')
+      const message = `已应用手动调整路线；所校验场景时间窗冲突${conflicts}次。人工保存不代表优化或可执行认证。`
+      if (fixed) {
+        if (owner !== fixedMaster.value || owner.template !== result || !fixedMasterFresh.value) throw new Error('全点模板已变化，请重新打开窗口')
+        assignmentTripReorderRunning.value = true
+        try {
+          await updateFixedMasterTemplate(deepClone(manualResult), owner)
+          if (!owner.timeWindowOriginalResult) owner.timeWindowOriginalResult = deepClone(result)
+          fixedMasterMessage.value = message
+        } finally { assignmentTripReorderRunning.value = false }
+      } else {
+        if (!owner || !assignmentVersions.value.includes(owner) || owner.result !== result) throw new Error('原方案已变化，请重新打开窗口')
+        if (!owner.timeWindowOriginalResult) owner.timeWindowOriginalResult = deepClone(result)
+        owner.result = deepClone(manualResult)
+        owner.message = message
+        showAssignmentVersionResult(owner)
+        multiRouteDisplayModes.value = Object.fromEntries(owner.result.routes.map(route => [route.routeNo, 'ROAD']))
+      }
+    },
     saveContext: deepClone({ unitId: selectedSplitCompany.value?.id, unitName: selectedSplitCompany.value?.depName, originRouteId: selectedSplitRoute.value?.id, originRouteName: selectedSplitRoute.value?.routeName, title: fixed ? '独立全点模板' : assignmentActiveVersion.value?.name, planningStrategy: result.planningStrategy, request: buildCurrentRouteRequestSnapshot() }),
     title: fixed ? '独立全点模板及每日排班' : assignmentActiveVersion.value?.name || '当前生成方案',
     initialRouteNo: Number(fixed ? fixedMasterRouteNo.value : selectedMultiRouteNo.value),

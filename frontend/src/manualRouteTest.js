@@ -110,6 +110,8 @@ export async function buildManualComparison({ original, draft, scheduleDays = []
       route.travelDurationMinutes = route.planningTravelDurationMinutes = route.displayTravelDurationMinutes = travel
       route.operationDurationMinutes = operation
       route.durationMinutes = route.totalDurationMinutes = route.planningTotalDurationMinutes = route.displayTotalDurationMinutes = travel + operation
+      route.timeExceeded = route.workLimitMinutes > 0 && route.durationMinutes > route.workLimitMinutes
+      route.overdueMinutes = route.workLimitMinutes > 0 ? Math.max(0, route.durationMinutes - route.workLimitMinutes) : 0
     }
     result.distanceMode = 'ROAD'
     return result
