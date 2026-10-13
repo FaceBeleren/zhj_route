@@ -295,6 +295,9 @@ public class RouteDataController {
     @PostMapping("/optimize/small-window/tasks/{taskId}/cancel")
     public Map<String,Object> cancelSmallWindow(@PathVariable String taskId) { return smallWindowPlanningService.cancel(taskId); }
 
+    @PostMapping("/optimize/small-window/tasks/{taskId}/insert")
+    public Map<String,Object> insertSmallWindow(@PathVariable String taskId) { return smallWindowPlanningService.insert(taskId); }
+
     @PostMapping("/optimize/multi-export")
     public ResponseEntity<byte[]> exportMultiPreview(@RequestBody Map<String, Object> request) {
         byte[] bytes = routeExportService.exportMultiRoutes(request);

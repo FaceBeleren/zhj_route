@@ -10,6 +10,7 @@ import org.springframework.stereotype.Service;
 
 import java.math.BigDecimal;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.HashSet;
@@ -238,7 +239,7 @@ public class RouteOptimizeService {
             start = anchorPoint(request, sourcePoints, "start", -1L, "临时起点");
             end = anchorPoint(request, sourcePoints, "end", -2L, "临时终点");
             remaining.addAll(sourcePoints);
-        } else if (sourcePoints.size() < 3) {
+        } else if (sourcePoints.size() < 3 && !explicitAnchors) {
             Map<String, Object> result = new HashMap<String, Object>();
             result.put("routeId", routeId);
             result.put("unitId", unitId);
@@ -411,6 +412,24 @@ public class RouteOptimizeService {
         if (task != null && (task.cancelled || Thread.currentThread().isInterrupted())) {
             throw new CancellationException("多路线任务已取消");
         }
+    }
+
+    /** Empty insertion backbone uses only configured anchors and vehicle, never timed collection points. */
+    public Map<String, Object> jointEmptyBackbone(Map<String, Object> request) {
+        if (!hasAnchorCoordinate(request,"start") || !hasAnchorCoordinate(request,"end"))
+            throw new IllegalArgumentException("全部点有时间窗时必须配置起终点坐标");
+        List<RoutePoint> empty = Collections.emptyList();
+        RoutePoint start = anchorPoint(request,empty,"start",-1L,"拆分起点");
+        RoutePoint end = anchorPoint(request,empty,"end",-2L,"拆分终点");
+        double rated=defaultedRatedCapacityKg(request);
+        List<DispatchTrip> trips=buildDispatchPlan(request,start,end,rated,maxCapacityKg(request,rated),targetLoadRate(request));
+        if(trips.isEmpty()) throw new IllegalArgumentException("没有配置车辆趟次");
+        DispatchTrip trip=trips.get(0);
+        DistanceContext direct=new DistanceContext(false,false);
+        Map<String,Object> result=new LinkedHashMap<>();
+        result.put("routes",new ArrayList<>(Arrays.asList(multiRouteView(1,Arrays.asList(trip.start,trip.end),request,trip,direct,direct,false))));
+        result.put("unassignedPointCount",0);
+        return result;
     }
 
     public Map<String, Object> routeSegmentsPreview(Map<String, Object> request) {

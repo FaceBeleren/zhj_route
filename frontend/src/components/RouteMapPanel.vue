@@ -32,6 +32,7 @@
       <span><i class="low"></i>低频</span>
     </div>
 
+    <p v-if="pendingAllPoints.length" :style="{ color: props.pendingColor }">● 待插入时间窗点（{{ pendingAllPoints.length }}个，不参与连线）</p>
     <div class="route-playback-bar">
       <div class="route-playback-main">
         <div class="route-playback-choice" aria-label="选择播放路线">
@@ -105,6 +106,10 @@
             r="2.8"
             class="plot-vehicle"
           />
+          <g v-for="point in routePlot.pending.points" :key="`pending-${point.key}`">
+            <circle :cx="point.x" :cy="point.y" r="2.5" :style="{ fill: props.pendingColor, stroke: '#fff' }"><title>待插入：{{ pointTitle(point) }}</title></circle>
+            <text :x="point.x + 2.8" :y="point.y - 2" :style="{ fill: props.pendingColor }">待{{ point.label }}</text>
+          </g>
           <g v-for="point in routePlot.compare.points" :key="point.key">
             <circle :cx="point.x" :cy="point.y" r="2.2" :style="fallbackMarkerStyle(point, props.showOriginal ? '#475569' : props.markerColor)">
               <title>{{ pointTitle(point) }}</title>
@@ -155,6 +160,8 @@ import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 const props = defineProps({
   optimizedColor: { type: String, default: '#1f6fca' },
   markerColor: { type: String, default: '#16a34a' },
+  pendingPoints: { type: Array, default: () => [] },
+  pendingColor: { type: String, default: '#8b5cf6' },
   originalPoints: {
     type: Array,
     default: () => []
@@ -217,6 +224,7 @@ let playbackFrameTime = 0
 
 const originalAllPoints = computed(() => (props.showOriginal ? normalizeRoutePoints(props.originalPoints) : []))
 const optimizedAllPoints = computed(() => normalizeRoutePoints(props.optimizedPoints))
+const pendingAllPoints = computed(() => normalizeRoutePoints(props.pendingPoints))
 const originalLinePoints = computed(() => (showOriginalLine.value ? originalAllPoints.value : []))
 const optimizedLinePoints = computed(() => (showOptimizedLine.value ? optimizedAllPoints.value : []))
 const originalGeometryPoints = computed(() => pathCoordinatesFromSegments(props.originalSegments, originalLinePoints.value))
@@ -226,9 +234,9 @@ const markerPoints = computed(() => {
   const optimizedActive = showOptimizedLine.value && optimizedAllPoints.value.length && (playbackRoute.value === 'optimized' || !showOriginalLine.value)
   return optimizedActive ? optimizedAllPoints.value : originalAllPoints.value
 })
-const extentPoints = computed(() => uniquePoints([...markerPoints.value, ...originalGeometryPoints.value, ...optimizedGeometryPoints.value]))
+const extentPoints = computed(() => uniquePoints([...markerPoints.value, ...originalGeometryPoints.value, ...optimizedGeometryPoints.value, ...pendingAllPoints.value]))
 const allPoints = computed(() => extentPoints.value)
-const routePlot = computed(() => buildRoutePlot(originalAllPoints.value, optimizedAllPoints.value))
+const routePlot = computed(() => buildRoutePlot(originalAllPoints.value, optimizedAllPoints.value, pendingAllPoints.value))
 const playbackPoints = computed(() => {
   if (playbackRoute.value === 'original') {
     return originalGeometryPoints.value.length >= 2 ? originalGeometryPoints.value : originalAllPoints.value
@@ -244,7 +252,7 @@ const playbackPercent = computed(() => {
 const playbackCurrentPoint = computed(() => pointAtDistance(playbackPoints.value, playbackDistance.value))
 const fallbackPlaybackPoint = computed(() => {
   if (!routePlot.value || !playbackCurrentPoint.value) return null
-  const bounds = boundsFor([...originalAllPoints.value, ...optimizedAllPoints.value])
+  const bounds = boundsFor([...originalAllPoints.value, ...optimizedAllPoints.value, ...pendingAllPoints.value])
   return projectPoint(playbackCurrentPoint.value, bounds)
 })
 const playbackLabel = computed(() => {
@@ -276,7 +284,7 @@ onBeforeUnmount(() => {
 })
 
 watch(
-  () => [props.originalPoints, props.optimizedPoints, props.originalSegments, props.optimizedSegments, props.optimizedFacilityIds, props.optimizedColor, props.markerColor, labelsVisible.value, showOriginalLine.value, showOptimizedLine.value, playbackRoute.value, expanded.value],
+  () => [props.originalPoints, props.optimizedPoints, props.originalSegments, props.optimizedSegments, props.optimizedFacilityIds, props.optimizedColor, props.markerColor, props.pendingPoints, props.pendingColor, labelsVisible.value, showOriginalLine.value, showOptimizedLine.value, playbackRoute.value, expanded.value],
   () => renderMap(),
   { deep: true }
 )
@@ -328,6 +336,14 @@ function drawBaiduMap(BMap) {
     drawPolyline(BMap, optimizedGeometryPoints.value, props.optimizedColor, 5, 0.9, 'solid')
   }
   const optimizedMode = showOptimizedLine.value && optimizedAllPoints.value.length && (playbackRoute.value === 'optimized' || !showOriginalLine.value)
+  pendingAllPoints.value.forEach((point, index) => {
+    const marker = new BMap.Marker(new BMap.Point(point.longitude, point.latitude), { icon: markerIcon(BMap, markerAppearance(point, props.pendingColor)) })
+    marker.setTitle(`待插入时间窗点：${pointTitle(point)}`)
+    const label = new BMap.Label(`待${index + 1} ${point.facilityName || ''}`, { offset: new BMap.Size(12, -18) })
+    label.setStyle({ color: props.pendingColor, border: `1px solid ${props.pendingColor}`, backgroundColor: '#fff', fontSize: '11px' })
+    marker.setLabel(label)
+    mapInstance.addOverlay(marker)
+  })
   markerPoints.value.forEach((point, index) => {
     const isOptimizedPoint = optimizedMode && (props.optimizedFacilityIds === null || optimizedFacilityIdSet.value.has(String(point.facilityId)))
     const appearance = markerAppearance(point, isOptimizedPoint ? props.markerColor : '#dc2626')
@@ -673,14 +689,15 @@ function zoomLevel(points) {
   return 15
 }
 
-function buildRoutePlot(originalPoints, optimizedPoints) {
-  if (originalPoints.length === 0 && optimizedPoints.length === 0) return null
-  const bounds = boundsFor([...originalPoints, ...optimizedPoints])
+function buildRoutePlot(originalPoints, optimizedPoints, pendingPoints = []) {
+  if (originalPoints.length === 0 && optimizedPoints.length === 0 && pendingPoints.length === 0) return null
+  const bounds = boundsFor([...originalPoints, ...optimizedPoints, ...pendingPoints])
   const original = projectRoute(originalPoints, bounds)
   const optimized = projectRoute(optimizedPoints, bounds)
   return {
     original,
     optimized,
+    pending: projectRoute(pendingPoints, bounds),
     compare: {
       originalLine: original.line,
       optimizedLine: optimized.line,

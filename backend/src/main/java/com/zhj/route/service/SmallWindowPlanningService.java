@@ -28,18 +28,40 @@ public class SmallWindowPlanningService {
         if (count < 1 || count > 5) throw new IllegalArgumentException("仅允许1～5个时间窗点进行联合规划");
         if (maps(input.get("scheduleDays")).isEmpty()) throw new IllegalArgumentException("需要完整排班周期");
         if (maps(input.get("vehicles")).size() != 1) throw new IllegalArgumentException("当前联合规划仅支持岗位所选的一辆车");
-        if(jobs.values().stream().anyMatch(j -> Arrays.asList("QUEUED","RUNNING").contains(j.status))) throw new IllegalStateException("已有联合规划任务执行中，请等待或取消后重试");
+        if(jobs.values().stream().anyMatch(j -> Arrays.asList("QUEUED","RUNNING","WAITING_INSERTION").contains(j.status))) throw new IllegalStateException("已有联合规划任务，请完成或取消后重试");
         if(jobs.size()>=20) jobs.entrySet().removeIf(e -> Arrays.asList("DONE","FAILED","CANCELLED").contains(e.getValue().status));
         Job job = new Job(); jobs.put(job.id,job);
         job.future = executor.submit(() -> {
-            try { job.status="RUNNING"; job.response=plan(input,job); check(job); job.status="DONE"; }
+            try {
+                job.status="RUNNING"; job.prepared=prepare(input,job);
+                job.basePreview=basePreview(job.prepared,job);
+                synchronized(SmallWindowPlanningService.this) {
+                    check(job); job.message="第一阶段完成：无时间窗点基础路线已生成，等待开始插入时间窗点";
+                    job.status="WAITING_INSERTION";
+                }
+            }
             catch (CancellationException ex) { job.status="CANCELLED"; job.message="已取消，原方案未改变"; }
             catch (Exception ex) { job.status="FAILED"; job.message=ex.getMessage(); }
         });
         return job.view();
     }
+    public synchronized Map<String,Object> insert(String id) {
+        Job job=jobs.get(id);
+        if(job==null) throw new IllegalArgumentException("任务不存在");
+        if(!"WAITING_INSERTION".equals(job.status) || job.cancelled) throw new IllegalStateException("请先完成第一阶段；第二阶段不可重复启动");
+        job.status="QUEUED"; job.message="等待开始插入时间窗点";
+        job.future=executor.submit(() -> {
+            try {
+                check(job); job.status="RUNNING"; job.response=searchPrepared(job.prepared,job);
+                synchronized(SmallWindowPlanningService.this) { check(job); job.status="DONE"; }
+            }
+            catch(CancellationException ex) { job.status="CANCELLED"; job.message="已取消，原方案未改变"; }
+            catch(Exception ex) { job.status="FAILED"; job.message=ex.getMessage(); }
+        });
+        return job.view();
+    }
     public Map<String,Object> get(String id) { Job job=jobs.get(id); if(job==null) return Collections.singletonMap("status","NOT_FOUND"); return job.view(); }
-    public Map<String,Object> cancel(String id) {
+    public synchronized Map<String,Object> cancel(String id) {
         Job job=jobs.get(id); if(job==null) return get(id);
         if (!Arrays.asList("DONE","FAILED","CANCELLED").contains(job.status)) { job.cancelled=true; job.status="CANCELLED"; job.message="已取消，原方案未改变"; if(job.future!=null) job.future.cancel(true); }
         return job.view();
@@ -51,6 +73,9 @@ public class SmallWindowPlanningService {
             || (FacilityTimeWindow.parseClockMinutes(p.get("barredTimeBegin")) != null && FacilityTimeWindow.parseClockMinutes(p.get("barredTimeEnd")) != null);
     }
     Map<String,Object> plan(Map<String,Object> request, Job job) {
+        return searchPrepared(prepare(cloneMap(request),job),job);
+    }
+    private Prepared prepare(Map<String,Object> request, Job job) {
         check(job); job.message="正在生成无时间窗点基础多趟路线";
         if(request.get("workHours")!=null && (!Double.isFinite(num(request.get("workHours"))) || num(request.get("workHours"))<=0)) throw new IllegalArgumentException("工作时长必须是正数");
         List<Map<String,Object>> all = optimizer.jointCollectionPoints(request,maps(request.get("points")));
@@ -67,8 +92,8 @@ public class SmallWindowPlanningService {
         Map<String,Object> baseRequest=new LinkedHashMap<>(request);
         baseRequest.remove("scheduleDays"); baseRequest.remove("facilityIds");
         // No time-window point affects the unconstrained backbone construction.
-        baseRequest.put("points",normal.isEmpty()?all:normal);
-        Map<String,Object> base=optimizer.optimizeMultiPreview(baseRequest);
+        baseRequest.put("points",normal);
+        Map<String,Object> base=normal.isEmpty()?optimizer.jointEmptyBackbone(baseRequest):optimizer.optimizeMultiPreview(baseRequest);
         if(num(base.get("unassignedPointCount"))>0) throw new IllegalStateException("基础规划存在未分配点，请调整载重、趟数或工作时长后重试");
         List<Map<String,Object>> routes=maps(base.get("routes"));
         if(routes.isEmpty()) throw new IllegalStateException("未生成基础趟次");
@@ -91,6 +116,31 @@ public class SmallWindowPlanningService {
             extra.put("points",new ArrayList<>(Arrays.asList(startPoint,new LinkedHashMap<>(end))));
             extra.put("routeNo",routes.size()+1); extra.put("tripNo",routes.size()+1); routes.add(extra);
         }
+        return new Prepared(request,base,all,timed,routes);
+    }
+    private Map<String,Object> basePreview(Prepared prepared, Job job) {
+        List<Map<String,Object>> displayed=new ArrayList<>();
+        for(Map<String,Object> route:prepared.routes) if(maps(route.get("points")).size()>2) displayed.add(cloneMap(route));
+        List<Map<String,Object>> pool=new ArrayList<>();
+        for(Map<String,Object> route:displayed) pool.addAll(maps(route.get("points")));
+        if(!pool.isEmpty()) {
+            Function<List<Map<String,Object>>,Map<String,Object>> roads=optimizer.prepareJointRoads(prepared.request,pool,()->check(job));
+            for(Map<String,Object> route:displayed) {
+                List<Map<String,Object>> points=maps(route.get("points"));
+                Map<String,Object> road=roads.apply(points);
+                double operation=0D;for(Map<String,Object> point:points)operation+=num(point.get("operationDurationMinutes"));
+                route.put("segments",road.get("segments")); route.put("roadSegments",road.get("segments"));
+                route.put("distance",road.get("distance")); route.put("durationMinutes",num(road.get("durationMinutes"))+operation);
+            }
+        }
+        Map<String,Object> preview=new LinkedHashMap<>(); preview.put("routes",displayed); preview.put("pendingPoints",prepared.timed);
+        preview.put("message",displayed.isEmpty()?"没有无时间窗收运点，第二阶段从配置起终点开始插入":"蓝色为基础路线，紫色为待插入时间窗点（不参与连线和基础统计）");
+        return preview;
+    }
+    private Map<String,Object> searchPrepared(Prepared prepared, Job job) {
+        Map<String,Object> request=prepared.request,base=prepared.base;
+        List<Map<String,Object>> all=prepared.all,timed=prepared.timed,routes=prepared.routes;
+        check(job);
         List<Map<String,Object>> matrixPoints=new ArrayList<>(all);
         for(Map<String,Object> route:routes) for(Map<String,Object> p:maps(route.get("points"))) {
             if(matrixPoints.stream().noneMatch(q -> Objects.equals(q.get("facilityId"),p.get("facilityId")) && Objects.equals(q.get("longitude"),p.get("longitude")) && Objects.equals(q.get("latitude"),p.get("latitude")))) matrixPoints.add(p);
@@ -196,11 +246,19 @@ public class SmallWindowPlanningService {
             best=built;bestChecks=checks;bestDistance=distance;bestDuration=duration;
         }
     }
+    private static class Prepared {
+        final Map<String,Object> request,base;
+        final List<Map<String,Object>> all,timed,routes;
+        Prepared(Map<String,Object> request,Map<String,Object> base,List<Map<String,Object>> all,List<Map<String,Object>> timed,List<Map<String,Object>> routes) {
+            this.request=request;this.base=base;this.all=all;this.timed=timed;this.routes=routes;
+        }
+    }
     static class Job {
         final String id=UUID.randomUUID().toString(); volatile String status="QUEUED",message="等待联合规划";
         volatile long evaluations=0,feasible=0; volatile boolean cancelled=false; volatile Future<?> future; volatile Map<String,Object> response;
         volatile String candidateUpperBound="";
-        Map<String,Object> view() { Map<String,Object> out=new LinkedHashMap<>();out.put("taskId",id);out.put("status",status);out.put("message",message);out.put("evaluations",evaluations);out.put("feasibleCandidates",feasible);out.put("candidateUpperBound",candidateUpperBound);if("DONE".equals(status)) out.put("response",response);return out; }
+        volatile Prepared prepared; volatile Map<String,Object> basePreview;
+        Map<String,Object> view() { Map<String,Object> out=new LinkedHashMap<>();out.put("taskId",id);out.put("status",status);out.put("message",message);out.put("evaluations",evaluations);out.put("feasibleCandidates",feasible);out.put("candidateUpperBound",candidateUpperBound);if(basePreview!=null)out.put("basePreview",basePreview);if("DONE".equals(status)) out.put("response",response);return out; }
     }
     private Map<String,Object> cloneMap(Map<String,Object> map) { return mapper.convertValue(map,new TypeReference<Map<String,Object>>(){}); }
     @SuppressWarnings("unchecked") static List<Map<String,Object>> maps(Object value) { return value instanceof List ? (List<Map<String,Object>>)value : new ArrayList<>(); }
