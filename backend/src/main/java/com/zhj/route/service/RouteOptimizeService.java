@@ -185,6 +185,12 @@ public class RouteOptimizeService {
         return optimizeMultiPreview(request, null);
     }
 
+    public Map<String,Object> optimizeJointBackbone(Map<String,Object> request, java.util.function.Consumer<Map<String,Object>> progress) {
+        MultiRouteTask task=new MultiRouteTask(UUID.randomUUID().toString());
+        task.onProgress=progress;
+        return optimizeMultiPreview(request,task);
+    }
+
     private Map<String, Object> optimizeMultiPreview(Map<String, Object> request, MultiRouteTask task) {
         long startedAt = System.currentTimeMillis();
         Object routeIdValue = request.get("routeId");
@@ -457,16 +463,39 @@ public class RouteOptimizeService {
     /** Materialize each directed OD once; exhaustive candidates use only this request-local matrix. */
     public java.util.function.Function<List<Map<String, Object>>, Map<String, Object>> prepareJointRoads(
             Map<String, Object> request, List<Map<String, Object>> rows, Runnable checkCancelled) {
+        return prepareJointRoads(request,rows,checkCancelled,progress -> {});
+    }
+
+    public java.util.function.Function<List<Map<String, Object>>, Map<String, Object>> prepareJointRoads(
+            Map<String, Object> request, List<Map<String, Object>> rows, Runnable checkCancelled,
+            java.util.function.Consumer<Map<String,Object>> progress) {
         List<RoutePoint> pool = toRoutePoints(rows);
+        Set<String> seen = new HashSet<>();
+        pool.removeIf(point -> !seen.add(point.getFacilityId()+"@"+point.getLongitude()+","+point.getLatitude()));
+        long total=0,completed=0,cached=0,online=0;
+        for(RoutePoint from:pool) for(RoutePoint to:pool) if(!sameJointCoordinate(from,to)) total++;
+        Map<String,Object> state=new LinkedHashMap<>();
+        state.put("total",total);state.put("completed",0L);state.put("cached",0L);state.put("online",0L);
+        state.put("state","PRELOAD");state.put("currentPair","");progress.accept(new LinkedHashMap<>(state));
         DistanceContext context = new DistanceContext(true, false);
+        checkCancelled.run();
         context.preload(pool);
         for (RoutePoint from : pool) for (RoutePoint to : pool) {
             checkCancelled.run();
             if (sameJointCoordinate(from, to)) continue;
+            state.put("state","RESOLVING");
+            state.put("currentPair",from.getFacilityName()+" → "+to.getFacilityName());
+            progress.accept(new LinkedHashMap<>(state));
             RouteMapPathService.ResolvedPath path = context.resolvePath(from, to);
             if (!isRoadResolvedPath(path) || path.getPath().size() < 2 || path.getDistanceMeters() == null)
                 throw new IllegalStateException("联合规划道路矩阵不完整，不使用直线回退");
+            completed++;
+            if(path.getSource().startsWith("OD_")) cached++;
+            if("BAIDU_ONLINE".equals(path.getSource())) online++;
+            state.put("completed",completed);state.put("cached",cached);state.put("online",online);
+            state.put("state","RESOLVED");progress.accept(new LinkedHashMap<>(state));
         }
+        state.put("state","READY");state.put("currentPair","");progress.accept(new LinkedHashMap<>(state));
         SpeedProfile profile = speedProfile(request);
         return points -> {
             checkCancelled.run();
@@ -1216,6 +1245,7 @@ public class RouteOptimizeService {
         private volatile long startedAt = System.currentTimeMillis();
         private volatile long updatedAt = startedAt;
         private volatile long finishedAt;
+        private java.util.function.Consumer<Map<String,Object>> onProgress;
 
         private MultiRouteTask(String taskId) {
             this.taskId = taskId;
@@ -1226,6 +1256,7 @@ public class RouteOptimizeService {
             this.phase = phase;
             this.message = message;
             this.updatedAt = System.currentTimeMillis();
+            if(onProgress!=null)onProgress.accept(view(false));
         }
 
         private synchronized void prepare(int candidatePoints, int totalRoutes, String planningStrategy) {

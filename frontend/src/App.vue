@@ -2260,7 +2260,7 @@
       <h2>少量时间窗联合规划</h2>
       <p>先规划无时间窗点，再联合枚举有时间窗点的插入位置和先后顺序；校验完整模板及每日跳点路线、载重和同车累计工作时长，不自动等待。按完整模板道路里程优先、耗时次之。固定基础顺序下的最佳插入，不代表全局最优。</p>
       <p>第一阶段：规划无时间窗点 → 第二阶段：尝试插入时间窗点 → 确认应用。</p>
-      <p>{{ smallWindowDialog.message }} · 已评估 {{ smallWindowDialog.evaluations }} 个完整候选<template v-if="smallWindowDialog.candidateUpperBound"> · 插入组合上界 {{ smallWindowDialog.candidateUpperBound }}（容量剪枝会减少实际数量）</template></p>
+      <SmallWindowProgress :task="smallWindowDialog" />
       <template v-if="smallWindowDialog.basePreview">
         <p>{{ smallWindowDialog.basePreview.message }}</p>
         <label>查看路线 <select v-model.number="smallWindowDialog.previewIndex"><option v-for="(route, index) in smallWindowPreviewRoutes" :key="index" :value="index">第{{ route.tripNo || index + 1 }}趟</option></select></label>
@@ -2319,6 +2319,7 @@ import { computed, nextTick, onMounted, reactive, ref, watch } from 'vue'
 import RouteMapPanel from './components/RouteMapPanel.vue'
 import ManualRouteTest from './components/ManualRouteTest.vue'
 import { planningWindowCount, smallWindowDisabledReason } from './smallWindowPlanning.js'
+import SmallWindowProgress from './components/SmallWindowProgress.vue'
 import ClusterMapPanel from './components/ClusterMapPanel.vue'
 import FlowAnalysisPdfReport from './components/FlowAnalysisPdfReport.vue'
 import { balanceAssignmentPhases } from './assignmentPhases.js'
@@ -2753,7 +2754,7 @@ async function generateSmallWindowPlan() {
   }
   const options = deepClone(optimizeOptions)
   const request = { ...options, startLongitude: options.startLongitude ?? originals[0]?.longitude, startLatitude: options.startLatitude ?? originals[0]?.latitude, endLongitude: options.endLongitude ?? originals.at(-1)?.longitude, endLatitude: options.endLatitude ?? originals.at(-1)?.latitude, unitId: selectedSplitCompany.value.id, dispatchMode: 'USER_ORDER', vehicles: normalizedAssignmentVehicles(), endSelectionMode: endAnchorMode.value, endCandidates: normalizedEndCandidates(), points: originals, displayRoadPath: false, useRoadPath: options.multiRouteStrategy === 'ROAD_GLOBAL', scheduleDays: days.map(day => ({ day: day.day, facilityIds: originals.filter((_, index) => day.indices.includes(index)).map(point => point.facilityId) })) }
-  Object.assign(smallWindowDialog, { visible: true, taskId: '', running: true, applying: false, cancelled: false, response: null, basePreview: null, previewIndex: 0, status: 'QUEUED', error: '', message: '正在生成第一阶段基础路线', evaluations: 0, candidateUpperBound: '', fingerprint, days, options })
+  Object.assign(smallWindowDialog, { visible: true, taskId: '', running: true, applying: false, cancelled: false, response: null, basePreview: null, progress: { phase: 'QUEUED', receivedAt: Date.now() }, previewIndex: 0, status: 'QUEUED', error: '', message: '正在生成第一阶段基础路线', evaluations: 0, candidateUpperBound: '', fingerprint, days, options })
   fixedMasterRunning.value = true
   try {
     let task = await api('/api/optimize/small-window/tasks', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(request) })
@@ -2761,6 +2762,7 @@ async function generateSmallWindowPlan() {
     await pollSmallWindowTask(task)
   } catch (err) {
     if (smallWindowDialog.taskId) await api(`/api/optimize/small-window/tasks/${smallWindowDialog.taskId}/cancel`, { method: 'POST' }).catch(() => {})
+    smallWindowDialog.status = 'FAILED'
     smallWindowDialog.error = err.message || String(err)
   } finally { smallWindowDialog.running = false; fixedMasterRunning.value = false }
 }
@@ -2774,6 +2776,8 @@ async function pollSmallWindowTask(task) {
       }
       smallWindowDialog.message = fixedMasterMessage.value = task.message || '正在联合枚举'
       smallWindowDialog.evaluations = task.evaluations || 0
+      smallWindowDialog.feasibleCandidates = task.feasibleCandidates || 0
+      smallWindowDialog.progress = { ...(task.progress || {}), receivedAt: Date.now() }
       smallWindowDialog.candidateUpperBound = task.candidateUpperBound || ''
       smallWindowDialog.status = task.status
       if (task.basePreview) smallWindowDialog.basePreview = task.basePreview
@@ -2788,12 +2792,15 @@ async function insertSmallWindowPlan() {
   if (smallWindowDialog.running || smallWindowDialog.status !== 'WAITING_INSERTION') return
   if (smallWindowDialog.fingerprint !== fixedMasterFingerprint.value) { smallWindowDialog.error = '配置已变化，请关闭后重新生成基础路线'; return }
   smallWindowDialog.running = true; fixedMasterRunning.value = true
+  smallWindowDialog.status = 'QUEUED'; smallWindowDialog.message = '正在提交第二阶段插入任务…'
+  smallWindowDialog.progress = { phase: 'MATRIX', elapsedMs: 0, updatedAgoMs: 0, receivedAt: Date.now() }
   smallWindowDialog.error = ''; smallWindowDialog.cancelled = false
   try {
     const task = await api(`/api/optimize/small-window/tasks/${smallWindowDialog.taskId}/insert`, { method: 'POST' })
     await pollSmallWindowTask(task)
   } catch (err) {
     if (smallWindowDialog.taskId) await api(`/api/optimize/small-window/tasks/${smallWindowDialog.taskId}/cancel`, { method: 'POST' }).catch(() => {})
+    smallWindowDialog.status = 'FAILED'
     smallWindowDialog.error = err.message || String(err)
   } finally { smallWindowDialog.running = false; fixedMasterRunning.value = false }
 }

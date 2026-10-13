@@ -9,6 +9,48 @@ import static org.mockito.Mockito.*;
 import static org.mockito.ArgumentMatchers.*;
 
 class SmallWindowPlanningServiceTest {
+    @Test void roadProgressReportsActualUniquePairsAndPublishesPairBeforeLookup() {
+        RouteMapPathService paths=mock(RouteMapPathService.class);
+        when(paths.preloadCachedDistances(anyList())).thenReturn(Collections.emptyMap());
+        List<Map<String,Object>> updates=new ArrayList<>();
+        when(paths.resolveWithoutCache(any(),any())).thenAnswer(a -> {
+            com.zhj.route.algorithm.RoutePoint from=a.getArgument(0),to=a.getArgument(1);
+            Map<String,Object> latest=updates.get(updates.size()-1);
+            assertEquals("RESOLVING",latest.get("state"));
+            assertEquals(from.getFacilityName()+" → "+to.getFacilityName(),latest.get("currentPair"));
+            return new RouteMapPathService.ResolvedPath(Arrays.asList(map("longitude",from.getLongitude(),"latitude",from.getLatitude()),map("longitude",to.getLongitude(),"latitude",to.getLatitude())),1000D,60D,from.getFacilityId()==1L?"BAIDU_ONLINE":"OD_CACHE");
+        });
+        RouteOptimizeService optimizer=new RouteOptimizeService(null,paths,mock(RouteOptimizeTraceService.class));
+        optimizer.prepareJointRoads(map(),Arrays.asList(point(1,null),point(2,null),point(2,null)),()->{},updates::add);
+        Map<String,Object> ready=updates.get(updates.size()-1);
+        assertEquals("READY",ready.get("state"));assertEquals(2L,ready.get("total"));assertEquals(2L,ready.get("completed"));
+        assertEquals(1L,ready.get("online"));assertEquals(1L,ready.get("cached"));
+        assertEquals(0L,updates.get(0).get("completed"));verify(paths,times(2)).resolveWithoutCache(any(),any());
+    }
+    @Test void searchProgressIncludesProvisionalBestAndCountsPrunedBranches() {
+        Fixture f=new Fixture(Arrays.asList(point(1,null),point(2,"00:00"),point(3,null)),1);
+        f.service.plan(f.request,f.job);
+        Map<String,Object> progress=(Map<String,Object>)f.job.view().get("progress");
+        assertEquals("SEARCH",progress.get("phase"));
+        Map<String,Object> best=(Map<String,Object>)progress.get("bestCandidate");
+        assertTrue((Boolean)best.get("allScenariosPassed"));assertTrue(((Number)best.get("distance")).doubleValue()>0);
+        f.request.put("points",Arrays.asList(point(1,null),point(2,"00:00"),point(3,null)));
+        SmallWindowPlanningService.Job noFit=new SmallWindowPlanningService.Job();
+        when(f.optimizer.optimizeMultiPreview(anyMap())).thenAnswer(a -> {
+            Map<String,Object> start=point(-1,null),end=point(-2,null);start.put("role","START");end.put("role","END");
+            return map("routes",new ArrayList<>(Arrays.asList(map("points",new ArrayList<>(Arrays.asList(start,point(1,null),point(3,null),end)),"maxCapacityKg",2D,"ratedCapacityKg",2D,"vehicleId","v","tripNo",1,"routeNo",1))),"unassignedPointCount",0);
+        });
+        f.service.plan(f.request,noFit);
+        assertEquals(1L,noFit.capacityPruned);assertNull(noFit.bestCandidate);assertEquals(0L,noFit.evaluations);
+    }
+    @Test void terminalElapsedStopsIncreasing() {
+        SmallWindowPlanningService.Job job=new SmallWindowPlanningService.Job();job.startedAt=System.currentTimeMillis()-2000;
+        job.status="CANCELLED";job.finish();
+        Map<String,Object> progress=(Map<String,Object>)job.view().get("progress");
+        assertEquals("CANCELLED",progress.get("phase"));assertTrue(((Number)progress.get("elapsedMs")).longValue()>=2000);
+        assertEquals(progress.get("elapsedMs"),((Map<String,Object>)job.view().get("progress")).get("elapsedMs"));
+        assertFalse(job.view().containsKey("response"));
+    }
     private static Map<String,Object> awaitStage(SmallWindowPlanningService service,String id,String expected) throws Exception {
         long deadline=System.nanoTime()+java.util.concurrent.TimeUnit.SECONDS.toNanos(5);
         Map<String,Object> task;
@@ -30,7 +72,7 @@ class SmallWindowPlanningServiceTest {
             assertEquals(2,SmallWindowPlanningService.maps(preview.get("pendingPoints")).get(0).get("facilityId"));
             List<Map<String,Object>> points=SmallWindowPlanningService.maps(SmallWindowPlanningService.maps(preview.get("routes")).get(0).get("points"));
             assertFalse(points.stream().anyMatch(p->Objects.equals(2,p.get("facilityId"))));
-            verify(f.optimizer,times(1)).prepareJointRoads(anyMap(),argThat(rows -> rows.stream().noneMatch(p->Objects.equals(2,p.get("facilityId")))),any());
+            verify(f.optimizer,times(1)).prepareJointRoads(anyMap(),argThat(rows -> rows.stream().noneMatch(p->Objects.equals(2,p.get("facilityId")))),any(),any());
             f.request.put("points",Collections.emptyList());
             f.service.insert(id);
             Map<String,Object> done=awaitStage(f.service,id,"DONE");
@@ -49,7 +91,7 @@ class SmallWindowPlanningServiceTest {
             assertEquals("CANCELLED",f.service.cancel(id).get("status"));
             assertThrows(IllegalStateException.class,()->f.service.insert(id));
             assertEquals(0L,f.service.get(id).get("evaluations"));
-            verify(f.optimizer,times(1)).prepareJointRoads(anyMap(),anyList(),any());
+            verify(f.optimizer,times(1)).prepareJointRoads(anyMap(),anyList(),any(),any());
         } finally { f.service.shutdown(); }
     }
     @Test void allTimedFirstStageShowsOnlyScatterAndDoesNotBuildCollectionRoute() throws Exception {
@@ -60,7 +102,7 @@ class SmallWindowPlanningServiceTest {
             assertTrue(SmallWindowPlanningService.maps(preview.get("routes")).isEmpty());
             assertEquals(2,SmallWindowPlanningService.maps(preview.get("pendingPoints")).size());
             verify(f.optimizer,never()).optimizeMultiPreview(anyMap());
-            verify(f.optimizer,never()).prepareJointRoads(anyMap(),anyList(),any());
+            verify(f.optimizer,never()).prepareJointRoads(anyMap(),anyList(),any(),any());
         } finally { f.service.shutdown(); }
     }
     @Test void emptyBackboneUsesConfiguredAnchorsAndCapacityWithoutBaiduCalls() {
@@ -79,7 +121,9 @@ class SmallWindowPlanningServiceTest {
         RouteOptimizeService optimizer=new RouteOptimizeService(null,mock(RouteMapPathService.class),mock(RouteOptimizeTraceService.class));
         Map<String,Object> request=map("points",Arrays.asList(point(1,null)),"startLongitude",118D,"startLatitude",36D,"endLongitude",119D,"endLatitude",37D,
             "vehicles",Arrays.asList(map("vehicleId","v","tripCount",1,"ratedCapacityKg",10000D,"maxCapacityKg",11000D)),"workHours",24D);
-        Map<String,Object> result=optimizer.optimizeMultiPreview(request);
+        List<Map<String,Object>> updates=new ArrayList<>();
+        Map<String,Object> result=optimizer.optimizeJointBackbone(request,updates::add);
+        assertTrue(updates.stream().anyMatch(p -> ((Number)p.get("currentTripNo")).intValue()==1));
         assertEquals(0,((Number)result.get("unassignedPointCount")).intValue());
         List<Map<String,Object>> routes=SmallWindowPlanningService.maps(result.get("routes"));
         assertEquals(1,routes.size());
@@ -96,6 +140,7 @@ class SmallWindowPlanningServiceTest {
         Fixture(List<Map<String,Object>> input,int trips) {
             request=map("points",input,"vehicles",Arrays.asList(map("tripCount",trips)),"scheduleDays",Arrays.asList(map("day",1,"facilityIds",Arrays.asList(1,2,3))),"plannedStartTime","03:00","workHours",8);
             when(optimizer.jointCollectionPoints(anyMap(),anyList())).thenAnswer(a -> a.getArgument(1));
+            when(optimizer.optimizeJointBackbone(anyMap(),any())).thenAnswer(a -> optimizer.optimizeMultiPreview(a.getArgument(0)));
             when(optimizer.jointEmptyBackbone(anyMap())).thenAnswer(a -> {
                 Map<String,Object> start=point(-1,null),end=point(-2,null);
                 start.put("role","START");end.put("role","END");start.put("operationDurationMinutes",0D);end.put("operationDurationMinutes",0D);
@@ -107,7 +152,7 @@ class SmallWindowPlanningServiceTest {
                 Map<String,Object> end=point(-2,null);end.put("role","END");end.put("operationDurationMinutes",0D);points.add(end);
                 return map("routes",new ArrayList<>(Arrays.asList(map("points",points,"maxCapacityKg",10D,"ratedCapacityKg",10D,"vehicleId","v","tripNo",1,"routeNo",1,"workLimitMinutes",480D))),"unassignedPointCount",0);
             });
-            when(optimizer.prepareJointRoads(anyMap(),anyList(),any())).thenAnswer(a -> (Function<List<Map<String,Object>>,Map<String,Object>>) points -> {
+            when(optimizer.prepareJointRoads(anyMap(),anyList(),any(),any())).thenAnswer(a -> (Function<List<Map<String,Object>>,Map<String,Object>>) points -> {
                 List<Integer> ids=new ArrayList<>();for(Map<String,Object> p:points)ids.add(((Number)p.get("facilityId")).intValue());seen.add(ids);
                 List<Map<String,Object>> segments=new ArrayList<>();double d=0;
                 for(int i=1;i<points.size();i++) { double cost=ids.get(i-1)==2 && ids.get(i)==3?1D:10D;d+=cost;segments.add(map("distance",cost,"durationMinutes",1D,"pathSource","OD_CACHE")); }
@@ -207,7 +252,7 @@ class SmallWindowPlanningServiceTest {
     @Test void dailyWorkHoursAreCheckedEvenWhenFullTemplateFitsAndWindowsPass() {
         Fixture f=new Fixture(Arrays.asList(point(1,null),point(2,"00:00"),point(3,null)),1);
         f.request.put("workHours",1D/6D);f.request.put("scheduleDays",Arrays.asList(map("day",1,"facilityIds",Arrays.asList(2))));
-        when(f.optimizer.prepareJointRoads(anyMap(),anyList(),any())).thenAnswer(a -> (Function<List<Map<String,Object>>,Map<String,Object>>) points -> {
+        when(f.optimizer.prepareJointRoads(anyMap(),anyList(),any(),any())).thenAnswer(a -> (Function<List<Map<String,Object>>,Map<String,Object>>) points -> {
             List<Map<String,Object>> segments=new ArrayList<>();double duration=points.size()==3?30D:1D;
             for(int i=1;i<points.size();i++)segments.add(map("distance",10D,"durationMinutes",duration,"pathSource","OD_CACHE"));
             return map("segments",segments,"distance",10D*(points.size()-1),"durationMinutes",duration*(points.size()-1));

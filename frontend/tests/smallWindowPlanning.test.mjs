@@ -24,7 +24,7 @@ test('waiting preview performs no insertion request; explicit click starts stage
   const scope = {
     smallWindowDialog: { taskId: 't1', fingerprint: 'same', visible: true, running: false, status: 'QUEUED' },
     fixedMasterFingerprint: { value: 'same' }, fixedMasterMessage: { value: '' }, fixedMasterRunning: { value: false },
-    api: async (url) => { requests.push(url); return { taskId: 't1', status: 'DONE', response: { result: { routes: [] } } } }
+    api: async (url) => { requests.push(url); return { taskId: 't1', status: 'DONE', feasibleCandidates: 7, progress: { phase: 'DONE', bestCandidate: { distance: 66000 } }, response: { result: { routes: [] } } } }
   }
   const actions = new Function('scope', `with(scope) { ${source}; return { pollSmallWindowTask, insertSmallWindowPlan, closeSmallWindowPlan } }`)(scope)
   const basePreview = { routes: [{ points: [{ facilityId: 1 }] }], pendingPoints: [{ facilityId: 2 }] }
@@ -35,6 +35,8 @@ test('waiting preview performs no insertion request; explicit click starts stage
   await actions.insertSmallWindowPlan()
   assert.deepEqual(requests, ['/api/optimize/small-window/tasks/t1/insert'])
   assert.equal(scope.smallWindowDialog.status, 'DONE')
+  assert.equal(scope.smallWindowDialog.feasibleCandidates, 7)
+  assert.equal(scope.smallWindowDialog.progress.bestCandidate.distance, 66000)
   assert.equal(scope.fixedMasterRunning.value, false)
   scope.smallWindowDialog.status = 'WAITING_INSERTION'
   await actions.closeSmallWindowPlan()

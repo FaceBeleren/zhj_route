@@ -38,10 +38,11 @@ public class SmallWindowPlanningService {
                 synchronized(SmallWindowPlanningService.this) {
                     check(job); job.message="第一阶段完成：无时间窗点基础路线已生成，等待开始插入时间窗点";
                     job.status="WAITING_INSERTION";
+                    job.phase("WAITING_INSERTION");job.finishedAt=System.currentTimeMillis();
                 }
             }
-            catch (CancellationException ex) { job.status="CANCELLED"; job.message="已取消，原方案未改变"; }
-            catch (Exception ex) { job.status="FAILED"; job.message=ex.getMessage(); }
+            catch (CancellationException ex) { job.status="CANCELLED"; job.message="已取消，原方案未改变"; job.finish(); }
+            catch (Exception ex) { job.status="FAILED"; job.message=ex.getMessage(); job.finish(); }
         });
         return job.view();
     }
@@ -50,20 +51,21 @@ public class SmallWindowPlanningService {
         if(job==null) throw new IllegalArgumentException("任务不存在");
         if(!"WAITING_INSERTION".equals(job.status) || job.cancelled) throw new IllegalStateException("请先完成第一阶段；第二阶段不可重复启动");
         job.status="QUEUED"; job.message="等待开始插入时间窗点";
+        job.startedAt=System.currentTimeMillis();job.finishedAt=0;job.phase("MATRIX");job.roadProgress=Collections.emptyMap();
         job.future=executor.submit(() -> {
             try {
                 check(job); job.status="RUNNING"; job.response=searchPrepared(job.prepared,job);
-                synchronized(SmallWindowPlanningService.this) { check(job); job.status="DONE"; }
+                synchronized(SmallWindowPlanningService.this) { check(job); job.status="DONE"; job.finish(); }
             }
-            catch(CancellationException ex) { job.status="CANCELLED"; job.message="已取消，原方案未改变"; }
-            catch(Exception ex) { job.status="FAILED"; job.message=ex.getMessage(); }
+            catch(CancellationException ex) { job.status="CANCELLED"; job.message="已取消，原方案未改变"; job.finish(); }
+            catch(Exception ex) { job.status="FAILED"; job.message=ex.getMessage(); job.finish(); }
         });
         return job.view();
     }
     public Map<String,Object> get(String id) { Job job=jobs.get(id); if(job==null) return Collections.singletonMap("status","NOT_FOUND"); return job.view(); }
     public synchronized Map<String,Object> cancel(String id) {
         Job job=jobs.get(id); if(job==null) return get(id);
-        if (!Arrays.asList("DONE","FAILED","CANCELLED").contains(job.status)) { job.cancelled=true; job.status="CANCELLED"; job.message="已取消，原方案未改变"; if(job.future!=null) job.future.cancel(true); }
+        if (!Arrays.asList("DONE","FAILED","CANCELLED").contains(job.status)) { job.cancelled=true; job.status="CANCELLED"; job.message="已取消，原方案未改变"; job.finish(); if(job.future!=null) job.future.cancel(true); }
         return job.view();
     }
     private static void check(Job job) { if(job.cancelled || Thread.currentThread().isInterrupted()) throw new CancellationException(); }
@@ -76,7 +78,7 @@ public class SmallWindowPlanningService {
         return searchPrepared(prepare(cloneMap(request),job),job);
     }
     private Prepared prepare(Map<String,Object> request, Job job) {
-        check(job); job.message="正在生成无时间窗点基础多趟路线";
+        check(job); job.phase("BASE_PLANNING"); job.message="正在生成无时间窗点基础多趟路线";
         if(request.get("workHours")!=null && (!Double.isFinite(num(request.get("workHours"))) || num(request.get("workHours"))<=0)) throw new IllegalArgumentException("工作时长必须是正数");
         List<Map<String,Object>> all = optimizer.jointCollectionPoints(request,maps(request.get("points")));
         Set<String> ids=new HashSet<>();
@@ -93,7 +95,9 @@ public class SmallWindowPlanningService {
         baseRequest.remove("scheduleDays"); baseRequest.remove("facilityIds");
         // No time-window point affects the unconstrained backbone construction.
         baseRequest.put("points",normal);
-        Map<String,Object> base=normal.isEmpty()?optimizer.jointEmptyBackbone(baseRequest):optimizer.optimizeMultiPreview(baseRequest);
+        Map<String,Object> base=normal.isEmpty()?optimizer.jointEmptyBackbone(baseRequest):optimizer.optimizeJointBackbone(baseRequest,progress -> {
+            check(job);job.backboneProgress=progress;job.message=String.valueOf(progress.get("message"));job.touch();
+        });
         if(num(base.get("unassignedPointCount"))>0) throw new IllegalStateException("基础规划存在未分配点，请调整载重、趟数或工作时长后重试");
         List<Map<String,Object>> routes=maps(base.get("routes"));
         if(routes.isEmpty()) throw new IllegalStateException("未生成基础趟次");
@@ -119,13 +123,15 @@ public class SmallWindowPlanningService {
         return new Prepared(request,base,all,timed,routes);
     }
     private Map<String,Object> basePreview(Prepared prepared, Job job) {
+        job.phase("BASE_ROADS");job.message="正在准备基础路线道路数据";
         List<Map<String,Object>> displayed=new ArrayList<>();
         for(Map<String,Object> route:prepared.routes) if(maps(route.get("points")).size()>2) displayed.add(cloneMap(route));
         List<Map<String,Object>> pool=new ArrayList<>();
         for(Map<String,Object> route:displayed) pool.addAll(maps(route.get("points")));
         if(!pool.isEmpty()) {
-            Function<List<Map<String,Object>>,Map<String,Object>> roads=optimizer.prepareJointRoads(prepared.request,pool,()->check(job));
+            Function<List<Map<String,Object>>,Map<String,Object>> roads=optimizer.prepareJointRoads(prepared.request,pool,()->check(job),job::roads);
             for(Map<String,Object> route:displayed) {
+                job.message="正在绘制基础路线第"+route.get("tripNo")+"趟";job.touch();
                 List<Map<String,Object>> points=maps(route.get("points"));
                 Map<String,Object> road=roads.apply(points);
                 double operation=0D;for(Map<String,Object> point:points)operation+=num(point.get("operationDurationMinutes"));
@@ -146,7 +152,8 @@ public class SmallWindowPlanningService {
             if(matrixPoints.stream().noneMatch(q -> Objects.equals(q.get("facilityId"),p.get("facilityId")) && Objects.equals(q.get("longitude"),p.get("longitude")) && Objects.equals(q.get("latitude"),p.get("latitude")))) matrixPoints.add(p);
         }
         job.message="正在准备有向道路矩阵（缺失OD按现有策略补算）";
-        Function<List<Map<String,Object>>,Map<String,Object>> roads=optimizer.prepareJointRoads(request,matrixPoints,()->check(job));
+        job.phase("MATRIX");
+        Function<List<Map<String,Object>>,Map<String,Object>> roads=optimizer.prepareJointRoads(request,matrixPoints,()->check(job),job::roads);
         // Coverage metadata must include all timed points before daily validation.
         Map<String,Object> coverage=cloneMap(base); coverage.put("distanceMode","ROAD");
         List<Map<String,Object>> coveredRoutes=maps(coverage.get("routes"));
@@ -155,6 +162,7 @@ public class SmallWindowPlanningService {
         Function<List<Map<String,Object>>,Map<String,Object>> evaluate=checker.jointScenarioChecker(evalRequest,roads);
         Search search=new Search(request,routes,timed,roads,evaluate,job);
         job.message="正在联合枚举插入位置和顺序；校验完整模板及每日跳点";
+        job.phase("SEARCH");
         int slots=0;for(Map<String,Object> route:routes) slots+=maps(route.get("points")).size()-1;
         java.math.BigInteger bound=java.math.BigInteger.ONE;
         for(int i=0;i<timed.size();i++) bound=bound.multiply(java.math.BigInteger.valueOf(slots+i));
@@ -194,7 +202,7 @@ public class SmallWindowPlanningService {
             for(Map<String,Object> route:routes) {
                 List<Map<String,Object>> points=maps(route.get("points"));
                 double weight=0D; for(Map<String,Object> q:points) if("MIDDLE".equals(q.get("role"))) weight+=num(q.get("estimatedWeightKg"));
-                if(weight+num(p.get("estimatedWeightKg"))>num(route.get("maxCapacityKg"))+1e-6) continue;
+                if(weight+num(p.get("estimatedWeightKg"))>num(route.get("maxCapacityKg"))+1e-6) { if((++job.capacityPruned & 255)==1)job.touch();continue; }
                 // No partial time-window pruning: later insertions can delay an early point.
                 for(int at=1;at<points.size();at++) {
                     points.add(at,p); route.put("points",points); visit(depth+1); points.remove(at);
@@ -203,6 +211,7 @@ public class SmallWindowPlanningService {
         }
         void leaf() {
             job.evaluations++;
+            if((job.evaluations & 255)==1) job.touch();
             List<Map<String,Object>> built=new ArrayList<>(); double distance=0D,duration=0D;
             for(Map<String,Object> route:routes) {
                 List<Map<String,Object>> input=maps(route.get("points"));
@@ -244,6 +253,8 @@ public class SmallWindowPlanningService {
             job.feasible++;
             if(distance>bestDistance+1e-6 || (Math.abs(distance-bestDistance)<1e-6 && duration>=bestDuration)) return;
             best=built;bestChecks=checks;bestDistance=distance;bestDuration=duration;
+            Map<String,Object> snapshot=new LinkedHashMap<>();snapshot.put("distance",distance);snapshot.put("durationMinutes",duration);snapshot.put("routeCount",built.size());snapshot.put("allScenariosPassed",true);
+            job.bestCandidate=snapshot;job.touch();
         }
     }
     private static class Prepared {
@@ -258,7 +269,20 @@ public class SmallWindowPlanningService {
         volatile long evaluations=0,feasible=0; volatile boolean cancelled=false; volatile Future<?> future; volatile Map<String,Object> response;
         volatile String candidateUpperBound="";
         volatile Prepared prepared; volatile Map<String,Object> basePreview;
-        Map<String,Object> view() { Map<String,Object> out=new LinkedHashMap<>();out.put("taskId",id);out.put("status",status);out.put("message",message);out.put("evaluations",evaluations);out.put("feasibleCandidates",feasible);out.put("candidateUpperBound",candidateUpperBound);if(basePreview!=null)out.put("basePreview",basePreview);if("DONE".equals(status)) out.put("response",response);return out; }
+        volatile String phase="QUEUED";volatile long startedAt=System.currentTimeMillis(),updatedAt=startedAt,finishedAt=0,capacityPruned=0;
+        volatile Map<String,Object> roadProgress=Collections.emptyMap(),backboneProgress=Collections.emptyMap(),bestCandidate;
+        void touch() { updatedAt=System.currentTimeMillis(); }
+        void phase(String value) { phase=value;touch(); }
+        void finish() { finishedAt=System.currentTimeMillis();phase(status); }
+        void roads(Map<String,Object> value) { roadProgress=value;touch(); }
+        Map<String,Object> view() {
+            Map<String,Object> out=new LinkedHashMap<>();out.put("taskId",id);out.put("status",status);out.put("message",message);out.put("evaluations",evaluations);out.put("feasibleCandidates",feasible);out.put("candidateUpperBound",candidateUpperBound);
+            Map<String,Object> progress=new LinkedHashMap<>();long now=System.currentTimeMillis();
+            progress.put("phase",phase);progress.put("elapsedMs",Math.max(0,(finishedAt>0?finishedAt:now)-startedAt));progress.put("updatedAgoMs",Math.max(0,now-updatedAt));
+            progress.put("roads",roadProgress);progress.put("capacityPruned",capacityPruned);progress.put("bestCandidate",bestCandidate);out.put("progress",progress);
+            progress.put("backbone",backboneProgress);
+            if(basePreview!=null)out.put("basePreview",basePreview);if("DONE".equals(status)) out.put("response",response);return out;
+        }
     }
     private Map<String,Object> cloneMap(Map<String,Object> map) { return mapper.convertValue(map,new TypeReference<Map<String,Object>>(){}); }
     @SuppressWarnings("unchecked") static List<Map<String,Object>> maps(Object value) { return value instanceof List ? (List<Map<String,Object>>)value : new ArrayList<>(); }
