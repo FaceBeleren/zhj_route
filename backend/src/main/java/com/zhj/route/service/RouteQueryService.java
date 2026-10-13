@@ -53,7 +53,7 @@ public class RouteQueryService {
 
     public List<Map<String, Object>> routePlanPoints(Long routeId) {
         String sql = "SELECT b.route_id AS routeId, b.fac_id AS facilityId, b.order_num AS orderNum, " +
-                "f.name AS facilityName, f.facility_type_name AS facilityTypeName, " +
+                "f.name AS facilityName, f.facility_type AS facilityType, f.facility_type_name AS facilityTypeName, " +
                 "f.longitude_done AS longitude, f.latitude_done AS latitude, " +
                 "DATE_FORMAT(f.allow_time_begin, '%H:%i:%s') AS allowTimeBegin, " +
                 "DATE_FORMAT(f.allow_time_end, '%H:%i:%s') AS allowTimeEnd, " +

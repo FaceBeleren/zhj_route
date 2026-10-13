@@ -208,11 +208,14 @@ public class RouteOptimizeService {
         if (inlinePointMode) {
             @SuppressWarnings("unchecked")
             List<Map<String, Object>> rows = (List<Map<String, Object>>) pointsValue;
-            sourcePoints = toRoutePoints(normalizeInputAnchorIds(rows, request));
+            List<Map<String,Object>> collectionRows=hasAnchorCoordinate(request,"start") || hasAnchorCoordinate(request,"end")
+                    ? PlanningPointFilter.collections(rows) : withoutInteriorDisposal(rows);
+            sourcePoints = toRoutePoints(normalizeInputAnchorIds(collectionRows, request));
         } else {
-            sourcePoints = toRoutePoints(normalizeInputAnchorIds(companyMode
-                    ? routeQueryService.companyFacilityPoints(unitId)
-                    : routeQueryService.routePlanPoints(routeId), request));
+            List<Map<String,Object>> rows=companyMode?routeQueryService.companyFacilityPoints(unitId):routeQueryService.routePlanPoints(routeId);
+            List<Map<String,Object>> collectionRows=companyMode || hasAnchorCoordinate(request,"start") || hasAnchorCoordinate(request,"end")
+                    ? PlanningPointFilter.collections(rows) : withoutInteriorDisposal(rows);
+            sourcePoints = toRoutePoints(normalizeInputAnchorIds(collectionRows, request));
         }
         sourcePoints = filterByRequestedFacilities(sourcePoints, request);
         boolean explicitAnchors = hasAnchorCoordinate(request, "start") || hasAnchorCoordinate(request, "end");
@@ -528,13 +531,19 @@ public class RouteOptimizeService {
     }
 
     public List<Map<String, Object>> jointCollectionPoints(Map<String, Object> request, List<Map<String, Object>> rows) {
-        List<RoutePoint> points = toRoutePoints(normalizeInputAnchorIds(rows, request));
+        List<RoutePoint> points = toRoutePoints(normalizeInputAnchorIds(PlanningPointFilter.collections(rows), request));
         List<Map<String, Object>> result = new ArrayList<>();
         for (RoutePoint point : points) {
             // pointViews normally treats list endpoints as anchors; wrap each collection occurrence.
             Map<String, Object> view = pointViews(java.util.Arrays.asList(point, point, point), request).get(1);
             result.add(view);
         }
+        return result;
+    }
+
+    private List<Map<String,Object>> withoutInteriorDisposal(List<Map<String,Object>> rows) {
+        List<Map<String,Object>> result=new ArrayList<>();
+        for(int i=0;i<rows.size();i++) if(i==0 || i==rows.size()-1 || !PlanningPointFilter.isDisposal(rows.get(i))) result.add(rows.get(i));
         return result;
     }
 

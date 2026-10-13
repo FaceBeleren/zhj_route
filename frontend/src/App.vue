@@ -1165,6 +1165,7 @@
           <section v-if="selectedSplitRoute" class="panel split-panel multi-layout">
             <div>
               <div class="panel-head compact"><h2>原路线点位</h2><div class="assignment-point-actions"><span class="muted">已选 {{ assignmentSelectedPoints.length }} / {{ splitPlanPoints.length }}</span><button type="button" class="secondary" :disabled="loading || assignmentSelectionLocked" @click="selectAllAssignmentPoints">全选</button><button type="button" class="secondary" :disabled="loading || assignmentSelectionLocked" @click="invertAssignmentPoints">反选</button></div></div>
+              <p class="muted">处置场／处理厂按点位类型自动排除出收运候选，仍可作为终点和卸料场站；原始路线记录不变。</p>
               <p v-if="assignmentFrequencyError" class="assignment-frequency-note">点位频次读取失败：{{ assignmentFrequencyError }}</p>
               <ol class="point-list split-point-list assignment-point-list">
                 <li v-for="(point, index) in splitPlanPoints" :key="`${point.facilityId}-${index}`"><label class="assignment-point-option"><input type="checkbox" :checked="assignmentSelectedPointIndices.has(index)" :disabled="loading || assignmentSelectionLocked" @change="toggleAssignmentPoint(index)" /><span>{{ point.facilityName || point.facilityId }} <em class="assignment-frequency" :title="assignmentFrequencyTitle(point)">频次 {{ assignmentFrequencyLabel(point) }}</em><em v-if="assignmentPointPhase(index)?.period > 1" class="assignment-phase">第{{ assignmentPointPhase(index).phase + 1 }}组</em><small>{{ point.facilityTypeName || '-' }} · {{ formatWeight(point.estimatedWeightKg) }}<template v-if="point.containerInfo"> · 桶 {{ point.containerInfo }}</template></small></span></label></li>
@@ -2320,6 +2321,7 @@ import RouteMapPanel from './components/RouteMapPanel.vue'
 import ManualRouteTest from './components/ManualRouteTest.vue'
 import { planningWindowCount, smallWindowDisabledReason } from './smallWindowPlanning.js'
 import SmallWindowProgress from './components/SmallWindowProgress.vue'
+import { collectionPlanningPoints } from './planningPoints.js'
 import ClusterMapPanel from './components/ClusterMapPanel.vue'
 import FlowAnalysisPdfReport from './components/FlowAnalysisPdfReport.vue'
 import { balanceAssignmentPhases } from './assignmentPhases.js'
@@ -4300,7 +4302,7 @@ async function selectSplitRoute(route) {
   splitPlanPoints.value = []
   clearMultiOptimization()
   await withLoading(async () => {
-    splitPlanPoints.value = await api(`/api/routes/${route.id}/plan-points`)
+    splitPlanPoints.value = collectionPlanningPoints(await api(`/api/routes/${route.id}/plan-points`))
   })
 }
 

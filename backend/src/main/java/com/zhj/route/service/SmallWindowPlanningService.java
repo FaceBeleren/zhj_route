@@ -23,6 +23,16 @@ public class SmallWindowPlanningService {
     public void shutdown() { for(Job job:jobs.values()) job.cancelled=true;executor.shutdownNow(); }
     public synchronized Map<String,Object> start(Map<String,Object> request) {
         Map<String,Object> input = cloneMap(request);
+        Set<String> disposalIds=new HashSet<>();
+        for(Map<String,Object> point:maps(input.get("points")))if(PlanningPointFilter.isDisposal(point))disposalIds.add(String.valueOf(point.get("facilityId")));
+        input.put("points",PlanningPointFilter.collections(maps(input.get("points"))));
+        for(Map<String,Object> day:maps(input.get("scheduleDays"))) {
+            if(day.get("facilityIds") instanceof List) {
+                List<?> due=(List<?>)day.get("facilityIds");List<Object> kept=new ArrayList<>();
+                for(Object id:due)if(!disposalIds.contains(String.valueOf(id)))kept.add(id);
+                day.put("facilityIds",kept);
+            }
+        }
         List<Map<String,Object>> points = maps(input.get("points"));
         long count = points.stream().filter(SmallWindowPlanningService::hasWindow).count();
         if (count < 1 || count > 5) throw new IllegalArgumentException("仅允许1～5个时间窗点进行联合规划");

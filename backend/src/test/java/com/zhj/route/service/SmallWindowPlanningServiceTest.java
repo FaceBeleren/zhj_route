@@ -9,6 +9,20 @@ import static org.mockito.Mockito.*;
 import static org.mockito.ArgumentMatchers.*;
 
 class SmallWindowPlanningServiceTest {
+    @Test void disposalWindowsDoNotCountTowardLimitAndDisposalIsRemovedFromDailyDue() throws Exception {
+        List<Map<String,Object>> input=new ArrayList<>();for(int i=1;i<=5;i++)input.add(point(i,"00:00"));
+        Map<String,Object> plant=point(99,"04:00");plant.put("facilityType",5);input.add(plant);
+        Fixture f=new Fixture(input,1);f.request.put("scheduleDays",Arrays.asList(map("day",1,"facilityIds",Arrays.asList(1,2,3,4,5,99))));
+        try {
+            String id=String.valueOf(f.service.start(f.request).get("taskId"));
+            Map<String,Object> preview=(Map<String,Object>)awaitStage(f.service,id,"WAITING_INSERTION").get("basePreview");
+            assertEquals(5,SmallWindowPlanningService.maps(preview.get("pendingPoints")).size());
+            f.service.insert(id);
+            Map<String,Object> result=(Map<String,Object>)awaitStage(f.service,id,"DONE").get("response");
+            assertTrue((Boolean)result.get("allScenariosPassed"));
+            assertEquals(6,input.size());assertTrue(((List<?>)SmallWindowPlanningService.maps(f.request.get("scheduleDays")).get(0).get("facilityIds")).contains(99));
+        } finally { f.service.shutdown(); }
+    }
     @Test void roadProgressReportsActualUniquePairsAndPublishesPairBeforeLookup() {
         RouteMapPathService paths=mock(RouteMapPathService.class);
         when(paths.preloadCachedDistances(anyList())).thenReturn(Collections.emptyMap());
