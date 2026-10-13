@@ -5196,9 +5196,9 @@ function saveManualTestPlan(payload) {
   manualTest.value = null
   openSaveDialog('保存手动调整方案（即使更差或有时间窗冲突也允许保存）', payload)
 }
-async function resolveManualTestRoad(points, options) {
+async function resolveManualTestRoad(points, options, signal) {
   return api('/api/optimize/route-segments', {
-    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    method: 'POST', signal, headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ ...options, points, displayRoadPath: true })
   })
 }
