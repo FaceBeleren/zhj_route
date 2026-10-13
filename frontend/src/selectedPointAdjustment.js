@@ -79,9 +79,9 @@ export async function optimizeSelectedPoints({ draft, selectedTokens, options, s
   }
   const check = () => { if (signal?.aborted) throw new DOMException('已取消，开始前的编辑内容保留', 'AbortError') }
   const cache = new Map()
-  let evaluations = 0, round = 0, bestInfo = null
+  let evaluations = 0, round = 0, bestInfo = null, activeCandidate = 0
   const started = Date.now()
-  const report = message => onProgress({ message, evaluations, round, best: bestInfo, elapsedMs: Date.now() - started })
+  const report = (message, detail = {}) => onProgress({ message, evaluations, round, activeCandidate, best: bestInfo, elapsedMs: Date.now() - started, ...detail })
   const road = async points => {
     check()
     const signature = JSON.stringify(points.map(p => [p.facilityId, p.longitude, p.latitude, p.role, p.weightSource]))
@@ -101,6 +101,7 @@ export async function optimizeSelectedPoints({ draft, selectedTokens, options, s
       check()
       const signature = key(candidate); if (visited.has(signature)) continue
       visited.add(signature); assertManualMembership(baseline, candidate)
+      activeCandidate = evaluations + 1
       const comparison = await evaluate(candidate); check(); evaluations++
       const metrics = comparison.scenarios[0].manual
       if (better(metrics, baselineMetrics) && comparison.manualConflicts > 0 && (!shorterConflict || better(metrics, shorterConflict.metrics))) shorterConflict = { candidate, comparison, metrics }
@@ -108,7 +109,7 @@ export async function optimizeSelectedPoints({ draft, selectedTokens, options, s
         roundBest = { candidate, comparison, metrics }
         bestInfo = { distance: metrics.distance, duration: metrics.duration, allScenariosPassed: true }
       }
-      report(`第${round}轮：已比较${evaluations}个候选；仅移动所选点，其他点保持相对顺序`)
+      report(`第${evaluations}个候选已完成全部校验`, { phase: 'CANDIDATE_DONE', completedDays: scheduleDays.length, totalDays: scheduleDays.length })
       // Allow cancel and paint even when all roads are already cached.
       await new Promise(resolve => setTimeout(resolve, 0))
     }

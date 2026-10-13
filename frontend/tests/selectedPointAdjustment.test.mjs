@@ -87,6 +87,20 @@ test('infeasible baseline is not painted green when shorter candidate also confl
   assert.equal(result.comparison.verdict.generated, 'yellow')
   assert.match(result.message, /基准本身也未通过/)
 })
+test('daily progress resets only under a new candidate identity and completion counts are unambiguous', async () => {
+  const f = fixture(), progress = []
+  const scheduleDays = Array.from({ length: 3 }, (_, i) => ({ day: i + 1, facilityIds: [1, 2, 3, 4] }))
+  await optimizeSelectedPoints({ ...f.args, scheduleDays, onProgress: value => progress.push(value) })
+  for (const candidate of [0, 1, 2]) {
+    const updates = progress.filter(p => p.activeCandidate === candidate && p.phase === 'DAY')
+    assert.deepEqual(updates.map(p => p.day), [1, 2, 3])
+    assert.deepEqual(updates.map(p => p.completedDays), [0, 1, 2])
+    assert.ok(updates.every(p => p.totalDays === 3 && p.evaluations === Math.max(0, candidate - 1)))
+  }
+  const finished = progress.find(p => p.activeCandidate === 1 && p.phase === 'CANDIDATE_DONE')
+  assert.equal(finished.evaluations, 1)
+  assert.equal(finished.completedDays, 3)
+})
 test('missing roads or selecting anchors fails without success candidate', async () => {
   const f = fixture()
   await assert.rejects(optimizeSelectedPoints({ ...f.args, selectedTokens: ['0:0'] }), /锚点/)

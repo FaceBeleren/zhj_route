@@ -98,7 +98,7 @@ export async function buildManualComparison({ original, draft, scheduleDays = []
   const rebuild = async (input, label) => {
     const result = clone(input)
     for (const route of result.routes) {
-      onProgress(`正在计算${label}第${route.tripNo || route.routeNo}趟道路…`)
+      onProgress(`正在计算${label}第${route.tripNo || route.routeNo}趟道路…`, { phase: 'TEMPLATE', completedDays: 0, totalDays: scheduleDays.length })
       if (route.points.length < 2 || route.points.some(point => point.operationDurationMinutes == null || !Number.isFinite(Number(point.operationDurationMinutes)) || Number(point.operationDurationMinutes) < 0)) throw new Error('点位作业时间缺失或无效，不能进行耗时和时间窗比较')
       route.points.forEach((point, index) => { point.order = point.orderNum = index + 1 })
       const { segments } = await roadFor(route.points)
@@ -134,10 +134,11 @@ export async function buildManualComparison({ original, draft, scheduleDays = []
   const generated = await rebuild(original, '系统原序')
   const manual = await rebuild(draft, '手动顺序')
   const scenarios = [{ day: 0, label: scheduleDays.length ? '完整模板（所有点都收）' : '当前方案', generated: summarize(generated), manual: summarize(manual) }]
-  for (const day of scheduleDays) {
-    onProgress(`正在检查第${day.day}天跳点后的道路与时间窗…`)
+  for (const [dayIndex, day] of scheduleDays.entries()) {
+    onProgress(`正在检查第${day.day}天跳点后的道路与时间窗…`, { phase: 'DAY', day: day.day, dayIndex: dayIndex + 1, completedDays: dayIndex, totalDays: scheduleDays.length })
     const due = new Set(day.facilityIds.map(String))
     scenarios.push({ day: day.day, label: `第${day.day}天`, generated: summarize(await buildFixedDailyRouteResult(generated, due, roadFor), due), manual: summarize(await buildFixedDailyRouteResult(manual, due, roadFor), due) })
+    onProgress(`第${day.day}天校验完成`, { phase: 'DAY_DONE', day: day.day, dayIndex: dayIndex + 1, completedDays: dayIndex + 1, totalDays: scheduleDays.length })
   }
   const generatedConflicts = scenarios.reduce((sum, scenario) => sum + scenario.generated.violations, 0)
   const manualConflicts = scenarios.reduce((sum, scenario) => sum + scenario.manual.violations, 0)

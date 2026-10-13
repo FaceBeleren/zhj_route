@@ -22,7 +22,10 @@
       </div>
       <div v-if="autoRunning || autoProgress" class="manual-auto-progress" role="status">
         <strong>{{ autoRunning ? '选点调整搜索中（无固定计算上限，可取消）' : '本次选点调整已结束' }}</strong>
-        <p>{{ autoProgress?.message }} · 第{{ autoProgress?.round || 0 }}轮 · 已比较{{ autoProgress?.evaluations || 0 }}个候选</p>
+        <p>{{ autoProgress?.activeCandidate ? `第${autoProgress.round}轮 · ${autoProgress.phase === 'CANDIDATE_DONE' ? '刚完成' : '正在校验'}第${autoProgress.activeCandidate}个候选` : '正在复算开始前的编辑基准' }} · 已完成{{ autoProgress?.evaluations || 0 }}个候选</p>
+        <p>{{ autoProgress?.message }}</p>
+        <p v-if="autoProgress?.totalDays">本{{ autoProgress.activeCandidate ? '候选' : '基准' }}排班校验：已完成{{ autoProgress.completedDays || 0 }} / {{ autoProgress.totalDays }}个排班日<template v-if="autoProgress.phase === 'DAY'">，当前第{{ autoProgress.dayIndex }}个（第{{ autoProgress.day }}天）</template>。</p>
+        <p v-if="scheduleDays.length">每个候选都要检查整个排班周期；换到下一个候选后，日期校验从第1个排班日重新开始，不是重新计算同一个候选。</p>
         <p v-if="autoProgress?.best">当前最佳：{{ distance(autoProgress.best.distance) }} · {{ minutes(autoProgress.best.duration) }}；完整模板及所校验日期全部约束通过。</p>
         <p>已运行{{ Math.floor(autoElapsed / 1000) }}秒。当前最佳尚未完成全部比较，取消不会采用部分结果。</p>
         <progress v-if="autoRunning" aria-label="正在搜索选点调整"></progress>
