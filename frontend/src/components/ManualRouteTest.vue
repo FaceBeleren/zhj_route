@@ -41,12 +41,13 @@
         <p>模板及所校验场景合计：{{ selectedComparison ? '基准' : '系统' }}{{ comparison.generatedConflicts }}次冲突，{{ selectedComparison ? '候选' : '手动' }}{{ comparison.manualConflicts }}次冲突。绿色/红色表示相对比较结果，不能代替时间窗校验；红色点位为到达超窗。</p>
         <label v-if="comparison.scenarios.length > 1">对比场景 <select v-model.number="scenarioIndex"><option v-for="(scenario,index) in comparison.scenarios" :value="index" :key="scenario.day">{{ scenario.label }} · 系统{{ scenario.generated.violations }} / 手动{{ scenario.manual.violations }}处冲突</option></select></label>
         <p>本场景总里程差（手动－系统）：{{ signedDistance(scenario.manual.distance - scenario.generated.distance) }}；总耗时差：{{ signedMinutes(scenario.manual.duration - scenario.generated.duration) }}。</p>
+        <p>两侧地图拖动、缩放同步。右侧紫色点表示相对左侧序号改变，超窗点优先显示红色；路线颜色仍表示比较结果。</p>
         <div class="manual-test-results">
           <article v-for="side in ['generated','manual']" :key="side" :style="{ borderColor: color(side) }">
             <h3 :style="{ color: color(side) }">{{ selectedComparison ? (side === 'generated' ? '调整前路线（本次编辑基准）' : '选点调整候选') : (side === 'generated' ? '系统生成路线（原序道路复算）' : '手动调整路线') }}</h3>
             <p>全部趟次合计：{{ distance(scenario[side].distance) }} · {{ minutes(scenario[side].duration) }} · 时间窗冲突{{ scenario[side].violations }}处<template v-if="scenario[side].missing"> · 应收未分配{{ scenario[side].missing }}点</template></p>
             <p>当前展示第{{ selectedRoute(side).tripNo || selectedRoute(side).routeNo }}趟：{{ distance(selectedRoute(side).distance) }} · {{ minutes(selectedRoute(side).durationMinutes) }}</p>
-            <RouteMapPanel :key="`${calculationId}-${scenarioIndex}-${tripIndex}-${side}`" :original-points="[]" :optimized-points="selectedRoute(side).points" :optimized-segments="selectedRoute(side).roadSegments" :show-original="false" :optimized-label="selectedComparison ? (side === 'generated' ? '调整前基准' : '选点候选') : (side === 'generated' ? '系统路线' : '手动路线')" :optimized-color="color(side)" :marker-color="color(side)" />
+            <RouteMapPanel :key="`${calculationId}-${scenarioIndex}-${tripIndex}-${side}`" :view-link="comparisonViewLink" :original-points="[]" :optimized-points="mapPoints(side)" :optimized-segments="selectedRoute(side).roadSegments" :show-original="false" :optimized-label="selectedComparison ? (side === 'generated' ? '调整前基准' : '选点候选') : (side === 'generated' ? '系统路线' : '手动路线')" :optimized-color="color(side)" :marker-color="color(side)" />
             <div class="manual-test-arrivals"><table><thead><tr><th>顺序</th><th>点位</th><th>时间窗</th><th>到达</th><th>校验</th></tr></thead><tbody><tr v-for="point in selectedRoute(side).points" :key="point.manualToken" :class="{ conflict: point.timeWindowViolation }"><td>{{ point.order }}</td><td>{{ point.facilityName || point.facilityId }}</td><td>{{ windowLabel(point) || '—' }}</td><td>{{ point.comparisonArrivalTime }}</td><td>{{ point.timeWindowViolation ? '超窗' : point.role === 'MIDDLE' ? '通过' : '起终点' }}</td></tr></tbody></table></div>
           </article>
         </div>
@@ -58,6 +59,7 @@
 <script setup>
 import { computed, onBeforeUnmount, ref } from 'vue'
 import RouteMapPanel from './RouteMapPanel.vue'
+import { createMapViewLink, markChangedOrder } from '../comparisonMap.js'
 import { buildManualComparison, buildManualSavePayload, COMPARISON_COLORS, createManualDraft, moveManualPoint, reorderManualPoint } from '../manualRouteTest.js'
 import { adjustablePoint, adjustSelectedOnce } from '../selectedPointAdjustment.js'
 
@@ -142,6 +144,8 @@ function dropPoint(event,index) {
 onBeforeUnmount(() => { requestId++; autoController?.abort(); clearInterval(autoTimer) })
 const scenario = computed(() => comparison.value?.scenarios[scenarioIndex.value])
 const selectedRoute = side => scenario.value[side].result.routes[tripIndex.value]
+const comparisonViewLink = createMapViewLink()
+const mapPoints = side => side === 'manual' ? markChangedOrder(selectedRoute('generated').points, selectedRoute('manual').points) : selectedRoute(side).points
 const color = side => COMPARISON_COLORS[comparison.value.verdict[side]]
 const distance = meters => `${(meters / 1000).toFixed(2)} km`
 const minutes = value => `${Math.floor(Math.round(value) / 60)} h ${Math.round(value) % 60} min`

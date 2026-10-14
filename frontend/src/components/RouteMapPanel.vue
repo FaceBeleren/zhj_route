@@ -158,6 +158,8 @@
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 
 const props = defineProps({
+  viewLink: { type: Object, default: null },
+  changedPointColor: { type: String, default: '#8b5cf6' },
   optimizedColor: { type: String, default: '#1f6fca' },
   markerColor: { type: String, default: '#16a34a' },
   pendingPoints: { type: Array, default: () => [] },
@@ -216,6 +218,7 @@ const playbackSpeed = ref(1)
 const playbackRunning = ref(false)
 const playbackDistance = ref(0)
 let mapInstance = null
+let unlinkView = null
 let mapViewportFitted = false
 let mapControlsAdded = false
 let playbackMarker = null
@@ -277,6 +280,7 @@ onMounted(() => {
 })
 
 onBeforeUnmount(() => {
+  unlinkView?.()
   pausePlayback()
   if (mapInstance?.clearOverlays) {
     mapInstance.clearOverlays()
@@ -368,6 +372,7 @@ function drawBaiduMap(BMap) {
   })
   drawPlaybackMarker(BMap)
   fitMapViewportOnce(BMap)
+  if (props.viewLink && !unlinkView) unlinkView = props.viewLink.register(mapInstance, (lng, lat) => new BMap.Point(lng, lat))
 }
 
 function markerIcon(BMap, appearance) {
@@ -377,6 +382,7 @@ function markerIcon(BMap, appearance) {
 
 function markerAppearance(point, fallbackColor) {
   if (point.timeWindowViolation) return { fill: '#dc2626', stroke: '#ffffff', strokeWidth: 2.4, center: '#ffffff' }
+  if (point.comparisonOrderChanged) return { fill: props.changedPointColor, stroke: '#ffffff', strokeWidth: 2.4, center: '#ffffff' }
   if (point.scheduleSkipped) return { fill: '#ffffff', stroke: '#71889a', strokeWidth: 2.4, center: '#ffffff' }
   if (props.showPointSemantics) {
     if (point.candidateMultiCollection) return { fill: '#8b5fc6', stroke: '#ffffff', strokeWidth: 2, center: '#ffffff' }
@@ -394,6 +400,7 @@ function fallbackMarkerStyle(point, fallbackColor) {
 
 function pointSemanticLabel(point) {
   if (point.timeWindowViolation) return '到达时间超出时间窗'
+  if (point.comparisonOrderChanged) return '顺序已调整'
   if (point.scheduleSkipped) return '今日不收（道路仍经过）'
   if (!props.showPointSemantics) return ''
   if (point.candidateMultiCollection) return '多次收运'
@@ -518,6 +525,7 @@ function normalizeRoutePoints(points) {
     .map((point, index) => ({
       facilityId: point.facilityId,
       facilityName: point.facilityName,
+      comparisonOrderChanged: Boolean(point.comparisonOrderChanged),
       longitude: Number(point.longitude),
       latitude: Number(point.latitude),
       label: String(index + 1),
