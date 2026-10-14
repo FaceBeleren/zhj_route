@@ -147,3 +147,21 @@ test('selection UI previews and adopts explicitly, cancels fetch, and confirms c
   assert.match(ui, /window.confirm/)
   assert.match(app, /async function resolveManualTestRoad\(points, options, signal\)/)
 })
+test('manual calculation is hidden and guarded in selection mode; adopting switches mode without losing comparison', () => {
+  const ui = readFileSync(new URL('../src/components/ManualRouteTest.vue', import.meta.url), 'utf8')
+  assert.match(ui, /<button v-if="adjustmentMode === 'manual'"[^>]*@click="calculate"/)
+  const calculation = ui.slice(ui.indexOf('async function calculate()'), ui.indexOf('</script>'))
+  assert.match(calculation, /adjustmentMode.value !== 'manual'/)
+  const save = ui.slice(ui.indexOf('async function saveManual()'), ui.indexOf('async function calculate()'))
+  assert.equal((save.match(/adjustmentMode.value === 'selected' && \(!comparison.value \|\| !selectedComparison.value\)/g) || []).length, 2)
+  const code = ui.slice(ui.indexOf('function adoptSelectedCandidate()'), ui.indexOf('async function optimizeSelection()'))
+  const candidate = { routes: [{ points: [{ facilityId: 42 }] }] }
+  const scope = { busy: { value: false }, autoCandidate: { value: candidate }, draft: { value: null }, adjustmentMode: { value: 'selected' }, autoMessage: { value: '' }, clearDrag() {} }
+  const adopt = new Function('scope', `with(scope) { ${code}; return adoptSelectedCandidate }`)(scope)
+  adopt()
+  assert.equal(scope.adjustmentMode.value, 'manual')
+  assert.deepEqual(scope.draft.value, candidate)
+  assert.notEqual(scope.draft.value, candidate)
+  assert.equal(scope.autoCandidate.value, null)
+  assert.doesNotMatch(code, /comparison.value\s*=/)
+})

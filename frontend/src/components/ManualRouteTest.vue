@@ -7,9 +7,9 @@
         <label>调整模式 <select v-model="adjustmentMode" :disabled="busy" @change="clearDrag"><option value="manual">手动拖动</option><option value="selected">选点自动调整</option></select></label>
         <label>选择编辑趟次 <select v-model.number="tripIndex" :disabled="busy" @change="clearDrag"><option v-for="(route,index) in draft.routes" :key="index" :value="index">{{ route.vehicleName || '车辆' }} 第{{ route.tripNo || route.routeNo }}趟</option></select></label>
         <button :disabled="busy" @click="reset">恢复系统顺序</button>
-        <button :disabled="busy" @click="calculate">{{ busy ? '正在计算…' : '确定并计算对比' }}</button>
-        <button :disabled="busy" @click="applyManual">保存并替换当前方案（全部趟次）</button>
-        <button :disabled="busy" @click="saveManual">另存到方案库</button>
+        <button v-if="adjustmentMode === 'manual'" :disabled="busy" @click="calculate">{{ busy ? '正在计算…' : '确定并计算对比' }}</button>
+        <button :disabled="busy || (adjustmentMode === 'selected' && (!comparison || !selectedComparison))" @click="applyManual">保存并替换当前方案（全部趟次）</button>
+        <button :disabled="busy || (adjustmentMode === 'selected' && (!comparison || !selectedComparison))" @click="saveManual">另存到方案库</button>
       </div>
       <div v-if="adjustmentMode === 'selected'" class="manual-test-selection">
         <p>已选{{ selectedTokens.size }}点：{{ selectedNames.join('、') || '请勾选疑似不合理的收运点' }}。只做趟内调整，不改变趟次归属；未选点保持相对顺序，不能跨越固定锚点。</p>
@@ -31,11 +31,11 @@
         <progress v-if="autoRunning" aria-label="正在搜索选点调整"></progress>
       </div>
       <p>{{ adjustmentMode === 'selected' ? '勾选一个或多个疑似不合理的点，可跨多个趟次选择；自动尝试单点搬移、所选点交换、连续所选点整体搬移及反转。只按完整模板里程优先、耗时次之搜索，保留完整模板载重和工作时长限制；最终结果才检查时间窗及每日跳点，仅提示、不筛选候选。不接受临时变差，不保证全局最优。' : '拖动点位到目标行的上方或下方调整顺序，也可使用前移／后移按钮。固定锚点不能移动或跨越；拖动后需点击“确定并计算对比”。' }}</p>
-      <p>“保存并替换”会将手动路线应用到当前方案的地图、统计与导出；“另存到方案库”独立持久保存。不论是否更优、是否超窗都允许操作，超窗提示仍保留。尚未计算时会先计算，失败则保留编辑内容。</p>
+      <p>“保存并替换”会将手动路线应用到当前方案的地图、统计与导出；“另存到方案库”独立持久保存。不论是否更优、是否超窗都允许操作，超窗提示仍保留。{{ adjustmentMode === 'selected' ? '请先点击“开始优化所选点”取得候选；采用到编辑列表后会切回手动拖动模式，可继续编辑和复算。' : '尚未计算时会先计算，失败则保留编辑内容。' }}</p>
       <div class="manual-test-editor">
         <div v-for="(point,index) in draft.routes[tripIndex].points" :key="point.manualToken" class="manual-test-point" :class="{ 'is-dragging': dragging?.index === index, 'drop-before': dropTarget?.index === index && !dropTarget.after, 'drop-after': dropTarget?.index === index && dropTarget.after }" :draggable="adjustmentMode === 'manual' && !busy && movable(index)" @dragstart="startDrag($event,index)" @dragover="overDrag($event,index)" @drop="dropPoint($event,index)" @dragend="clearDrag">
           <span><input v-if="adjustmentMode === 'selected'" type="checkbox" :checked="selectedTokens.has(point.manualToken)" :disabled="busy || !movable(index)" @change="toggleSelected(point.manualToken)" /><span v-if="movable(index)" class="drag-handle" aria-hidden="true">⠿</span>{{ index + 1 }}. {{ point.facilityName || point.facilityId }} <small>{{ windowLabel(point) }}</small></span>
-          <div><span v-if="!movable(index)">固定锚点</span><template v-else><button :disabled="busy || index === 1 || draft.routes[tripIndex].points[index - 1].weightSource === 'ANCHOR'" @click="move(index,-1)">前移</button><button :disabled="busy || index === draft.routes[tripIndex].points.length - 2 || draft.routes[tripIndex].points[index + 1].weightSource === 'ANCHOR'" @click="move(index,1)">后移</button></template></div>
+          <div><span v-if="!movable(index)">固定锚点</span><template v-else-if="adjustmentMode === 'manual'"><button :disabled="busy || index === 1 || draft.routes[tripIndex].points[index - 1].weightSource === 'ANCHOR'" @click="move(index,-1)">前移</button><button :disabled="busy || index === draft.routes[tripIndex].points.length - 2 || draft.routes[tripIndex].points[index + 1].weightSource === 'ANCHOR'" @click="move(index,1)">后移</button></template></div>
         </div>
       </div>
       <p v-if="busy">{{ progress }}</p><p v-if="error" class="manual-test-error">{{ error }}</p>
@@ -78,7 +78,14 @@ function toggleSelected(token) { const next = new Set(selectedTokens.value); nex
 function selectTripPoints() { selectedTokens.value = new Set([...selectedTokens.value, ...draft.value.routes[tripIndex.value].points.slice(1,-1).filter(adjustablePoint).map(point => point.manualToken)]) }
 function clearAutoResult() { autoCandidate.value = null; autoMessage.value = ''; autoProgress.value = null; selectedComparison.value = false }
 function cancelSelection() { autoController?.abort() }
-function adoptSelectedCandidate() { if (!busy.value && autoCandidate.value) { draft.value = JSON.parse(JSON.stringify(autoCandidate.value)); autoCandidate.value = null; autoMessage.value = '候选已放入编辑列表；尚未替换当前方案，可继续调整。' } }
+function adoptSelectedCandidate() {
+  if (busy.value || !autoCandidate.value) return
+  draft.value = JSON.parse(JSON.stringify(autoCandidate.value))
+  autoCandidate.value = null
+  adjustmentMode.value = 'manual'
+  clearDrag()
+  autoMessage.value = '候选已放入编辑列表并切回手动拖动；尚未替换当前方案，可继续调整和计算对比。'
+}
 async function optimizeSelection() {
   if (busy.value || !selectedTokens.value.size) return
   const id = ++requestId, started = Date.now()
@@ -145,18 +152,20 @@ const signedDistance = value => `${value > 0 ? '+' : ''}${value.toFixed(2)} m`
 const signedMinutes = value => `${value > 0 ? '+' : ''}${value.toFixed(2)} min`
 const windowLabel = point => [point.allowTimeBegin || point.allowTimeEnd ? `允许 ${point.allowTimeBegin || '不限'}—${point.allowTimeEnd || '不限'}` : '', point.barredTimeBegin && point.barredTimeEnd ? `禁止 ${point.barredTimeBegin}—${point.barredTimeEnd}` : ''].filter(Boolean).join('；')
 function move(index, direction) {
-  if (busy.value) return
+  if (busy.value || adjustmentMode.value !== 'manual') return
   if (moveManualPoint(draft.value, tripIndex.value, index, direction)) { comparison.value = null; error.value = ''; clearAutoResult() }
 }
 function reset() { if (!busy.value) { clearDrag(); draft.value = createManualDraft(props.result); comparison.value = null; error.value = ''; clearAutoResult(); selectedTokens.value = new Set() } }
 async function saveManual() {
   if (busy.value) return
+  if (adjustmentMode.value === 'selected' && (!comparison.value || !selectedComparison.value)) { error.value = '请先点击“开始优化所选点”生成候选'; return }
   if (!comparison.value) await calculate()
   if (!comparison.value) return
   emit('save', buildManualSavePayload(comparison.value, props.saveContext || { title: props.title }, props.options, props.scheduleDays))
 }
 async function applyManual() {
   if (busy.value) return
+  if (adjustmentMode.value === 'selected' && (!comparison.value || !selectedComparison.value)) { error.value = '请先点击“开始优化所选点”生成候选'; return }
   if (!comparison.value) await calculate()
   if (!comparison.value) return
   if (comparison.value.manualConflicts && !window.confirm(`当前候选在所校验场景有${comparison.value.manualConflicts}次时间窗冲突，仍要替换当前方案吗？`)) return
@@ -170,7 +179,7 @@ async function applyManual() {
   finally { busy.value = false }
 }
 async function calculate() {
-  if (busy.value) return
+  if (busy.value || adjustmentMode.value !== 'manual') return
   const id = ++requestId
   busy.value = true; comparison.value = null; error.value = ''; clearAutoResult()
   try {
