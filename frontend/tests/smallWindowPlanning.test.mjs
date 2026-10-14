@@ -23,6 +23,7 @@ test('waiting preview performs no insertion request; explicit click starts stage
   const requests = []
   const scope = {
     smallWindowDialog: { taskId: 't1', fingerprint: 'same', visible: true, running: false, status: 'QUEUED' },
+    smallWindowBaseTest: { value: null },
     fixedMasterFingerprint: { value: 'same' }, fixedMasterMessage: { value: '' }, fixedMasterRunning: { value: false },
     api: async (url) => { requests.push(url); return { taskId: 't1', status: 'DONE', feasibleCandidates: 7, progress: { phase: 'DONE', bestCandidate: { distance: 66000 } }, response: { result: { routes: [] } } } }
   }
@@ -42,6 +43,33 @@ test('waiting preview performs no insertion request; explicit click starts stage
   await actions.closeSmallWindowPlan()
   assert.equal(requests.at(-1), '/api/optimize/small-window/tasks/t1/cancel')
   assert.equal(scope.smallWindowDialog.visible, false)
+})
+
+test('first-stage editor updates task backbone before insertion and rejects stale stage', async () => {
+  const app = readFileSync(new URL('../src/App.vue', import.meta.url), 'utf8')
+  const source = app.slice(app.indexOf('function openSmallWindowBaseTest()'), app.indexOf('async function insertSmallWindowPlan()'))
+  const submitted = []
+  const route = { routeNo: 1, tripNo: 1, points: [{ facilityId: -1 }, { facilityId: 1 }, { facilityId: -2 }] }
+  const revised = { ...route, points: [route.points[0], { facilityId: 3 }, route.points[2]] }
+  const scope = {
+    smallWindowDialog: { running: false, status: 'WAITING_INSERTION', taskId: 'task-1', fingerprint: 'same', basePreview: { routes: [route] }, options: {}, previewIndex: 0, error: '' },
+    smallWindowBaseTest: { value: null }, fixedMasterFingerprint: { value: 'same' },
+    deepClone: value => structuredClone(value),
+    api: async (url, options) => {
+      submitted.push({ url, body: JSON.parse(options.body) })
+      return { status: 'WAITING_INSERTION', message: '已更新', basePreview: { routes: [revised] } }
+    }
+  }
+  const open = new Function('scope', `with(scope) { ${source}; return openSmallWindowBaseTest }`)(scope)
+  open()
+  assert.equal(scope.smallWindowBaseTest.value.result.routes[0].points[1].facilityId, 1)
+  await scope.smallWindowBaseTest.value.applyResult({ routes: [revised] })
+  assert.equal(submitted[0].url, '/api/optimize/small-window/tasks/task-1/base-routes')
+  assert.equal(scope.smallWindowDialog.basePreview.routes[0].points[1].facilityId, 3)
+  scope.smallWindowDialog.status = 'QUEUED'
+  scope.smallWindowBaseTest.value = null
+  open()
+  assert.equal(scope.smallWindowBaseTest.value, null)
 })
 test('counts each allowed/barred point once and enables only 1 to 5', () => {
   const p = { allowTimeBegin: '04:00', barredTimeBegin: '08:00', barredTimeEnd: '09:00' }

@@ -96,6 +96,52 @@ class SmallWindowPlanningServiceTest {
             assertThrows(IllegalStateException.class,()->f.service.insert(id));
         } finally { f.service.shutdown(); }
     }
+    @Test void editedFirstStageOrderFeedsInsertionAndRejectsAnchorMovement() throws Exception {
+        Fixture f=new Fixture(Arrays.asList(point(1,null),point(2,"00:00"),point(3,null)),1);
+        try {
+            String id=String.valueOf(f.service.start(f.request).get("taskId"));
+            Map<String,Object> waiting=awaitStage(f.service,id,"WAITING_INSERTION");
+            Map<String,Object> preview=(Map<String,Object>)waiting.get("basePreview");
+            List<Map<String,Object>> route=SmallWindowPlanningService.maps(preview.get("routes"));
+            List<Map<String,Object>> points=SmallWindowPlanningService.maps(route.get(0).get("points"));
+            List<Map<String,Object>> reordered=new ArrayList<>();
+            for(int i:new int[]{0,2,1,3}) {
+                Map<String,Object> p=new LinkedHashMap<>(points.get(i));p.put("manualToken","0:"+i);reordered.add(p);
+            }
+            Map<String,Object> edited=new LinkedHashMap<>(route.get(0));edited.put("points",reordered);
+            Map<String,Object> updated=f.service.updateBaseRoutes(id,map("routes",Arrays.asList(edited)));
+            List<Map<String,Object>> updatedPoints=SmallWindowPlanningService.maps(SmallWindowPlanningService.maps(((Map<String,Object>)updated.get("basePreview")).get("routes")).get(0).get("points"));
+            assertEquals(Arrays.asList(-1,3,1,-2),updatedPoints.stream().map(p->((Number)p.get("facilityId")).intValue()).collect(java.util.stream.Collectors.toList()));
+            assertEquals("WAITING_INSERTION",updated.get("status"));
+            List<Map<String,Object>> illegal=new ArrayList<>(reordered);
+            Collections.swap(illegal,0,1);edited.put("points",illegal);
+            assertThrows(IllegalArgumentException.class,()->f.service.updateBaseRoutes(id,map("routes",Arrays.asList(edited))));
+            f.service.insert(id);
+            Map<String,Object> done=awaitStage(f.service,id,"DONE");
+            assertTrue((Boolean)((Map<String,Object>)done.get("response")).get("allScenariosPassed"));
+            List<Map<String,Object>> result=SmallWindowPlanningService.maps(((Map<String,Object>)((Map<String,Object>)done.get("response")).get("result")).get("routes"));
+            List<Integer> sequence=SmallWindowPlanningService.maps(result.get(0).get("points")).stream().map(p->((Number)p.get("facilityId")).intValue()).collect(java.util.stream.Collectors.toList());
+            assertTrue(sequence.indexOf(3)<sequence.indexOf(1));
+            assertThrows(IllegalStateException.class,()->f.service.updateBaseRoutes(id,map("routes",route)));
+        } finally { f.service.shutdown(); }
+    }
+    @Test void firstStageEditCannotMovePointAcrossUnchangedInternalAnchor() throws Exception {
+        Map<String,Object> anchor=point(3,null);anchor.put("weightSource","ANCHOR");
+        Fixture f=new Fixture(Arrays.asList(point(1,null),point(2,"00:00"),anchor,point(4,null)),1);
+        try {
+            String id=String.valueOf(f.service.start(f.request).get("taskId"));
+            Map<String,Object> preview=(Map<String,Object>)awaitStage(f.service,id,"WAITING_INSERTION").get("basePreview");
+            Map<String,Object> route=SmallWindowPlanningService.maps(preview.get("routes")).get(0);
+            List<Map<String,Object>> points=SmallWindowPlanningService.maps(route.get("points"));
+            List<Map<String,Object>> submitted=new ArrayList<>();
+            for(int original:new int[]{0,3,2,1,4}) {
+                Map<String,Object> p=new LinkedHashMap<>(points.get(original));p.put("manualToken","0:"+original);submitted.add(p);
+            }
+            Map<String,Object> changed=new LinkedHashMap<>(route);changed.put("points",submitted);
+            assertThrows(IllegalArgumentException.class,()->f.service.updateBaseRoutes(id,map("routes",Arrays.asList(changed))));
+            assertEquals("WAITING_INSERTION",f.service.get(id).get("status"));
+        } finally { f.service.shutdown(); }
+    }
     @Test void closingWaitingStageCancelsWithoutSearching() throws Exception {
         Fixture f=new Fixture(Arrays.asList(point(1,null),point(2,"00:00"),point(3,null)),1);
         try {

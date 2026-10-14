@@ -301,6 +301,11 @@ public class RouteDataController {
     @PostMapping("/optimize/small-window/tasks/{taskId}/insert")
     public Map<String,Object> insertSmallWindow(@PathVariable String taskId) { return smallWindowPlanningService.insert(taskId); }
 
+    @PostMapping("/optimize/small-window/tasks/{taskId}/base-routes")
+    public Map<String,Object> updateSmallWindowBaseRoutes(@PathVariable String taskId, @RequestBody Map<String,Object> request) {
+        return smallWindowPlanningService.updateBaseRoutes(taskId, request);
+    }
+
     @PostMapping("/optimize/multi-export")
     public ResponseEntity<byte[]> exportMultiPreview(@RequestBody Map<String, Object> request) {
         byte[] bytes = routeExportService.exportMultiRoutes(request);

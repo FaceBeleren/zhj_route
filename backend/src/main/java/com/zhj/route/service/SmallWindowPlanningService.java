@@ -72,6 +72,63 @@ public class SmallWindowPlanningService {
         });
         return job.view();
     }
+    public synchronized Map<String,Object> updateBaseRoutes(String id, Map<String,Object> request) {
+        Job job=jobs.get(id);
+        if(job==null) throw new IllegalArgumentException("任务不存在");
+        if(!"WAITING_INSERTION".equals(job.status) || job.cancelled || job.prepared==null)
+            throw new IllegalStateException("仅第一阶段完成、开始插入前允许调整基础路线");
+        Prepared previous=job.prepared;
+        List<Map<String,Object>> submitted=maps(request.get("routes"));
+        List<Map<String,Object>> displayed=new ArrayList<>();
+        for(Map<String,Object> route:previous.routes) if(maps(route.get("points")).size()>2) displayed.add(route);
+        if(submitted.isEmpty() || submitted.size()!=displayed.size()) throw new IllegalArgumentException("基础路线趟次数不一致");
+        List<Map<String,Object>> updated=new ArrayList<>();
+        for(Map<String,Object> route:previous.routes) updated.add(cloneMap(route));
+        for(int index=0;index<displayed.size();index++) {
+            Map<String,Object> source=displayed.get(index), changed=submitted.get(index);
+            if(!Objects.equals(String.valueOf(source.get("routeNo")),String.valueOf(changed.get("routeNo")))
+                || !Objects.equals(String.valueOf(source.get("tripNo")),String.valueOf(changed.get("tripNo"))))
+                throw new IllegalArgumentException("基础路线趟次归属不能变化");
+            List<Map<String,Object>> sourcePoints=maps(source.get("points")), changedPoints=maps(changed.get("points"));
+            if(sourcePoints.size()!=changedPoints.size()) throw new IllegalArgumentException("基础路线点位数量不能变化");
+            Set<Integer> used=new HashSet<>();List<Map<String,Object>> ordered=new ArrayList<>();
+            for(int position=0;position<changedPoints.size();position++) {
+                Object token=changedPoints.get(position).get("manualToken");
+                String prefix=index+":";
+                if(!(token instanceof String) || !((String)token).startsWith(prefix)) throw new IllegalArgumentException("点位顺序标识无效");
+                int original;
+                try { original=Integer.parseInt(((String)token).substring(prefix.length())); }
+                catch(NumberFormatException ex) { throw new IllegalArgumentException("点位顺序标识无效"); }
+                if(original<0 || original>=sourcePoints.size() || !used.add(original)) throw new IllegalArgumentException("点位重复或超出基础路线");
+                Map<String,Object> sourcePoint=sourcePoints.get(original);
+                if(("START".equals(sourcePoint.get("role")) || "END".equals(sourcePoint.get("role")) || "ANCHOR".equals(sourcePoint.get("weightSource"))) && original!=position)
+                    throw new IllegalArgumentException("固定锚点不能移动");
+                for(int boundary=Math.min(original,position);boundary<=Math.max(original,position);boundary++) {
+                    Map<String,Object> barrier=sourcePoints.get(boundary);
+                    if(boundary!=original && ("START".equals(barrier.get("role")) || "END".equals(barrier.get("role")) || "ANCHOR".equals(barrier.get("weightSource"))))
+                        throw new IllegalArgumentException("点位不能跨越固定锚点");
+                }
+                if("MIDDLE".equals(sourcePoint.get("role")) && hasWindow(sourcePoint)) throw new IllegalArgumentException("时间窗点不能进入第一阶段基础路线");
+                Map<String,Object> copy=cloneMap(sourcePoint);copy.put("order",position+1);copy.put("orderNum",position+1);ordered.add(copy);
+            }
+            Map<String,Object> target=updated.stream().filter(route -> Objects.equals(String.valueOf(route.get("routeNo")),String.valueOf(source.get("routeNo")))).findFirst().orElseThrow(() -> new IllegalStateException("基础路线不存在"));
+            target.put("points",ordered);
+            target.remove("segments");target.remove("roadSegments");
+        }
+        Map<String,Object> base=cloneMap(previous.base);
+        for(Map<String,Object> route:maps(base.get("routes"))) {
+            for(Map<String,Object> candidate:updated) if(Objects.equals(String.valueOf(route.get("routeNo")),String.valueOf(candidate.get("routeNo")))) {
+                route.put("points",cloneMap(candidate).get("points"));break;
+            }
+        }
+        Prepared proposal=new Prepared(previous.request,base,previous.all,previous.timed,updated);
+        try {
+            Map<String,Object> preview=basePreview(proposal,job);
+            job.prepared=proposal;job.basePreview=preview;
+            job.status="WAITING_INSERTION";job.message="基础路线已更新，可开始插入时间窗点";job.phase("WAITING_INSERTION");
+            return job.view();
+        } catch(RuntimeException ex) { job.phase("WAITING_INSERTION");throw ex; }
+    }
     public Map<String,Object> get(String id) { Job job=jobs.get(id); if(job==null) return Collections.singletonMap("status","NOT_FOUND"); return job.view(); }
     public synchronized Map<String,Object> cancel(String id) {
         Job job=jobs.get(id); if(job==null) return get(id);

@@ -1,15 +1,15 @@
 <template>
   <div class="manual-test-overlay" role="dialog" aria-modal="true" aria-label="手动调整测试">
     <section class="manual-test-dialog">
-      <header><div><h2>手动调整测试 · {{ title }}</h2><p>只调整趟内点位顺序，不删除点位、不改变起终点和趟次归属；仅计算不会覆盖原方案，点击“保存并替换”才应用。</p></div><button :disabled="busy" @click="$emit('close')">关闭</button></header>
+      <header><div><h2>手动调整测试 · {{ title }}</h2><p>只调整趟内点位顺序，不删除点位、不改变起终点和趟次归属；{{ baseStage ? '确认后只更新本次联合规划的基础路线' : '仅计算不会覆盖原方案，点击“保存并替换”才应用' }}。</p></div><button :disabled="busy" @click="$emit('close')">关闭</button></header>
       <p>只对比完整路线调整前后：道路里程优先，差异不足1米时比较总耗时；标记完整路线时间窗。不计算、不展示每日排班跳点，不保证全局最优。</p>
       <div class="manual-test-controls">
         <label>调整模式 <select v-model="adjustmentMode" :disabled="busy" @change="clearDrag"><option value="manual">手动拖动</option><option value="selected">选点自动调整</option></select></label>
         <label>选择编辑趟次 <select v-model.number="tripIndex" :disabled="busy" @change="clearDrag"><option v-for="(route,index) in draft.routes" :key="index" :value="index">{{ route.vehicleName || '车辆' }} 第{{ route.tripNo || route.routeNo }}趟</option></select></label>
         <button :disabled="busy" @click="reset">恢复系统顺序</button>
         <button v-if="adjustmentMode === 'manual'" :disabled="busy" @click="calculate">{{ busy ? '正在计算…' : '确定并计算对比' }}</button>
-        <button :disabled="busy || (adjustmentMode === 'selected' && (!comparison || !selectedComparison))" @click="applyManual">保存并替换当前方案（全部趟次）</button>
-        <button :disabled="busy || (adjustmentMode === 'selected' && (!comparison || !selectedComparison))" @click="saveManual">另存到方案库</button>
+        <button :disabled="busy || (adjustmentMode === 'selected' && (!comparison || !selectedComparison))" @click="applyManual">{{ baseStage ? '更新基础路线（全部趟次）' : '保存并替换当前方案（全部趟次）' }}</button>
+        <button v-if="!baseStage" :disabled="busy || (adjustmentMode === 'selected' && (!comparison || !selectedComparison))" @click="saveManual">另存到方案库</button>
       </div>
       <div v-if="adjustmentMode === 'selected'" class="manual-test-selection">
         <p>已选{{ selectedTokens.size }}点：{{ selectedNames.join('、') || '请勾选疑似不合理的收运点' }}。只做趟内调整，不改变趟次归属；未选点保持相对顺序，不能跨越固定锚点。</p>
@@ -28,7 +28,7 @@
         <progress v-if="autoRunning" aria-label="正在搜索选点调整"></progress>
       </div>
       <p>{{ adjustmentMode === 'selected' ? '取出所选点，按道路增程最小的位置逐个重新插入一次；未选点保持相对顺序，不跨趟、不跨固定锚点。只展示完整路线前后对比，不进行多轮候选搜索，也不计算每日跳点。' : '拖动点位到目标行的上方或下方调整顺序，也可使用前移／后移按钮。固定锚点不能移动或跨越；拖动后需点击“确定并计算对比”。' }}</p>
-      <p>“保存并替换”会将手动路线应用到当前方案的地图、统计与导出；“另存到方案库”独立持久保存。不论是否更优、是否超窗都允许操作，超窗提示仍保留。{{ adjustmentMode === 'selected' ? '请先点击“开始优化所选点”取得候选；采用到编辑列表后会切回手动拖动模式，可继续编辑和复算。' : '尚未计算时会先计算，失败则保留编辑内容。' }}</p>
+      <p>{{ baseStage ? '更新后的基础路线将用于第二阶段插入时间窗点；当前正式方案不会改变。仅在开始插入之前可以修改。' : '“保存并替换”会将手动路线应用到当前方案的地图、统计与导出；“另存到方案库”独立持久保存。不论是否更优、是否超窗都允许操作，超窗提示仍保留。' }}{{ adjustmentMode === 'selected' ? '请先点击“开始优化所选点”取得候选；采用到编辑列表后会切回手动拖动模式，可继续编辑和复算。' : '尚未计算时会先计算，失败则保留编辑内容。' }}</p>
       <div class="manual-test-editor">
         <div v-for="(point,index) in draft.routes[tripIndex].points" :key="point.manualToken" class="manual-test-point" :class="{ 'is-dragging': dragging?.index === index, 'drop-before': dropTarget?.index === index && !dropTarget.after, 'drop-after': dropTarget?.index === index && dropTarget.after }" :draggable="adjustmentMode === 'manual' && !busy && movable(index)" @dragstart="startDrag($event,index)" @dragover="overDrag($event,index)" @drop="dropPoint($event,index)" @dragend="clearDrag">
           <span><input v-if="adjustmentMode === 'selected'" type="checkbox" :checked="selectedTokens.has(point.manualToken)" :disabled="busy || !movable(index)" @change="toggleSelected(point.manualToken)" /><span v-if="movable(index)" class="drag-handle" aria-hidden="true">⠿</span>{{ index + 1 }}. {{ point.facilityName || point.facilityId }} <small>{{ windowLabel(point) }}</small></span>
@@ -44,7 +44,7 @@
         <p>两侧地图拖动、缩放同步。右侧紫色点表示相对左侧序号改变，超窗点优先显示红色；路线颜色仍表示比较结果。</p>
         <div class="manual-test-results">
           <article v-for="side in ['generated','manual']" :key="side" :style="{ borderColor: color(side) }">
-            <h3 :style="{ color: color(side) }">{{ selectedComparison ? (side === 'generated' ? '调整前路线（本次编辑基准）' : '选点调整候选') : (side === 'generated' ? '系统生成路线（原序道路复算）' : '手动调整路线') }}</h3>
+            <h3 :style="{ color: color(side) }">{{ baseStage ? (side === 'generated' ? '原基础路线' : '调整后基础路线') : selectedComparison ? (side === 'generated' ? '调整前路线（本次编辑基准）' : '选点调整候选') : (side === 'generated' ? '系统生成路线（原序道路复算）' : '手动调整路线') }}</h3>
             <p>全部趟次合计：{{ distance(scenario[side].distance) }} · {{ minutes(scenario[side].duration) }} · 时间窗冲突{{ scenario[side].violations }}处<template v-if="scenario[side].missing"> · 应收未分配{{ scenario[side].missing }}点</template></p>
             <p>当前展示第{{ selectedRoute(side).tripNo || selectedRoute(side).routeNo }}趟：{{ distance(selectedRoute(side).distance) }} · {{ minutes(selectedRoute(side).durationMinutes) }}</p>
             <RouteMapPanel :key="`${calculationId}-${scenarioIndex}-${tripIndex}-${side}`" :view-link="comparisonViewLink" :original-points="[]" :optimized-points="mapPoints(side)" :optimized-segments="selectedRoute(side).roadSegments" :show-original="false" :optimized-label="selectedComparison ? (side === 'generated' ? '调整前基准' : '选点候选') : (side === 'generated' ? '系统路线' : '手动路线')" :optimized-color="color(side)" :marker-color="color(side)" />
@@ -63,7 +63,7 @@ import { createMapViewLink, markChangedOrder } from '../comparisonMap.js'
 import { buildManualComparison, buildManualSavePayload, COMPARISON_COLORS, createManualDraft, moveManualPoint, reorderManualPoint } from '../manualRouteTest.js'
 import { adjustablePoint, adjustSelectedOnce } from '../selectedPointAdjustment.js'
 
-const props = defineProps({ result: Object, options: Object, saveContext: Object, applyResult: Function, scheduleDays: { type: Array, default: () => [] }, title: String, initialRouteNo: Number, resolveRoad: Function, resolveSelection: Function, buildSchedules: Function, isViolation: Function })
+const props = defineProps({ result: Object, options: Object, saveContext: Object, applyResult: Function, baseStage: { type: Boolean, default: false }, scheduleDays: { type: Array, default: () => [] }, title: String, initialRouteNo: Number, resolveRoad: Function, resolveSelection: Function, buildSchedules: Function, isViolation: Function })
 const emit = defineEmits(['close', 'save'])
 const original = createManualDraft(props.result)
 const draft = ref(createManualDraft(props.result))
@@ -170,7 +170,7 @@ async function applyManual() {
   if (!comparison.value) await calculate()
   if (!comparison.value) return
   if (comparison.value.manualConflicts && !window.confirm(`当前候选在所校验场景有${comparison.value.manualConflicts}次时间窗冲突，仍要替换当前方案吗？`)) return
-  busy.value = true; error.value = ''; progress.value = '正在替换当前方案并刷新每日路线…'
+  busy.value = true; error.value = ''; progress.value = props.baseStage ? '正在更新第一阶段基础路线…' : '正在替换当前方案并刷新每日路线…'
   try {
     // Always apply the full manual result, never the currently selected daily mask.
     const full = comparison.value.scenarios.find(item => item.day === 0)

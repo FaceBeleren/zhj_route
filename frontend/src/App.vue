@@ -2269,6 +2269,7 @@
         <p v-if="smallWindowPreviewRoute">{{ smallWindowPreviewRoute.points.map(point => point.facilityName || point.facilityId).join(' → ') }}</p>
         <RouteMapPanel :key="`${smallWindowDialog.taskId}-${smallWindowDialog.previewIndex}-${!!smallWindowDialog.response?.result}`" :show-original="false" :optimized-points="smallWindowPreviewRoute?.points || []" :optimized-segments="smallWindowPreviewRoute?.segments || []" :pending-points="smallWindowDialog.response?.result ? [] : smallWindowDialog.basePreview.pendingPoints" pending-color="#8b5cf6" :optimized-label="smallWindowDialog.response?.result ? '插入后候选路线' : '无时间窗基础路线'" />
         <p v-if="!smallWindowDialog.response?.result">待插入：{{ smallWindowDialog.basePreview.pendingPoints.map(point => point.facilityName || point.facilityId).join('、') }}。紫色点按实际坐标显示，不连线。</p>
+        <p v-if="smallWindowDialog.status === 'WAITING_INSERTION' && !smallWindowDialog.basePreview.routes.length">当前没有无时间窗收运点，基础路线只有配置的起终点，可直接开始插入。</p>
       </template>
       <p>道路仍使用现有OD缓存／百度算路策略；本次升级不改变出入口和百度路线偏好。预览不覆盖当前模板，确认应用后地图及导出才更新。</p>
       <p v-if="smallWindowDialog.error" class="route-import-warning">{{ smallWindowDialog.error }}</p>
@@ -2280,12 +2281,14 @@
       </template>
       <div class="panel-actions">
         <button v-if="smallWindowDialog.running && !smallWindowDialog.applying" @click="cancelSmallWindowPlan">取消计算</button>
-        <button v-if="smallWindowDialog.status === 'WAITING_INSERTION'" :disabled="smallWindowDialog.running" @click="insertSmallWindowPlan">开始尝试插入时间窗点（第二阶段）</button>
+        <button v-if="smallWindowDialog.status === 'WAITING_INSERTION' && smallWindowDialog.basePreview?.routes?.length" :disabled="smallWindowDialog.running" @click="openSmallWindowBaseTest">手动调整／选点计算基础路线</button>
+        <button v-if="smallWindowDialog.status === 'WAITING_INSERTION'" :disabled="smallWindowDialog.running || !!smallWindowBaseTest" @click="insertSmallWindowPlan">开始尝试插入时间窗点（第二阶段）</button>
         <button :disabled="smallWindowDialog.running || !smallWindowDialog.response?.allScenariosPassed || !smallWindowDialog.response?.result" @click="applySmallWindowPlan">应用并替换全点模板</button>
         <button :disabled="smallWindowDialog.running" @click="closeSmallWindowPlan">关闭</button>
       </div>
     </section>
   </div>
+  <ManualRouteTest v-if="smallWindowBaseTest" :result="smallWindowBaseTest.result" :options="smallWindowBaseTest.options" :apply-result="smallWindowBaseTest.applyResult" :base-stage="true" :title="'第一阶段无时间窗基础路线'" :initial-route-no="smallWindowBaseTest.initialRouteNo" :resolve-road="resolveManualTestRoad" :resolve-selection="resolveSelectedPointsOnce" :build-schedules="buildRouteSchedules" :is-violation="arrivalViolatesTimeWindow" @close="smallWindowBaseTest = null" />
   <ManualRouteTest v-if="manualTest" :result="manualTest.result" :options="manualTest.options" :save-context="manualTest.saveContext" :apply-result="manualTest.applyResult" :schedule-days="manualTest.scheduleDays" :title="manualTest.title" :initial-route-no="manualTest.initialRouteNo" :resolve-road="resolveManualTestRoad" :resolve-selection="resolveSelectedPointsOnce" :build-schedules="buildRouteSchedules" :is-violation="arrivalViolatesTimeWindow" @save="saveManualTestPlan" @close="manualTest = null" />
   <div v-if="timeRepairVisible" style="position:fixed;inset:0;background:#0008;z-index:1000;display:flex;align-items:center;justify-content:center">
     <section style="background:white;padding:24px;border-radius:12px;width:min(900px,90vw);max-height:85vh;overflow:auto">
@@ -2790,8 +2793,33 @@ async function pollSmallWindowTask(task) {
       task = await api(`/api/optimize/small-window/tasks/${task.taskId}`)
     }
 }
+function openSmallWindowBaseTest() {
+  if (smallWindowDialog.running || smallWindowDialog.status !== 'WAITING_INSERTION' || !smallWindowDialog.basePreview?.routes?.length) return
+  if (smallWindowDialog.fingerprint !== fixedMasterFingerprint.value) { smallWindowDialog.error = '配置已变化，请关闭后重新生成基础路线'; return }
+  const taskId = smallWindowDialog.taskId, fingerprint = smallWindowDialog.fingerprint
+  const preview = smallWindowDialog.basePreview
+  smallWindowBaseTest.value = {
+    result: deepClone({ routes: preview.routes, routeCount: preview.routes.length, unassignedPointCount: 0, distanceMode: 'ROAD' }),
+    options: deepClone(smallWindowDialog.options),
+    initialRouteNo: preview.routes[smallWindowDialog.previewIndex]?.routeNo || preview.routes[0].routeNo,
+    applyResult: async result => {
+      if (smallWindowDialog.taskId !== taskId || smallWindowDialog.status !== 'WAITING_INSERTION' || fingerprint !== fixedMasterFingerprint.value) throw new Error('基础路线任务或配置已变化，请重新打开编辑窗口')
+      smallWindowDialog.running = true; smallWindowDialog.error = ''
+      try {
+        const task = await api(`/api/optimize/small-window/tasks/${taskId}/base-routes`, {
+          method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ routes: result.routes })
+        })
+        if (smallWindowDialog.taskId !== taskId || fingerprint !== fixedMasterFingerprint.value) throw new Error('基础路线任务或配置已变化，未应用旧结果')
+        smallWindowDialog.basePreview = task.basePreview
+        smallWindowDialog.status = task.status
+        smallWindowDialog.message = task.message
+        smallWindowDialog.previewIndex = Math.min(smallWindowDialog.previewIndex, task.basePreview.routes.length - 1)
+      } finally { smallWindowDialog.running = false }
+    }
+  }
+}
 async function insertSmallWindowPlan() {
-  if (smallWindowDialog.running || smallWindowDialog.status !== 'WAITING_INSERTION') return
+  if (smallWindowDialog.running || smallWindowBaseTest.value || smallWindowDialog.status !== 'WAITING_INSERTION') return
   if (smallWindowDialog.fingerprint !== fixedMasterFingerprint.value) { smallWindowDialog.error = '配置已变化，请关闭后重新生成基础路线'; return }
   smallWindowDialog.running = true; fixedMasterRunning.value = true
   smallWindowDialog.status = 'QUEUED'; smallWindowDialog.message = '正在提交第二阶段插入任务…'
@@ -2808,6 +2836,7 @@ async function insertSmallWindowPlan() {
 }
 async function closeSmallWindowPlan() {
   if (smallWindowDialog.running) return
+  smallWindowBaseTest.value = null
   if (smallWindowDialog.taskId && smallWindowDialog.status === 'WAITING_INSERTION') {
     try { await api(`/api/optimize/small-window/tasks/${smallWindowDialog.taskId}/cancel`, { method: 'POST' }) }
     catch (err) { smallWindowDialog.error = `关闭任务失败：${err.message || String(err)}`; return }
@@ -2923,6 +2952,7 @@ const assignmentTripReorderRunning = ref(false)
 const timeRepairVisible = ref(false)
 const manualTest = ref(null)
 const smallWindowDialog = reactive({ visible: false, taskId: '', running: false, cancelled: false, message: '', evaluations: 0, response: null, fingerprint: '', error: '' })
+const smallWindowBaseTest = ref(null)
 const smallWindowPreviewRoutes = computed(() => smallWindowDialog.response?.result?.routes || smallWindowDialog.basePreview?.routes || [])
 const smallWindowPreviewRoute = computed(() => smallWindowPreviewRoutes.value[smallWindowDialog.previewIndex] || smallWindowPreviewRoutes.value[0])
 const smallWindowCount = computed(() => planningWindowCount(splitPlanPoints.value))
