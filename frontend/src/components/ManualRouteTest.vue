@@ -8,8 +8,8 @@
         <label>选择编辑趟次 <select v-model.number="tripIndex" :disabled="busy" @change="clearDrag"><option v-for="(route,index) in draft.routes" :key="index" :value="index">{{ route.vehicleName || '车辆' }} 第{{ route.tripNo || route.routeNo }}趟</option></select></label>
         <button :disabled="busy" @click="reset">恢复系统顺序</button>
         <button v-if="adjustmentMode === 'manual'" :disabled="busy" @click="calculate">{{ busy ? '正在计算…' : '确定并计算对比' }}</button>
-        <button :disabled="busy || (adjustmentMode === 'selected' && (!comparison || !selectedComparison))" @click="applyManual">{{ baseStage ? '更新基础路线（全部趟次）' : '保存并替换当前方案（全部趟次）' }}</button>
-        <button v-if="!baseStage" :disabled="busy || (adjustmentMode === 'selected' && (!comparison || !selectedComparison))" @click="saveManual">另存到方案库</button>
+        <button :disabled="busy || (adjustmentMode === 'selected' && (!comparison || !selectedComparison || !autoCandidate))" @click="applyManual">{{ baseStage ? '更新基础路线（全部趟次）' : '保存并替换当前方案（全部趟次）' }}</button>
+        <button v-if="!baseStage" :disabled="busy || (adjustmentMode === 'selected' && (!comparison || !selectedComparison || !autoCandidate))" @click="saveManual">另存到方案库</button>
       </div>
       <div v-if="adjustmentMode === 'selected'" class="manual-test-selection">
         <p>已选{{ selectedTokens.size }}点：{{ selectedNames.join('、') || '请勾选疑似不合理的收运点' }}。只做趟内调整，不改变趟次归属；未选点保持相对顺序，不能跨越固定锚点。</p>
@@ -100,7 +100,7 @@ async function optimizeSelection() {
     comparison.value = result.comparison; selectedComparison.value = true; scenarioIndex.value = 0; calculationId.value++
     autoMessage.value = result.message
     comparison.value.verdict.message = result.message
-    autoCandidate.value = result.candidate
+    autoCandidate.value = result.improved ? result.candidate : null
   } catch (err) { if (id === requestId) { error.value = err.name === 'AbortError' ? '已取消，开始前的编辑内容保留；未采用部分结果。' : `选点调整失败，原方案未改变：${err.message || String(err)}`; clearAutoResult() } }
   finally { clearInterval(autoTimer); autoElapsed.value = Date.now() - started; if (id === requestId) busy.value = autoRunning.value = false }
 }
@@ -159,14 +159,14 @@ function move(index, direction) {
 function reset() { if (!busy.value) { clearDrag(); draft.value = createManualDraft(props.result); comparison.value = null; error.value = ''; clearAutoResult(); selectedTokens.value = new Set() } }
 async function saveManual() {
   if (busy.value) return
-  if (adjustmentMode.value === 'selected' && (!comparison.value || !selectedComparison.value)) { error.value = '请先点击“开始优化所选点”生成候选'; return }
+  if (adjustmentMode.value === 'selected' && (!comparison.value || !selectedComparison.value || !autoCandidate.value)) { error.value = '本次未找到更优候选，请重新选择点位或切换手动拖动'; return }
   if (!comparison.value) await calculate()
   if (!comparison.value) return
   emit('save', buildManualSavePayload(comparison.value, props.saveContext || { title: props.title }, props.options, props.scheduleDays))
 }
 async function applyManual() {
   if (busy.value) return
-  if (adjustmentMode.value === 'selected' && (!comparison.value || !selectedComparison.value)) { error.value = '请先点击“开始优化所选点”生成候选'; return }
+  if (adjustmentMode.value === 'selected' && (!comparison.value || !selectedComparison.value || !autoCandidate.value)) { error.value = '本次未找到更优候选，请重新选择点位或切换手动拖动'; return }
   if (!comparison.value) await calculate()
   if (!comparison.value) return
   if (comparison.value.manualConflicts && !window.confirm(`当前候选在所校验场景有${comparison.value.manualConflicts}次时间窗冲突，仍要替换当前方案吗？`)) return

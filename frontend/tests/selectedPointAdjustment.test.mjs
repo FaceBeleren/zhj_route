@@ -153,7 +153,7 @@ test('manual calculation is hidden and guarded in selection mode; adopting switc
   const calculation = ui.slice(ui.indexOf('async function calculate()'), ui.indexOf('</script>'))
   assert.match(calculation, /adjustmentMode.value !== 'manual'/)
   const save = ui.slice(ui.indexOf('async function saveManual()'), ui.indexOf('async function calculate()'))
-  assert.equal((save.match(/adjustmentMode.value === 'selected' && \(!comparison.value \|\| !selectedComparison.value\)/g) || []).length, 2)
+  assert.equal((save.match(/adjustmentMode.value === 'selected' && \(!comparison.value \|\| !selectedComparison.value \|\| !autoCandidate.value\)/g) || []).length, 2)
   const code = ui.slice(ui.indexOf('function adoptSelectedCandidate()'), ui.indexOf('async function optimizeSelection()'))
   const candidate = { routes: [{ points: [{ facilityId: 42 }] }] }
   const scope = { busy: { value: false }, autoCandidate: { value: candidate }, draft: { value: null }, adjustmentMode: { value: 'selected' }, autoMessage: { value: '' }, clearDrag() {} }
@@ -189,4 +189,21 @@ test('single-pass entry makes one adjustment request, uses returned roads, and c
   assert.match(ui, /await adjustSelectedOnce/)
   assert.doesNotMatch(ui, /await optimizeSelectedPoints/)
   assert.match(ui, /scheduleDays: \[\]/)
+})
+test('worse selected-point reinsertion is discarded and original comparison remains neutral', async () => {
+  const f = fixture()
+  const result = await adjustSelectedOnce({ ...f.args, resolveSelection: async routes => {
+    const candidate = structuredClone(routes)
+    const points = candidate[0].points
+    candidate[0].points = [points[0], points[2], points[1], points[3], points[4], points[5]]
+    const originalRoads = await Promise.all(routes.map(async route => ({ points: route.points, ...await f.args.resolveRoad(route.points) })))
+    const adjustedRoads = await Promise.all(candidate.map(async route => ({ points: route.points, ...await f.args.resolveRoad(route.points) })))
+    return { routes: candidate, originalRoads, adjustedRoads }
+  } })
+  assert.equal(result.improved, false)
+  assert.equal(ids(result.candidate), ids(f.draft))
+  assert.equal(result.comparison.scenarios[0].manual.distance, result.comparison.scenarios[0].generated.distance)
+  assert.match(result.message, /保留原路线/)
+  const ui = readFileSync(new URL('../src/components/ManualRouteTest.vue', import.meta.url), 'utf8')
+  assert.match(ui, /autoCandidate.value = result.improved \? result.candidate : null/)
 })

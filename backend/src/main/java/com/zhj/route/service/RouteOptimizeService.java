@@ -512,7 +512,24 @@ public class RouteOptimizeService {
             Map<String,Object> before=new LinkedHashMap<>();before.put("points",rows);before.put("segments",segmentViews(parsed,speedProfile(request),context,true));beforeRoads.add(before);
             Map<String,Object> after=new LinkedHashMap<>();after.put("points",reordered);after.put("segments",segmentViews(adjusted,speedProfile(request),context,true));afterRoads.add(after);
         }
-        Map<String,Object> response=new LinkedHashMap<>();response.put("routes",output);response.put("originalRoads",beforeRoads);response.put("adjustedRoads",afterRoads);return response;
+        double originalDistance=0D,adjustedDistance=0D,originalDuration=0D,adjustedDuration=0D;
+        for(int i=0;i<beforeRoads.size();i++) {
+            for(Map<String,Object> segment:maps(beforeRoads.get(i).get("segments"))) {
+                originalDistance+=valueOrZero(toDouble(segment.get("distance")));originalDuration+=valueOrZero(toDouble(segment.get("durationMinutes")));
+            }
+            for(Map<String,Object> segment:maps(afterRoads.get(i).get("segments"))) {
+                adjustedDistance+=valueOrZero(toDouble(segment.get("distance")));adjustedDuration+=valueOrZero(toDouble(segment.get("durationMinutes")));
+            }
+        }
+        boolean improved=adjustedDistance<originalDistance-1D
+                || (Math.abs(adjustedDistance-originalDistance)<1D && adjustedDuration<originalDuration-0.01D);
+        Map<String,Object> response=new LinkedHashMap<>();
+        response.put("improved",improved);
+        response.put("originalDistance",originalDistance);response.put("attemptedDistance",adjustedDistance);
+        response.put("originalDurationMinutes",originalDuration);response.put("attemptedDurationMinutes",adjustedDuration);
+        response.put("routes",improved?output:routes);
+        response.put("originalRoads",beforeRoads);response.put("adjustedRoads",improved?afterRoads:beforeRoads);
+        return response;
     }
     private boolean fixedAdjustmentAnchor(Map<String,Object> point) { return "ANCHOR".equals(point.get("weightSource")) || "START".equals(point.get("role")) || "END".equals(point.get("role")); }
     private double adjustmentDistance(DistanceContext context,RoutePoint a,RoutePoint b) { return sameJointCoordinate(a,b)?0D:context.distance(a,b); }
