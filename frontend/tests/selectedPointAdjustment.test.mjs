@@ -107,19 +107,31 @@ test('shortest conflicting candidate wins over a longer time-window-passing impr
   assert.ok(result.rounds >= 2, 'time-window conflicts must not stop iterative search from the chosen winner')
   assert.match(result.message, /不参与搜索筛选/)
 })
-test('daily progress resets only under a new candidate identity and completion counts are unambiguous', async () => {
+test('search never checks skip days; final result checks the schedule exactly once', async () => {
   const f = fixture(), progress = []
-  const scheduleDays = Array.from({ length: 3 }, (_, i) => ({ day: i + 1, facilityIds: [1, 2, 3, 4] }))
-  await optimizeSelectedPoints({ ...f.args, scheduleDays, onProgress: value => progress.push(value) })
-  for (const candidate of [0, 1, 2]) {
-    const updates = progress.filter(p => p.activeCandidate === candidate && p.phase === 'DAY')
-    assert.deepEqual(updates.map(p => p.day), [1, 2, 3])
-    assert.deepEqual(updates.map(p => p.completedDays), [0, 1, 2])
-    assert.ok(updates.every(p => p.totalDays === 3 && p.evaluations === Math.max(0, candidate - 1)))
+  const scheduleDays = Array.from({ length: 3 }, (_, i) => ({ day: i + 1, facilityIds: [2, 3] }))
+  let stage = 'SEARCH'
+  const originalRoad = f.args.resolveRoad
+  const resolveRoad = async points => {
+    if (stage === 'SEARCH') assert.equal(points.length, 6, 'search must not query daily skip geometry')
+    return originalRoad(points)
   }
+  const result = await optimizeSelectedPoints({ ...f.args, scheduleDays, resolveRoad, onProgress: value => { stage = value.stage; progress.push(value) } })
+  const updates = progress.filter(p => p.phase === 'DAY')
+  assert.deepEqual(updates.map(p => p.day), [1, 2, 3])
+  assert.deepEqual(updates.map(p => p.completedDays), [0, 1, 2])
+  assert.ok(updates.every(p => p.stage === 'FINAL_CHECK' && p.totalDays === 3 && p.evaluations === result.evaluations))
+  assert.ok(progress.filter(p => p.stage === 'SEARCH').every(p => !p.totalDays && p.phase !== 'DAY'))
   const finished = progress.find(p => p.activeCandidate === 1 && p.phase === 'CANDIDATE_DONE')
   assert.equal(finished.evaluations, 1)
-  assert.equal(finished.completedDays, 3)
+  assert.equal(finished.totalDays, 0)
+  assert.equal(result.comparison.scenarios.length, 4)
+})
+test('final daily annotation can be cancelled without returning an unvalidated winner', async () => {
+  const f = fixture(), controller = new AbortController(), before = JSON.stringify(f.draft)
+  await assert.rejects(optimizeSelectedPoints({ ...f.args, scheduleDays: [{ day: 1, facilityIds: [2, 3] }], signal: controller.signal,
+    onProgress: value => { if (value.stage === 'FINAL_CHECK' && value.phase === 'DAY') controller.abort() } }), error => error.name === 'AbortError')
+  assert.equal(JSON.stringify(f.draft), before)
 })
 test('missing roads or selecting anchors fails without success candidate', async () => {
   const f = fixture()

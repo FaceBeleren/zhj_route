@@ -80,19 +80,19 @@ export async function optimizeSelectedPoints({ draft, selectedTokens, options, s
   }
   const check = () => { if (signal?.aborted) throw new DOMException('已取消，开始前的编辑内容保留', 'AbortError') }
   const cache = new Map()
-  let evaluations = 0, round = 0, bestInfo = null, activeCandidate = 0
+  let evaluations = 0, round = 0, bestInfo = null, activeCandidate = 0, stage = 'SEARCH'
   const started = Date.now()
-  const report = (message, detail = {}) => onProgress({ message, evaluations, round, activeCandidate, best: bestInfo, elapsedMs: Date.now() - started, ...detail })
+  const report = (message, detail = {}) => onProgress({ message, evaluations, round, activeCandidate, stage, best: bestInfo, elapsedMs: Date.now() - started, ...detail })
   const road = async points => {
     check()
     const signature = JSON.stringify(points.map(p => [p.facilityId, p.longitude, p.latitude, p.role, p.weightSource]))
     if (!cache.has(signature)) cache.set(signature, Promise.resolve(resolveRoad(points, options, signal)))
     const result = await cache.get(signature); check(); return result
   }
-  const evaluate = candidate => buildManualComparison({ original: baseline, draft: candidate, options, scheduleDays, resolveRoad: road, buildSchedules, isViolation, onProgress: report })
+  // Search ranks the full template only. Daily masks and window annotations are computed once at the end.
+  const evaluate = candidate => buildManualComparison({ original: baseline, draft: candidate, options, scheduleDays: [], resolveRoad: road, buildSchedules, isViolation: () => false, onProgress: report })
   check(); report('正在道路复算本次编辑基准…')
   const baseComparison = await evaluate(baseline), baselineMetrics = baseComparison.scenarios[0].manual
-  const baselineFeasible = operationallyFeasible(baseComparison, options) && baseComparison.manualConflicts === 0
   let current = baseline, currentMetrics = baselineMetrics, best = null
   const visited = new Set([key(baseline)])
   while (true) {
@@ -106,10 +106,10 @@ export async function optimizeSelectedPoints({ draft, selectedTokens, options, s
       const comparison = await evaluate(candidate); check(); evaluations++
       const metrics = comparison.scenarios[0].manual
       if (operationallyFeasible(comparison, options) && better(metrics, baselineMetrics) && better(metrics, currentMetrics) && (!roundBest || better(metrics, roundBest.metrics))) {
-        roundBest = { candidate, comparison, metrics }
-        bestInfo = { distance: metrics.distance, duration: metrics.duration, timeWindowConflicts: comparison.manualConflicts, allScenariosPassed: comparison.manualConflicts === 0 }
+        roundBest = { candidate, comparison, metrics, candidateNumber: activeCandidate }
+        bestInfo = { distance: metrics.distance, duration: metrics.duration, timeWindowChecked: false }
       }
-      report(`第${evaluations}个候选已完成全部校验`, { phase: 'CANDIDATE_DONE', completedDays: scheduleDays.length, totalDays: scheduleDays.length })
+      report(`第${evaluations}个候选完整模板比较完成（未逐日校验）`, { phase: 'CANDIDATE_DONE', totalDays: 0 })
       // Allow cancel and paint even when all roads are already cached.
       await new Promise(resolve => setTimeout(resolve, 0))
     }
@@ -118,8 +118,18 @@ export async function optimizeSelectedPoints({ draft, selectedTokens, options, s
   }
   check()
   const result = best || { candidate: baseline, comparison: baseComparison }
+  stage = 'FINAL_CHECK'; activeCandidate = best?.candidateNumber || 0
+  report('搜索完成，正在校验最终候选和基准；每日只检查这一组结果一次', { totalDays: scheduleDays.length, completedDays: 0 })
+  result.comparison = await buildManualComparison({ original: baseline, draft: result.candidate, options, scheduleDays, resolveRoad: road, buildSchedules, isViolation, onProgress: report })
+  check()
+  const baselineComparison = { ...result.comparison, scenarios: result.comparison.scenarios.map(s => ({ manual: s.generated })) }
+  const baselineFeasible = operationallyFeasible(baselineComparison, options) && result.comparison.generatedConflicts === 0
+  const finalOperationallyFeasible = operationallyFeasible(result.comparison, options)
   if (!baselineFeasible && result.comparison.verdict.generated === 'green') result.comparison.verdict.generated = 'yellow'
   const conflicts = result.comparison.manualConflicts
+  if (!finalOperationallyFeasible && result.comparison.verdict.manual === 'green') result.comparison.verdict.manual = 'yellow'
+  if (bestInfo) bestInfo = { ...bestInfo, timeWindowChecked: true, timeWindowConflicts: conflicts, allScenariosPassed: !conflicts && finalOperationallyFeasible }
+  report('最终结果校验完成；未按每日校验重新筛选或更换候选', { phase: 'FINAL_DONE', totalDays: scheduleDays.length, completedDays: scheduleDays.length })
   return { ...result, improved: !!best, conflictOnly: !!best && conflicts > 0, evaluations, rounds: round,
-    message: (best ? `找到里程更短或里程相当而耗时更少的局部改善；时间窗冲突${conflicts}次，仅标记提示、不参与搜索筛选${conflicts ? '，候选显示黄色' : ''}；不代表全局最优` : '未找到满足载重、工作时长及应收覆盖要求的更优调整；开始前顺序保留') + (baselineFeasible ? '' : '。注意：调整前基准本身也未通过全部约束，不代表可执行。') }
+    message: (best ? `找到里程更短或里程相当而耗时更少的局部改善；时间窗冲突${conflicts}次，仅标记提示、不参与搜索筛选${conflicts ? '，候选显示黄色' : ''}；不代表全局最优` : '未找到完整模板满足载重、工作时长及应收覆盖要求的更优调整；开始前顺序保留') + (finalOperationallyFeasible ? '' : '。最终每日校验存在载重、工作时长或应收覆盖问题，仅提示，不重新排序。') + (baselineFeasible ? '' : '。注意：调整前基准本身也未通过全部约束，不代表可执行。') }
 }

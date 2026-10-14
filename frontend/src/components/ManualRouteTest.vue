@@ -21,16 +21,16 @@
         <p v-if="autoMessage">{{ autoMessage }}</p>
       </div>
       <div v-if="autoRunning || autoProgress" class="manual-auto-progress" role="status">
-        <strong>{{ autoRunning ? '选点调整搜索中（无固定计算上限，可取消）' : '本次选点调整已结束' }}</strong>
-        <p>{{ autoProgress?.activeCandidate ? `第${autoProgress.round}轮 · ${autoProgress.phase === 'CANDIDATE_DONE' ? '刚完成' : '正在校验'}第${autoProgress.activeCandidate}个候选` : '正在复算开始前的编辑基准' }} · 已完成{{ autoProgress?.evaluations || 0 }}个候选</p>
+        <strong>{{ autoRunning ? (autoProgress?.stage === 'FINAL_CHECK' ? '搜索已完成 · 最终结果统一校验（可取消）' : '选点调整搜索中（只比较完整模板，可取消）') : '本次选点调整已结束' }}</strong>
+        <p>{{ autoProgress?.stage === 'FINAL_CHECK' ? '正在校验最终候选与调整前基准，不再搜索新候选' : autoProgress?.activeCandidate ? `第${autoProgress.round}轮 · ${autoProgress.phase === 'CANDIDATE_DONE' ? '刚完成' : '正在比较'}第${autoProgress.activeCandidate}个候选` : '正在复算开始前的编辑基准' }} · 已完成{{ autoProgress?.evaluations || 0 }}个候选</p>
         <p>{{ autoProgress?.message }}</p>
         <p v-if="autoProgress?.totalDays">本{{ autoProgress.activeCandidate ? '候选' : '基准' }}排班校验：已完成{{ autoProgress.completedDays || 0 }} / {{ autoProgress.totalDays }}个排班日<template v-if="autoProgress.phase === 'DAY'">，当前第{{ autoProgress.dayIndex }}个（第{{ autoProgress.day }}天）</template>。</p>
-        <p v-if="scheduleDays.length">每个候选都要检查整个排班周期；换到下一个候选后，日期校验从第1个排班日重新开始，不是重新计算同一个候选。</p>
-        <p v-if="autoProgress?.best">当前最佳：{{ distance(autoProgress.best.distance) }} · {{ minutes(autoProgress.best.duration) }}；完整模板及所校验日期时间窗冲突{{ autoProgress.best.timeWindowConflicts || 0 }}次（仅提示，不参与搜索筛选）。</p>
+        <p v-if="scheduleDays.length">搜索阶段不逐日检查跳点；选出最终结果后，才统一检查一次排班周期，用于标记问题，不重新筛选候选。</p>
+        <p v-if="autoProgress?.best">当前最佳：{{ distance(autoProgress.best.distance) }} · {{ minutes(autoProgress.best.duration) }}；<template v-if="autoProgress.best.timeWindowChecked">时间窗冲突{{ autoProgress.best.timeWindowConflicts || 0 }}次（仅提示）。</template><template v-else>时间窗及每日跳点尚未校验，最终结果确定后检查。</template></p>
         <p>已运行{{ Math.floor(autoElapsed / 1000) }}秒。当前最佳尚未完成全部比较，取消不会采用部分结果。</p>
         <progress v-if="autoRunning" aria-label="正在搜索选点调整"></progress>
       </div>
-      <p>{{ adjustmentMode === 'selected' ? '勾选一个或多个疑似不合理的点，可跨多个趟次选择；自动尝试单点搬移、所选点交换、连续所选点整体搬移及反转。按里程优先、耗时次之搜索；时间窗只标记提示，不筛掉超窗候选，载重和工作时长限制仍保留。不接受临时变差，不保证全局最优。' : '拖动点位到目标行的上方或下方调整顺序，也可使用前移／后移按钮。固定锚点不能移动或跨越；拖动后需点击“确定并计算对比”。' }}</p>
+      <p>{{ adjustmentMode === 'selected' ? '勾选一个或多个疑似不合理的点，可跨多个趟次选择；自动尝试单点搬移、所选点交换、连续所选点整体搬移及反转。只按完整模板里程优先、耗时次之搜索，保留完整模板载重和工作时长限制；最终结果才检查时间窗及每日跳点，仅提示、不筛选候选。不接受临时变差，不保证全局最优。' : '拖动点位到目标行的上方或下方调整顺序，也可使用前移／后移按钮。固定锚点不能移动或跨越；拖动后需点击“确定并计算对比”。' }}</p>
       <p>“保存并替换”会将手动路线应用到当前方案的地图、统计与导出；“另存到方案库”独立持久保存。不论是否更优、是否超窗都允许操作，超窗提示仍保留。尚未计算时会先计算，失败则保留编辑内容。</p>
       <div class="manual-test-editor">
         <div v-for="(point,index) in draft.routes[tripIndex].points" :key="point.manualToken" class="manual-test-point" :class="{ 'is-dragging': dragging?.index === index, 'drop-before': dropTarget?.index === index && !dropTarget.after, 'drop-after': dropTarget?.index === index && dropTarget.after }" :draggable="adjustmentMode === 'manual' && !busy && movable(index)" @dragstart="startDrag($event,index)" @dragover="overDrag($event,index)" @drop="dropPoint($event,index)" @dragend="clearDrag">
