@@ -15,23 +15,14 @@ export async function adjustSelectedOnce({ draft, selectedTokens, options, resol
   assertManualMembership(baseline, candidate)
   const roadKey = points => JSON.stringify(points.map(p => [p.manualToken, p.longitude, p.latitude]))
   const roads = new Map([...response.originalRoads, ...response.adjustedRoads].map(road => [roadKey(road.points), road]))
-  const roadFor = async points => { check();const road = roads.get(roadKey(points));if(!road)throw new Error('完整路线道路结果缺失');return road }
-  const attempted = await buildManualComparison({ original: baseline, draft: candidate, options, scheduleDays: [],
-    resolveRoad: roadFor,
+  const comparison = await buildManualComparison({ original: baseline, draft: candidate, options, scheduleDays: [],
+    resolveRoad: async points => { check();const road = roads.get(roadKey(points));if(!road)throw new Error('完整路线道路结果缺失');return road },
     buildSchedules, isViolation, onProgress: message => onProgress({ stage: 'SINGLE_PASS', message }) })
   check()
-  const attemptedFull = attempted.scenarios[0], improved = better(attemptedFull.manual, attemptedFull.generated)
-  const unchanged = key(candidate) === key(baseline)
-  const comparison = improved || unchanged ? attempted : await buildManualComparison({ original: baseline, draft: baseline, options, scheduleDays: [],
-    resolveRoad: roadFor, buildSchedules, isViolation, onProgress: message => onProgress({ stage: 'SINGLE_PASS', message }) })
-  check()
-  const full = comparison.scenarios[0]
-  const extraMeters = Number(response.attemptedDistance ?? attemptedFull.manual.distance) - Number(response.originalDistance ?? attemptedFull.generated.distance)
-  const message = improved
-    ? `一次重排找到更短路线；完整路线时间窗冲突${comparison.manualConflicts}次（仅提示）。未检查每日排班，不代表全局最优。`
-    : `本次未找到更优顺序，保留原路线${extraMeters >= 1 ? `；尝试的重排增加${extraMeters.toFixed(2)}米，已舍弃` : ''}。可调整所选点后重试；未检查每日排班。`
-  onProgress({ stage: 'SINGLE_DONE', message, best: { distance: full.manual.distance, duration: full.manual.duration, timeWindowChecked: true, timeWindowConflicts: comparison.manualConflicts } })
-  return { candidate: improved ? candidate : baseline, comparison, improved, conflictOnly: improved && comparison.manualConflicts > 0, message }
+  const full = comparison.scenarios[0], improved = better(full.manual, full.generated)
+  onProgress({ stage: 'SINGLE_DONE', message: '一次重排及完整路线对比完成；未计算每日跳点', best: { distance: full.manual.distance, duration: full.manual.duration, timeWindowChecked: true, timeWindowConflicts: comparison.manualConflicts } })
+  return { candidate, comparison, improved, conflictOnly: improved && comparison.manualConflicts > 0,
+    message: `一次重排完成，仅对比完整路线；完整路线时间窗冲突${comparison.manualConflicts}次。未检查每日排班，不代表全局最优。` }
 }
 
 // Only selected occurrences move; unselected relative order and every anchor position remain invariant.

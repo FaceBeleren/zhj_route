@@ -51,23 +51,4 @@ class SelectedPointsOnceTest {
         List<Map<String,Object>> adjusted=SmallWindowPlanningService.maps(SmallWindowPlanningService.maps(service.adjustSelectedOnce(request).get("routes")).get(0).get("points"));
         assertEquals("p5",adjusted.get(2).get("manualToken"));assertEquals("p1",adjusted.get(1).get("manualToken"));assertEquals("p2",adjusted.get(3).get("manualToken"));
     }
-    @Test void worseGreedyReinsertionReturnsOriginalRouteAndReportsRejectedAttempt() {
-        RouteMapPathService paths=mock(RouteMapPathService.class);
-        when(paths.preloadCachedDistances(anyList())).thenReturn(Collections.emptyMap());
-        when(paths.resolveWithoutCache(any(),any())).thenAnswer(a->{
-            com.zhj.route.algorithm.RoutePoint from=a.getArgument(0),to=a.getArgument(1);
-            int x=from.getFacilityId().intValue(),y=to.getFacilityId().intValue();
-            double distance=(x==0&&y==1)||(x==1&&y==2)||(x==2&&y==3)||(x==3&&y==9)
-                    ||(x==0&&y==3)||(x==3&&y==2)||(x==2&&y==9)?1D
-                    :(x==1&&y==3?2D:10D);
-            return new RouteMapPathService.ResolvedPath(Arrays.asList(map("longitude",from.getLongitude(),"latitude",from.getLatitude()),map("longitude",to.getLongitude(),"latitude",to.getLatitude())),distance,1D,"OD_CACHE");
-        });
-        RouteOptimizeService service=new RouteOptimizeService(null,paths,mock(RouteOptimizeTraceService.class));
-        List<Map<String,Object>> points=Arrays.asList(point(0,"START"),point(1,"MIDDLE"),point(2,"MIDDLE"),point(3,"MIDDLE"),point(9,"END"));
-        Map<String,Object> response=service.adjustSelectedOnce(map("routes",Arrays.asList(map("routeNo",1,"points",points)),"selectedTokens",Arrays.asList("p1","p2")));
-        assertEquals(false,response.get("improved"));
-        assertTrue(((Number)response.get("attemptedDistance")).doubleValue()>((Number)response.get("originalDistance")).doubleValue());
-        List<Map<String,Object>> retained=SmallWindowPlanningService.maps(SmallWindowPlanningService.maps(response.get("routes")).get(0).get("points"));
-        assertEquals(Arrays.asList("p0","p1","p2","p3","p9"),retained.stream().map(p->p.get("manualToken")).collect(java.util.stream.Collectors.toList()));
-    }
 }
