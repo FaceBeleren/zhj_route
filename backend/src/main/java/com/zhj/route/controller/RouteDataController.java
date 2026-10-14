@@ -286,6 +286,9 @@ public class RouteDataController {
         return routeOptimizeService.routeSegmentsPreview(request);
     }
 
+    @PostMapping("/optimize/selected-points-once")
+    public Map<String,Object> adjustSelectedOnce(@RequestBody Map<String,Object> request) { return routeOptimizeService.adjustSelectedOnce(request); }
+
     @PostMapping("/optimize/small-window/tasks")
     public Map<String,Object> startSmallWindow(@RequestBody Map<String,Object> request) { return smallWindowPlanningService.start(request); }
 

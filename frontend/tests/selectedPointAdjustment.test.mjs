@@ -2,7 +2,7 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import { createManualDraft, assertManualMembership } from '../src/manualRouteTest.js'
-import { selectedAdjustmentCandidates, optimizeSelectedPoints } from '../src/selectedPointAdjustment.js'
+import { selectedAdjustmentCandidates, optimizeSelectedPoints, adjustSelectedOnce } from '../src/selectedPointAdjustment.js'
 
 const app = readFileSync(new URL('../src/App.vue', import.meta.url), 'utf8')
 const clock = app.slice(app.indexOf('function parseClockMinutes('), app.indexOf('function planningSegmentsForSchedule('))
@@ -164,4 +164,29 @@ test('manual calculation is hidden and guarded in selection mode; adopting switc
   assert.notEqual(scope.draft.value, candidate)
   assert.equal(scope.autoCandidate.value, null)
   assert.doesNotMatch(code, /comparison.value\s*=/)
+})
+test('single-pass entry makes one adjustment request, uses returned roads, and compares no daily masks', async () => {
+  const f = fixture(), before = JSON.stringify(f.draft)
+  let calls = 0
+  const progress = []
+  const result = await adjustSelectedOnce({ ...f.args, onProgress: value => progress.push(value), resolveSelection: async (routes, tokens) => {
+    calls++
+    assert.deepEqual(tokens, f.args.selectedTokens)
+    const candidate = structuredClone(routes)
+    const points = candidate[0].points
+    candidate[0].points = [points[0], points[3], points[4], points[1], points[2], points[5]]
+    const originalRoads = await Promise.all(routes.map(async route => ({ points: route.points, ...await f.args.resolveRoad(route.points) })))
+    const adjustedRoads = await Promise.all(candidate.map(async route => ({ points: route.points, ...await f.args.resolveRoad(route.points) })))
+    return { routes: candidate, originalRoads, adjustedRoads }
+  } })
+  assert.equal(calls, 1)
+  assert.equal(result.comparison.scenarios.length, 1)
+  assert.equal(ids(result.candidate), f.target)
+  assert.equal(result.improved, true)
+  assert.equal(JSON.stringify(f.draft), before)
+  assert.ok(progress.every(p => !p.totalDays && !p.evaluations))
+  const ui = readFileSync(new URL('../src/components/ManualRouteTest.vue', import.meta.url), 'utf8')
+  assert.match(ui, /await adjustSelectedOnce/)
+  assert.doesNotMatch(ui, /await optimizeSelectedPoints/)
+  assert.match(ui, /scheduleDays: \[\]/)
 })

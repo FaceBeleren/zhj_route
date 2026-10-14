@@ -2,7 +2,7 @@
   <div class="manual-test-overlay" role="dialog" aria-modal="true" aria-label="手动调整测试">
     <section class="manual-test-dialog">
       <header><div><h2>手动调整测试 · {{ title }}</h2><p>只调整趟内点位顺序，不删除点位、不改变起终点和趟次归属；仅计算不会覆盖原方案，点击“保存并替换”才应用。</p></div><button :disabled="busy" @click="$emit('close')">关闭</button></header>
-      <p>比较规则：总道路里程优先，差异不足1米时比较总耗时。{{ scheduleDays.length ? '编辑完整模板，同时检查周期内每天的跳点结果；排名依据完整模板总里程。' : '重新计算两边实际道路；多趟按同一车辆连续计时。' }} 这只能检验当前人工候选，不能证明全局最优。</p>
+      <p>只对比完整路线调整前后：道路里程优先，差异不足1米时比较总耗时；标记完整路线时间窗。不计算、不展示每日排班跳点，不保证全局最优。</p>
       <div class="manual-test-controls">
         <label>调整模式 <select v-model="adjustmentMode" :disabled="busy" @change="clearDrag"><option value="manual">手动拖动</option><option value="selected">选点自动调整</option></select></label>
         <label>选择编辑趟次 <select v-model.number="tripIndex" :disabled="busy" @change="clearDrag"><option v-for="(route,index) in draft.routes" :key="index" :value="index">{{ route.vehicleName || '车辆' }} 第{{ route.tripNo || route.routeNo }}趟</option></select></label>
@@ -21,16 +21,13 @@
         <p v-if="autoMessage">{{ autoMessage }}</p>
       </div>
       <div v-if="autoRunning || autoProgress" class="manual-auto-progress" role="status">
-        <strong>{{ autoRunning ? (autoProgress?.stage === 'FINAL_CHECK' ? '搜索已完成 · 最终结果统一校验（可取消）' : '选点调整搜索中（只比较完整模板，可取消）') : '本次选点调整已结束' }}</strong>
-        <p>{{ autoProgress?.stage === 'FINAL_CHECK' ? '正在校验最终候选与调整前基准，不再搜索新候选' : autoProgress?.activeCandidate ? `第${autoProgress.round}轮 · ${autoProgress.phase === 'CANDIDATE_DONE' ? '刚完成' : '正在比较'}第${autoProgress.activeCandidate}个候选` : '正在复算开始前的编辑基准' }} · 已完成{{ autoProgress?.evaluations || 0 }}个候选</p>
+        <strong>{{ autoRunning ? '所选点一次重排（只计算完整路线，可取消）' : '本次完整路线对比已完成' }}</strong>
         <p>{{ autoProgress?.message }}</p>
-        <p v-if="autoProgress?.totalDays">本{{ autoProgress.activeCandidate ? '候选' : '基准' }}排班校验：已完成{{ autoProgress.completedDays || 0 }} / {{ autoProgress.totalDays }}个排班日<template v-if="autoProgress.phase === 'DAY'">，当前第{{ autoProgress.dayIndex }}个（第{{ autoProgress.day }}天）</template>。</p>
-        <p v-if="scheduleDays.length">搜索阶段不逐日检查跳点；选出最终结果后，才统一检查一次排班周期，用于标记问题，不重新筛选候选。</p>
-        <p v-if="autoProgress?.best">当前最佳：{{ distance(autoProgress.best.distance) }} · {{ minutes(autoProgress.best.duration) }}；<template v-if="autoProgress.best.timeWindowChecked">时间窗冲突{{ autoProgress.best.timeWindowConflicts || 0 }}次（仅提示）。</template><template v-else>时间窗及每日跳点尚未校验，最终结果确定后检查。</template></p>
-        <p>已运行{{ Math.floor(autoElapsed / 1000) }}秒。当前最佳尚未完成全部比较，取消不会采用部分结果。</p>
+        <p v-if="autoProgress?.best">重排后完整路线：{{ distance(autoProgress.best.distance) }} · {{ minutes(autoProgress.best.duration) }}；时间窗冲突{{ autoProgress.best.timeWindowConflicts || 0 }}次（仅提示）。</p>
+        <p>已运行{{ Math.floor(autoElapsed / 1000) }}秒。不进行多轮完整路线候选搜索；取消不会采用部分结果。</p>
         <progress v-if="autoRunning" aria-label="正在搜索选点调整"></progress>
       </div>
-      <p>{{ adjustmentMode === 'selected' ? '勾选一个或多个疑似不合理的点，可跨多个趟次选择；自动尝试单点搬移、所选点交换、连续所选点整体搬移及反转。只按完整模板里程优先、耗时次之搜索，保留完整模板载重和工作时长限制；最终结果才检查时间窗及每日跳点，仅提示、不筛选候选。不接受临时变差，不保证全局最优。' : '拖动点位到目标行的上方或下方调整顺序，也可使用前移／后移按钮。固定锚点不能移动或跨越；拖动后需点击“确定并计算对比”。' }}</p>
+      <p>{{ adjustmentMode === 'selected' ? '取出所选点，按道路增程最小的位置逐个重新插入一次；未选点保持相对顺序，不跨趟、不跨固定锚点。只展示完整路线前后对比，不进行多轮候选搜索，也不计算每日跳点。' : '拖动点位到目标行的上方或下方调整顺序，也可使用前移／后移按钮。固定锚点不能移动或跨越；拖动后需点击“确定并计算对比”。' }}</p>
       <p>“保存并替换”会将手动路线应用到当前方案的地图、统计与导出；“另存到方案库”独立持久保存。不论是否更优、是否超窗都允许操作，超窗提示仍保留。{{ adjustmentMode === 'selected' ? '请先点击“开始优化所选点”取得候选；采用到编辑列表后会切回手动拖动模式，可继续编辑和复算。' : '尚未计算时会先计算，失败则保留编辑内容。' }}</p>
       <div class="manual-test-editor">
         <div v-for="(point,index) in draft.routes[tripIndex].points" :key="point.manualToken" class="manual-test-point" :class="{ 'is-dragging': dragging?.index === index, 'drop-before': dropTarget?.index === index && !dropTarget.after, 'drop-after': dropTarget?.index === index && dropTarget.after }" :draggable="adjustmentMode === 'manual' && !busy && movable(index)" @dragstart="startDrag($event,index)" @dragover="overDrag($event,index)" @drop="dropPoint($event,index)" @dragend="clearDrag">
@@ -42,7 +39,7 @@
       <template v-if="comparison">
         <h3>{{ comparison.verdict.message }}</h3>
         <p>模板及所校验场景合计：{{ selectedComparison ? '基准' : '系统' }}{{ comparison.generatedConflicts }}次冲突，{{ selectedComparison ? '候选' : '手动' }}{{ comparison.manualConflicts }}次冲突。绿色/红色表示相对比较结果，不能代替时间窗校验；红色点位为到达超窗。</p>
-        <label>对比场景 <select v-model.number="scenarioIndex"><option v-for="(scenario,index) in comparison.scenarios" :value="index" :key="scenario.day">{{ scenario.label }} · 系统{{ scenario.generated.violations }} / 手动{{ scenario.manual.violations }}处冲突</option></select></label>
+        <label v-if="comparison.scenarios.length > 1">对比场景 <select v-model.number="scenarioIndex"><option v-for="(scenario,index) in comparison.scenarios" :value="index" :key="scenario.day">{{ scenario.label }} · 系统{{ scenario.generated.violations }} / 手动{{ scenario.manual.violations }}处冲突</option></select></label>
         <p>本场景总里程差（手动－系统）：{{ signedDistance(scenario.manual.distance - scenario.generated.distance) }}；总耗时差：{{ signedMinutes(scenario.manual.duration - scenario.generated.duration) }}。</p>
         <div class="manual-test-results">
           <article v-for="side in ['generated','manual']" :key="side" :style="{ borderColor: color(side) }">
@@ -62,9 +59,9 @@
 import { computed, onBeforeUnmount, ref } from 'vue'
 import RouteMapPanel from './RouteMapPanel.vue'
 import { buildManualComparison, buildManualSavePayload, COMPARISON_COLORS, createManualDraft, moveManualPoint, reorderManualPoint } from '../manualRouteTest.js'
-import { adjustablePoint, optimizeSelectedPoints } from '../selectedPointAdjustment.js'
+import { adjustablePoint, adjustSelectedOnce } from '../selectedPointAdjustment.js'
 
-const props = defineProps({ result: Object, options: Object, saveContext: Object, applyResult: Function, scheduleDays: { type: Array, default: () => [] }, title: String, initialRouteNo: Number, resolveRoad: Function, buildSchedules: Function, isViolation: Function })
+const props = defineProps({ result: Object, options: Object, saveContext: Object, applyResult: Function, scheduleDays: { type: Array, default: () => [] }, title: String, initialRouteNo: Number, resolveRoad: Function, resolveSelection: Function, buildSchedules: Function, isViolation: Function })
 const emit = defineEmits(['close', 'save'])
 const original = createManualDraft(props.result)
 const draft = ref(createManualDraft(props.result))
@@ -94,14 +91,14 @@ async function optimizeSelection() {
   autoController = new AbortController(); autoElapsed.value = 0
   autoTimer = setInterval(() => { autoElapsed.value = Date.now() - started }, 1000)
   try {
-    const result = await optimizeSelectedPoints({ draft: before, selectedTokens: [...selectedTokens.value], options: props.options, scheduleDays: props.scheduleDays,
-      resolveRoad: props.resolveRoad, buildSchedules: props.buildSchedules, isViolation: props.isViolation, signal: autoController.signal,
+    const result = await adjustSelectedOnce({ draft: before, selectedTokens: [...selectedTokens.value], options: props.options,
+      resolveSelection: props.resolveSelection, buildSchedules: props.buildSchedules, isViolation: props.isViolation, signal: autoController.signal,
       onProgress: value => { if (id === requestId) { autoProgress.value = value; progress.value = value.message } } })
     if (id !== requestId) return
     comparison.value = result.comparison; selectedComparison.value = true; scenarioIndex.value = 0; calculationId.value++
     autoMessage.value = result.message
     comparison.value.verdict.message = result.message
-    if (result.improved || result.conflictOnly) autoCandidate.value = result.candidate
+    autoCandidate.value = result.candidate
   } catch (err) { if (id === requestId) { error.value = err.name === 'AbortError' ? '已取消，开始前的编辑内容保留；未采用部分结果。' : `选点调整失败，原方案未改变：${err.message || String(err)}`; clearAutoResult() } }
   finally { clearInterval(autoTimer); autoElapsed.value = Date.now() - started; if (id === requestId) busy.value = autoRunning.value = false }
 }
@@ -183,7 +180,7 @@ async function calculate() {
   const id = ++requestId
   busy.value = true; comparison.value = null; error.value = ''; clearAutoResult()
   try {
-    const result = await buildManualComparison({ original, draft: draft.value, scheduleDays: props.scheduleDays, options: props.options, resolveRoad: props.resolveRoad, buildSchedules: props.buildSchedules, isViolation: props.isViolation, onProgress: message => { if (id === requestId) progress.value = message } })
+    const result = await buildManualComparison({ original, draft: draft.value, scheduleDays: [], options: props.options, resolveRoad: props.resolveRoad, buildSchedules: props.buildSchedules, isViolation: props.isViolation, onProgress: message => { if (id === requestId) progress.value = message } })
     if (id !== requestId) return
     comparison.value = result; scenarioIndex.value = 0; calculationId.value++
   } catch (err) { if (id === requestId) error.value = `对比失败，原方案未改变：${err.message || String(err)}` }

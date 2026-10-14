@@ -463,6 +463,60 @@ public class RouteOptimizeService {
         return result;
     }
 
+    /** One greedy reinsertion pass, using a single OD context; not a multi-round route search. */
+    public Map<String,Object> adjustSelectedOnce(Map<String,Object> request) {
+        List<Map<String,Object>> routes=maps(request.get("routes"));
+        if(routes.isEmpty() || !(request.get("selectedTokens") instanceof List)) throw new IllegalArgumentException("需要路线和所选点");
+        Set<String> selected=new HashSet<>();for(Object token:(List<?>)request.get("selectedTokens"))selected.add(String.valueOf(token));
+        if(selected.isEmpty())throw new IllegalArgumentException("请先勾选收运点");
+        Set<String> seen=new HashSet<>(),allowed=new HashSet<>();
+        List<RoutePoint> pool=new ArrayList<>();
+        for(Map<String,Object> route:routes) {
+            List<Map<String,Object>> rows=maps(route.get("points"));
+            if(rows.size()<2)throw new IllegalArgumentException("路线缺少起终点");
+            for(int i=0;i<rows.size();i++) {
+                Map<String,Object> row=rows.get(i);String token=String.valueOf(row.get("manualToken"));
+                if(row.get("manualToken")==null || !seen.add(token))throw new IllegalArgumentException("点位出现标识缺失或重复");
+                if(i>0 && i<rows.size()-1 && !fixedAdjustmentAnchor(row))allowed.add(token);
+            }
+            List<RoutePoint> parsed=toRoutePoints(rows);for(RoutePoint point:parsed)if(!point.hasCoordinate() || !Double.isFinite(point.getLongitude()) || !Double.isFinite(point.getLatitude()))throw new IllegalArgumentException("点位坐标缺失或无效");
+            pool.addAll(parsed);
+        }
+        if(!allowed.containsAll(selected))throw new IllegalArgumentException("所选点包含固定锚点或无效点");
+        DistanceContext context=new DistanceContext(true,true);context.preload(pool);
+        List<Map<String,Object>> output=new ArrayList<>(),beforeRoads=new ArrayList<>(),afterRoads=new ArrayList<>();
+        for(Map<String,Object> route:routes) {
+            List<Map<String,Object>> rows=maps(route.get("points"));List<RoutePoint> parsed=toRoutePoints(rows);
+            Map<RoutePoint,Map<String,Object>> identities=new java.util.IdentityHashMap<>();
+            for(int i=0;i<parsed.size();i++)identities.put(parsed.get(i),rows.get(i));
+            List<RoutePoint> adjusted=new ArrayList<>();int begin=0;
+            while(begin<parsed.size()-1) {
+                int end=begin+1;while(end<parsed.size()-1 && !fixedAdjustmentAnchor(rows.get(end)))end++;
+                List<RoutePoint> block=new ArrayList<>(),moving=new ArrayList<>();block.add(parsed.get(begin));
+                for(int i=begin+1;i<end;i++)(selected.contains(String.valueOf(rows.get(i).get("manualToken")))?moving:block).add(parsed.get(i));
+                block.add(parsed.get(end));
+                while(!moving.isEmpty()) {
+                    double best=Double.POSITIVE_INFINITY;int bestPoint=0,bestSlot=1;
+                    for(int p=0;p<moving.size();p++)for(int at=1;at<block.size();at++) {
+                        RoutePoint a=block.get(at-1),b=block.get(at),point=moving.get(p);
+                        double increase=adjustmentDistance(context,a,point)+adjustmentDistance(context,point,b)-adjustmentDistance(context,a,b);
+                        if(increase<best){best=increase;bestPoint=p;bestSlot=at;}
+                    }
+                    block.add(bestSlot,moving.remove(bestPoint));
+                }
+                if(adjusted.isEmpty())adjusted.add(block.get(0));adjusted.addAll(block.subList(1,block.size()));begin=end;
+            }
+            List<Map<String,Object>> reordered=new ArrayList<>();
+            for(RoutePoint point:adjusted){Map<String,Object> row=new LinkedHashMap<>(identities.get(point));row.put("order",reordered.size()+1);row.put("orderNum",reordered.size()+1);reordered.add(row);}
+            Map<String,Object> out=new LinkedHashMap<>(route);out.put("points",reordered);output.add(out);
+            Map<String,Object> before=new LinkedHashMap<>();before.put("points",rows);before.put("segments",segmentViews(parsed,speedProfile(request),context,true));beforeRoads.add(before);
+            Map<String,Object> after=new LinkedHashMap<>();after.put("points",reordered);after.put("segments",segmentViews(adjusted,speedProfile(request),context,true));afterRoads.add(after);
+        }
+        Map<String,Object> response=new LinkedHashMap<>();response.put("routes",output);response.put("originalRoads",beforeRoads);response.put("adjustedRoads",afterRoads);return response;
+    }
+    private boolean fixedAdjustmentAnchor(Map<String,Object> point) { return "ANCHOR".equals(point.get("weightSource")) || "START".equals(point.get("role")) || "END".equals(point.get("role")); }
+    private double adjustmentDistance(DistanceContext context,RoutePoint a,RoutePoint b) { return sameJointCoordinate(a,b)?0D:context.distance(a,b); }
+
     /** Materialize each directed OD once; exhaustive candidates use only this request-local matrix. */
     public java.util.function.Function<List<Map<String, Object>>, Map<String, Object>> prepareJointRoads(
             Map<String, Object> request, List<Map<String, Object>> rows, Runnable checkCancelled) {
@@ -1123,12 +1177,16 @@ public class RouteOptimizeService {
     }
 
     private List<Map<String, Object>> segmentViews(List<RoutePoint> points, SpeedProfile speedProfile, DistanceContext distanceContext) {
+        return segmentViews(points,speedProfile,distanceContext,false);
+    }
+    private List<Map<String,Object>> segmentViews(List<RoutePoint> points,SpeedProfile speedProfile,DistanceContext distanceContext,boolean allowSamePoint) {
         List<Map<String, Object>> segments = new ArrayList<Map<String, Object>>();
         for (int i = 0; i < points.size() - 1; i++) {
             RoutePoint from = points.get(i);
             RoutePoint to = points.get(i + 1);
-            RouteMapPathService.ResolvedPath resolvedPath = distanceContext.resolvePath(from, to);
-            double distance = distanceContext.distance(from, to);
+            boolean same=allowSamePoint && sameJointCoordinate(from,to);
+            RouteMapPathService.ResolvedPath resolvedPath = same ? new RouteMapPathService.ResolvedPath(directPath(from,to),0D,0D,"SAME_POINT") : distanceContext.resolvePath(from, to);
+            double distance = same ? 0D : distanceContext.distance(from, to);
             SpeedDecision speed = speedProfile.forSegment(points, i, distance);
             Map<String, Object> segment = new HashMap<String, Object>();
             segment.put("order", i + 1);

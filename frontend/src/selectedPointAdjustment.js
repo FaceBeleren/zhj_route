@@ -5,6 +5,26 @@ export const adjustablePoint = point => !['START', 'END'].includes(point.role) &
 const key = result => JSON.stringify(result.routes.map(route => route.points.map(point => point.manualToken)))
 const better = (a, b) => a.distance < b.distance - 1 || (Math.abs(a.distance - b.distance) < 1 && a.duration < b.duration - 0.01)
 
+export async function adjustSelectedOnce({ draft, selectedTokens, options, resolveSelection, buildSchedules, isViolation, signal, onProgress = () => {} }) {
+  const baseline = clone(draft)
+  const check = () => { if (signal?.aborted) throw new DOMException('已取消，编辑内容保留', 'AbortError') }
+  check();onProgress({ stage: 'SINGLE_PASS', message: '正在一次重插所选点；只计算完整路线，不计算每日排班', best: null })
+  const response = await resolveSelection(baseline.routes, [...selectedTokens], options, signal)
+  check()
+  const candidate = { ...clone(baseline), routes: response.routes }
+  assertManualMembership(baseline, candidate)
+  const roadKey = points => JSON.stringify(points.map(p => [p.manualToken, p.longitude, p.latitude]))
+  const roads = new Map([...response.originalRoads, ...response.adjustedRoads].map(road => [roadKey(road.points), road]))
+  const comparison = await buildManualComparison({ original: baseline, draft: candidate, options, scheduleDays: [],
+    resolveRoad: async points => { check();const road = roads.get(roadKey(points));if(!road)throw new Error('完整路线道路结果缺失');return road },
+    buildSchedules, isViolation, onProgress: message => onProgress({ stage: 'SINGLE_PASS', message }) })
+  check()
+  const full = comparison.scenarios[0], improved = better(full.manual, full.generated)
+  onProgress({ stage: 'SINGLE_DONE', message: '一次重排及完整路线对比完成；未计算每日跳点', best: { distance: full.manual.distance, duration: full.manual.duration, timeWindowChecked: true, timeWindowConflicts: comparison.manualConflicts } })
+  return { candidate, comparison, improved, conflictOnly: improved && comparison.manualConflicts > 0,
+    message: `一次重排完成，仅对比完整路线；完整路线时间窗冲突${comparison.manualConflicts}次。未检查每日排班，不代表全局最优。` }
+}
+
 // Only selected occurrences move; unselected relative order and every anchor position remain invariant.
 export function* selectedAdjustmentCandidates(input, tokens) {
   const selected = new Set(tokens), seen = new Set([key(input)])
