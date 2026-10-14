@@ -381,8 +381,8 @@ function markerIcon(BMap, appearance) {
 }
 
 function markerAppearance(point, fallbackColor) {
+  if (point.comparisonSelected) return { fill: props.changedPointColor, stroke: point.timeWindowViolation ? '#dc2626' : '#ffffff', strokeWidth: point.timeWindowViolation ? 3.5 : 2.4, center: '#ffffff' }
   if (point.timeWindowViolation) return { fill: '#dc2626', stroke: '#ffffff', strokeWidth: 2.4, center: '#ffffff' }
-  if (point.comparisonOrderChanged) return { fill: props.changedPointColor, stroke: '#ffffff', strokeWidth: 2.4, center: '#ffffff' }
   if (point.scheduleSkipped) return { fill: '#ffffff', stroke: '#71889a', strokeWidth: 2.4, center: '#ffffff' }
   if (props.showPointSemantics) {
     if (point.candidateMultiCollection) return { fill: '#8b5fc6', stroke: '#ffffff', strokeWidth: 2, center: '#ffffff' }
@@ -399,8 +399,8 @@ function fallbackMarkerStyle(point, fallbackColor) {
 }
 
 function pointSemanticLabel(point) {
+  if (point.comparisonSelected) return point.timeWindowViolation ? '本次选中或挪动；到达时间超出时间窗' : '本次选中或挪动'
   if (point.timeWindowViolation) return '到达时间超出时间窗'
-  if (point.comparisonOrderChanged) return '顺序已调整'
   if (point.scheduleSkipped) return '今日不收（道路仍经过）'
   if (!props.showPointSemantics) return ''
   if (point.candidateMultiCollection) return '多次收运'
@@ -525,7 +525,7 @@ function normalizeRoutePoints(points) {
     .map((point, index) => ({
       facilityId: point.facilityId,
       facilityName: point.facilityName,
-      comparisonOrderChanged: Boolean(point.comparisonOrderChanged),
+      comparisonSelected: Boolean(point.comparisonSelected),
       longitude: Number(point.longitude),
       latitude: Number(point.latitude),
       label: String(index + 1),

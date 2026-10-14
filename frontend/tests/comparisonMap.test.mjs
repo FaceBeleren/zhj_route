@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { createMapViewLink, markChangedOrder } from '../src/comparisonMap.js'
+import { createMapViewLink, markSelectedPoints } from '../src/comparisonMap.js'
 
 function map(lng, zoom) {
   let center = { lng, lat: 36 }, level = zoom
@@ -44,11 +44,12 @@ test('separate dialogs do not share view state', () => {
   left.drag(117)
   assert.equal(unrelated.getCenter().lng, 119)
 })
-test('mark changed occurrence order without mutating results or merging repeated facilities', () => {
+test('mark only selected occurrences, not other points displaced by their reordering', () => {
   const before = ['start', 'a', 'b', 'c', 'end'].map(manualToken => ({ manualToken, facilityId: 1 }))
   const after = [before[0], before[2], before[1], before[3], before[4]]
-  const marked = markChangedOrder(before, after)
-  assert.deepEqual(marked.map(p => p.comparisonOrderChanged), [false, true, true, false, false])
-  assert.equal(after[1].comparisonOrderChanged, undefined)
-  assert.deepEqual(markChangedOrder(before, before).map(p => p.comparisonOrderChanged), [false, false, false, false, false])
+  const marked = markSelectedPoints(after, new Set(['b']))
+  assert.deepEqual(marked.map(p => p.comparisonSelected), [false, true, false, false, false])
+  assert.equal(after[1].comparisonSelected, undefined)
+  assert.deepEqual(markSelectedPoints(before, new Set()).map(p => p.comparisonSelected), [false, false, false, false, false])
+  assert.deepEqual(markSelectedPoints(before, new Set(['b'])).map(p => p.comparisonSelected), [false, false, true, false, false])
 })

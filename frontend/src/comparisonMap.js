@@ -31,10 +31,10 @@ export function createMapViewLink() {
   }
 }
 
-export function markChangedOrder(before, after) {
-  const positions = new Map(before.map((point, index) => [point.manualToken, index]))
-  return after.map((point, index) => ({
+export function markSelectedPoints(points, tokens) {
+  const selected = new Set(tokens)
+  return points.map(point => ({
     ...point,
-    comparisonOrderChanged: point.manualToken != null && positions.has(point.manualToken) && positions.get(point.manualToken) !== index
+    comparisonSelected: point.manualToken != null && selected.has(point.manualToken)
   }))
 }

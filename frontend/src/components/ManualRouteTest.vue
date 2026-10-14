@@ -41,7 +41,7 @@
         <p>模板及所校验场景合计：{{ selectedComparison ? '基准' : '系统' }}{{ comparison.generatedConflicts }}次冲突，{{ selectedComparison ? '候选' : '手动' }}{{ comparison.manualConflicts }}次冲突。绿色/红色表示相对比较结果，不能代替时间窗校验；红色点位为到达超窗。</p>
         <label v-if="comparison.scenarios.length > 1">对比场景 <select v-model.number="scenarioIndex"><option v-for="(scenario,index) in comparison.scenarios" :value="index" :key="scenario.day">{{ scenario.label }} · 系统{{ scenario.generated.violations }} / 手动{{ scenario.manual.violations }}处冲突</option></select></label>
         <p>本场景总里程差（手动－系统）：{{ signedDistance(scenario.manual.distance - scenario.generated.distance) }}；总耗时差：{{ signedMinutes(scenario.manual.duration - scenario.generated.duration) }}。</p>
-        <p>两侧地图拖动、缩放同步。右侧紫色点表示相对左侧序号改变，超窗点优先显示红色；路线颜色仍表示比较结果。</p>
+        <p>两侧地图拖动、缩放同步。右侧紫色点只标记本次勾选或亲手挪动的点；若这些点超窗，则加红色描边。路线颜色仍表示比较结果。</p>
         <div class="manual-test-results">
           <article v-for="side in ['generated','manual']" :key="side" :style="{ borderColor: color(side) }">
             <h3 :style="{ color: color(side) }">{{ baseStage ? (side === 'generated' ? '原基础路线' : '调整后基础路线') : selectedComparison ? (side === 'generated' ? '调整前路线（本次编辑基准）' : '选点调整候选') : (side === 'generated' ? '系统生成路线（原序道路复算）' : '手动调整路线') }}</h3>
@@ -59,7 +59,7 @@
 <script setup>
 import { computed, onBeforeUnmount, ref } from 'vue'
 import RouteMapPanel from './RouteMapPanel.vue'
-import { createMapViewLink, markChangedOrder } from '../comparisonMap.js'
+import { createMapViewLink, markSelectedPoints } from '../comparisonMap.js'
 import { buildManualComparison, buildManualSavePayload, COMPARISON_COLORS, createManualDraft, moveManualPoint, reorderManualPoint } from '../manualRouteTest.js'
 import { adjustablePoint, adjustSelectedOnce } from '../selectedPointAdjustment.js'
 
@@ -71,6 +71,7 @@ const tripIndex = ref(Math.max(0, draft.value.routes.findIndex(route => Number(r
 const busy = ref(false), progress = ref(''), error = ref(''), comparison = ref(null), scenarioIndex = ref(0), calculationId = ref(0)
 let requestId = 0
 const adjustmentMode = ref('manual'), selectedTokens = ref(new Set()), autoRunning = ref(false), autoCandidate = ref(null), autoProgress = ref(null), autoMessage = ref(''), selectedComparison = ref(false), autoElapsed = ref(0)
+const markedTokens = ref(new Set())
 let autoController = null, autoTimer = null
 const selectedNames = computed(() => draft.value.routes.flatMap(route => route.points).filter(point => selectedTokens.value.has(point.manualToken)).map(point => point.facilityName || point.facilityId))
 function toggleSelected(token) { const next = new Set(selectedTokens.value); next.has(token) ? next.delete(token) : next.add(token); selectedTokens.value = next }
@@ -98,6 +99,7 @@ async function optimizeSelection() {
       onProgress: value => { if (id === requestId) { autoProgress.value = value; progress.value = value.message } } })
     if (id !== requestId) return
     comparison.value = result.comparison; selectedComparison.value = true; scenarioIndex.value = 0; calculationId.value++
+    markedTokens.value = new Set(selectedTokens.value)
     autoMessage.value = result.message
     comparison.value.verdict.message = result.message
     autoCandidate.value = result.candidate
@@ -138,14 +140,15 @@ function overDrag(event, index) {
 function dropPoint(event,index) {
   event.preventDefault()
   const target = dragDestination(event,index)
-  if (target && reorderManualPoint(draft.value,tripIndex.value,dragging.value.index,target.to)) { comparison.value = null; error.value = ''; clearAutoResult() }
+  const token = dragging.value?.route === tripIndex.value ? draft.value.routes[tripIndex.value].points[dragging.value.index].manualToken : null
+  if (target && reorderManualPoint(draft.value,tripIndex.value,dragging.value.index,target.to)) { if (token) markedTokens.value = new Set([...markedTokens.value, token]); comparison.value = null; error.value = ''; clearAutoResult() }
   clearDrag()
 }
 onBeforeUnmount(() => { requestId++; autoController?.abort(); clearInterval(autoTimer) })
 const scenario = computed(() => comparison.value?.scenarios[scenarioIndex.value])
 const selectedRoute = side => scenario.value[side].result.routes[tripIndex.value]
 const comparisonViewLink = createMapViewLink()
-const mapPoints = side => side === 'manual' ? markChangedOrder(selectedRoute('generated').points, selectedRoute('manual').points) : selectedRoute(side).points
+const mapPoints = side => side === 'manual' ? markSelectedPoints(selectedRoute('manual').points, markedTokens.value) : selectedRoute(side).points
 const color = side => COMPARISON_COLORS[comparison.value.verdict[side]]
 const distance = meters => `${(meters / 1000).toFixed(2)} km`
 const minutes = value => `${Math.floor(Math.round(value) / 60)} h ${Math.round(value) % 60} min`
@@ -154,9 +157,10 @@ const signedMinutes = value => `${value > 0 ? '+' : ''}${value.toFixed(2)} min`
 const windowLabel = point => [point.allowTimeBegin || point.allowTimeEnd ? `允许 ${point.allowTimeBegin || '不限'}—${point.allowTimeEnd || '不限'}` : '', point.barredTimeBegin && point.barredTimeEnd ? `禁止 ${point.barredTimeBegin}—${point.barredTimeEnd}` : ''].filter(Boolean).join('；')
 function move(index, direction) {
   if (busy.value || adjustmentMode.value !== 'manual') return
-  if (moveManualPoint(draft.value, tripIndex.value, index, direction)) { comparison.value = null; error.value = ''; clearAutoResult() }
+  const token = draft.value.routes[tripIndex.value].points[index]?.manualToken
+  if (moveManualPoint(draft.value, tripIndex.value, index, direction)) { if (token) markedTokens.value = new Set([...markedTokens.value, token]); comparison.value = null; error.value = ''; clearAutoResult() }
 }
-function reset() { if (!busy.value) { clearDrag(); draft.value = createManualDraft(props.result); comparison.value = null; error.value = ''; clearAutoResult(); selectedTokens.value = new Set() } }
+function reset() { if (!busy.value) { clearDrag(); draft.value = createManualDraft(props.result); comparison.value = null; error.value = ''; clearAutoResult(); selectedTokens.value = new Set(); markedTokens.value = new Set() } }
 async function saveManual() {
   if (busy.value) return
   if (adjustmentMode.value === 'selected' && (!comparison.value || !selectedComparison.value)) { error.value = '请先点击“开始优化所选点”生成候选'; return }
