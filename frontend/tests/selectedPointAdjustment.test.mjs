@@ -60,7 +60,7 @@ test('shorter full-template passing candidate is yellow if a skip day is early',
     return road
   }
   const result = await optimizeSelectedPoints({ ...f.args, scheduleDays: [{ day: 1, facilityIds: [2, 3] }] })
-  assert.equal(result.improved, false)
+  assert.equal(result.improved, true)
   assert.equal(result.conflictOnly, true)
   assert.equal(result.comparison.scenarios[0].manual.violations, 0)
   assert.ok(result.comparison.scenarios[1].manual.violations > 0)
@@ -86,6 +86,26 @@ test('infeasible baseline is not painted green when shorter candidate also confl
   assert.equal(result.conflictOnly, true)
   assert.equal(result.comparison.verdict.generated, 'yellow')
   assert.match(result.message, /基准本身也未通过/)
+})
+test('shortest conflicting candidate wins over a longer time-window-passing improvement', async () => {
+  const f = fixture()
+  f.draft.routes[0].points[3].allowTimeBegin = '03:10'
+  const passing = '-1,1,3,4,2,-2'
+  f.args.resolveRoad = async points => {
+    const sequence = points.map(p => p.facilityId).join(',')
+    const cost = sequence === f.target ? 5 : sequence === passing ? 7 : sequence === ids(f.draft) ? 10 : 20
+    return { segments: points.slice(1).map((p, i) => ({ distance: cost, durationMinutes: sequence === f.target ? 1 : 10, pathSource: 'OD_CACHE', path: [points[i], p] })) }
+  }
+  const progress = []
+  const result = await optimizeSelectedPoints({ ...f.args, onProgress: p => progress.push(p) })
+  assert.equal(ids(result.candidate), f.target)
+  assert.equal(result.improved, true)
+  assert.equal(result.conflictOnly, true)
+  assert.equal(result.comparison.verdict.manual, 'yellow')
+  assert.ok(result.comparison.manualConflicts > 0)
+  assert.ok(progress.some(p => p.best?.timeWindowConflicts > 0))
+  assert.ok(result.rounds >= 2, 'time-window conflicts must not stop iterative search from the chosen winner')
+  assert.match(result.message, /不参与搜索筛选/)
 })
 test('daily progress resets only under a new candidate identity and completion counts are unambiguous', async () => {
   const f = fixture(), progress = []

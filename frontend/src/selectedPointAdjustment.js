@@ -49,8 +49,9 @@ export function* selectedAdjustmentCandidates(input, tokens) {
   }
 }
 
-function feasible(comparison, options) {
-  if (comparison.manualConflicts || comparison.scenarios.some(s => s.manual.missing)) return false
+function operationallyFeasible(comparison, options) {
+  // Time windows annotate the comparison only; they must not filter distance improvements.
+  if (comparison.scenarios.some(s => s.manual.missing)) return false
   for (const scenario of comparison.scenarios) {
     const worked = new Map()
     for (const route of scenario.manual.result.routes) {
@@ -91,8 +92,8 @@ export async function optimizeSelectedPoints({ draft, selectedTokens, options, s
   const evaluate = candidate => buildManualComparison({ original: baseline, draft: candidate, options, scheduleDays, resolveRoad: road, buildSchedules, isViolation, onProgress: report })
   check(); report('正在道路复算本次编辑基准…')
   const baseComparison = await evaluate(baseline), baselineMetrics = baseComparison.scenarios[0].manual
-  const baselineFeasible = feasible(baseComparison, options)
-  let current = baseline, currentMetrics = baselineMetrics, best = null, shorterConflict = null
+  const baselineFeasible = operationallyFeasible(baseComparison, options) && baseComparison.manualConflicts === 0
+  let current = baseline, currentMetrics = baselineMetrics, best = null
   const visited = new Set([key(baseline)])
   while (true) {
     round++
@@ -104,10 +105,9 @@ export async function optimizeSelectedPoints({ draft, selectedTokens, options, s
       activeCandidate = evaluations + 1
       const comparison = await evaluate(candidate); check(); evaluations++
       const metrics = comparison.scenarios[0].manual
-      if (better(metrics, baselineMetrics) && comparison.manualConflicts > 0 && (!shorterConflict || better(metrics, shorterConflict.metrics))) shorterConflict = { candidate, comparison, metrics }
-      if (feasible(comparison, options) && better(metrics, baselineMetrics) && better(metrics, currentMetrics) && (!roundBest || better(metrics, roundBest.metrics))) {
+      if (operationallyFeasible(comparison, options) && better(metrics, baselineMetrics) && better(metrics, currentMetrics) && (!roundBest || better(metrics, roundBest.metrics))) {
         roundBest = { candidate, comparison, metrics }
-        bestInfo = { distance: metrics.distance, duration: metrics.duration, allScenariosPassed: true }
+        bestInfo = { distance: metrics.distance, duration: metrics.duration, timeWindowConflicts: comparison.manualConflicts, allScenariosPassed: comparison.manualConflicts === 0 }
       }
       report(`第${evaluations}个候选已完成全部校验`, { phase: 'CANDIDATE_DONE', completedDays: scheduleDays.length, totalDays: scheduleDays.length })
       // Allow cancel and paint even when all roads are already cached.
@@ -117,8 +117,9 @@ export async function optimizeSelectedPoints({ draft, selectedTokens, options, s
     best = roundBest; current = best.candidate; currentMetrics = best.metrics
   }
   check()
-  const result = best || shorterConflict || { candidate: baseline, comparison: baseComparison }
+  const result = best || { candidate: baseline, comparison: baseComparison }
   if (!baselineFeasible && result.comparison.verdict.generated === 'green') result.comparison.verdict.generated = 'yellow'
-  return { ...result, improved: !!best, conflictOnly: !best && !!shorterConflict, evaluations, rounds: round,
-    message: (best ? '找到里程更短或里程相当而耗时更少、且全部约束通过的调整；所选范围局部搜索，不代表全局最优' : shorterConflict ? '找到更优但超窗的候选，仅供对照，不自动推荐采用' : '未找到更好的可行调整；开始前顺序保留') + (baselineFeasible ? '' : '。注意：调整前基准本身也未通过全部约束，不代表可执行。') }
+  const conflicts = result.comparison.manualConflicts
+  return { ...result, improved: !!best, conflictOnly: !!best && conflicts > 0, evaluations, rounds: round,
+    message: (best ? `找到里程更短或里程相当而耗时更少的局部改善；时间窗冲突${conflicts}次，仅标记提示、不参与搜索筛选${conflicts ? '，候选显示黄色' : ''}；不代表全局最优` : '未找到满足载重、工作时长及应收覆盖要求的更优调整；开始前顺序保留') + (baselineFeasible ? '' : '。注意：调整前基准本身也未通过全部约束，不代表可执行。') }
 }
