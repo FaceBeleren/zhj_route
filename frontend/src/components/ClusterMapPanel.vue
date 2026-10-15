@@ -41,6 +41,7 @@
 
 <script setup>
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { wheelZoomTarget } from '../routeMapMotion.js'
 
 const props = defineProps({
   groups: { type: Array, default: () => [] },
@@ -55,6 +56,7 @@ let baiduMapLoader = null
 let mapInstance = null
 let mapViewportFitted = false
 let mapControlsAdded = false
+let lastWheelZoomAt = -Infinity
 
 const mapEl = ref(null)
 const baiduReady = ref(false)
@@ -89,6 +91,7 @@ const bounds = computed(() => {
 
 onMounted(() => renderMap())
 onBeforeUnmount(() => {
+  mapEl.value?.removeEventListener('wheel', handleMapWheel)
   if (mapInstance?.clearOverlays) mapInstance.clearOverlays()
 })
 watch(() => [props.groups, props.selectedGroupId, props.stageLabel, expanded.value, displayMode.value], () => renderMap(), { deep: true })
@@ -132,7 +135,8 @@ function drawBaiduMap(BMap) {
     mapInstance = new BMap.Map(mapEl.value)
     const center = centerPoint(plotPoints.value)
     mapInstance.centerAndZoom(new BMap.Point(center.longitude, center.latitude), zoomLevel(plotPoints.value))
-    mapInstance.enableScrollWheelZoom(true)
+    mapInstance.disableScrollWheelZoom()
+    mapEl.value.addEventListener('wheel', handleMapWheel, { passive: false })
     addMapControls(BMap)
   } else if (mapInstance.clearOverlays) {
     mapInstance.clearOverlays()
@@ -161,6 +165,16 @@ function drawBaiduMap(BMap) {
     })
   })
   fitMapViewportOnce(BMap)
+}
+
+function handleMapWheel(event) {
+  event.preventDefault()
+  if (!mapInstance) return
+  const now = performance.now()
+  const target = wheelZoomTarget(mapInstance.getZoom(), event.deltaY, now - lastWheelZoomAt)
+  if (target == null) return
+  lastWheelZoomAt = now
+  mapInstance.setZoom(target)
 }
 
 function addMapControls(BMap) {

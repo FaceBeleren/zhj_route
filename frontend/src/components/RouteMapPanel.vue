@@ -80,6 +80,7 @@
         </span>
         <div class="route-progress-track">
           <div class="route-progress-fill" :style="{ width: playbackPercent + '%' }"></div>
+          <input type="range" class="route-progress-input" min="0" :max="Math.max(1, Math.ceil(playbackTotalDistance))" :value="Math.round(playbackDistance)" :disabled="!canPlay" aria-label="拖动定位车辆位置" @pointerdown="beginSeek" @input="seekPlayback" @change="endSeek" @pointerup="endSeek" @pointercancel="endSeek" />
         </div>
       </div>
     </div>
@@ -158,7 +159,7 @@
 
 <script setup>
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
-import { playbackMetersPerSecond, wheelZoomTarget } from '../routeMapMotion.js'
+import { distanceAtSlider, playbackMetersPerSecond, wheelZoomTarget } from '../routeMapMotion.js'
 
 const props = defineProps({
   viewLink: { type: Object, default: null },
@@ -228,6 +229,8 @@ let playbackMarker = null
 let playbackAnimationFrame = null
 let playbackFrameTime = 0
 let lastWheelZoomAt = -Infinity
+let seeking = false
+let resumeAfterSeek = false
 
 const originalAllPoints = computed(() => (props.showOriginal ? normalizeRoutePoints(props.originalPoints) : []))
 const optimizedAllPoints = computed(() => normalizeRoutePoints(props.optimizedPoints))
@@ -614,6 +617,26 @@ function resetPlayback() {
   pausePlayback()
   playbackDistance.value = 0
   updatePlaybackMarker()
+}
+
+function beginSeek() {
+  if (!canPlay.value || seeking) return
+  resumeAfterSeek = playbackRunning.value
+  seeking = true
+  pausePlayback()
+}
+
+function seekPlayback(event) {
+  if (!canPlay.value) return
+  playbackDistance.value = distanceAtSlider(Number(event.target.value), Number(event.target.max), playbackTotalDistance.value)
+  updatePlaybackMarker()
+}
+
+function endSeek() {
+  if (!seeking) return
+  seeking = false
+  if (resumeAfterSeek && playbackDistance.value < playbackTotalDistance.value) startPlayback()
+  resumeAfterSeek = false
 }
 
 function stepPlayback(now) {

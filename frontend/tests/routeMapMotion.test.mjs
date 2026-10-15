@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { playbackMetersPerSecond, wheelZoomTarget, WHEEL_ZOOM_INTERVAL_MS } from '../src/routeMapMotion.js'
+import { distanceAtSlider, playbackMetersPerSecond, wheelZoomTarget, WHEEL_ZOOM_INTERVAL_MS } from '../src/routeMapMotion.js'
 
 test('wheel zoom changes one level at a time and ignores rapid repeated events', () => {
   assert.equal(wheelZoomTarget(12, -600, Infinity), 13)
@@ -14,4 +14,11 @@ test('route playback offers a slow, route-length-scaled pace', () => {
   assert.equal(playbackMetersPerSecond(63000, 0.5), 350)
   assert.equal(playbackMetersPerSecond(63000, 0.25), 175)
   assert.equal(playbackMetersPerSecond(100, 0.1), 0.5)
+})
+
+test('dragging the progress slider seeks to the matching route distance', () => {
+  assert.equal(distanceAtSlider(0, 100, 64829), 0)
+  assert.equal(distanceAtSlider(50, 100, 64829), 32414.5)
+  assert.equal(distanceAtSlider(100, 100, 64829), 64829)
+  assert.equal(distanceAtSlider(120, 100, 64829), 64829)
 })
