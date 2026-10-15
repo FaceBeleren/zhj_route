@@ -60,6 +60,8 @@
         </button>
         <button class="route-playback-button" type="button" :disabled="!canPlay" @click="resetPlayback">重置</button>
         <select v-model.number="playbackSpeed" class="route-playback-select compact">
+          <option :value="0.1">0.1x</option>
+          <option :value="0.25">0.25x</option>
           <option :value="0.5">0.5x</option>
           <option :value="1">1x</option>
           <option :value="2">2x</option>
@@ -156,6 +158,7 @@
 
 <script setup>
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { playbackMetersPerSecond, wheelZoomTarget } from '../routeMapMotion.js'
 
 const props = defineProps({
   viewLink: { type: Object, default: null },
@@ -214,7 +217,7 @@ const showOriginalLine = ref(props.showOriginal)
 const showOptimizedLine = ref(true)
 const expanded = ref(false)
 const playbackRoute = ref('optimized')
-const playbackSpeed = ref(1)
+const playbackSpeed = ref(0.5)
 const playbackRunning = ref(false)
 const playbackDistance = ref(0)
 let mapInstance = null
@@ -224,6 +227,7 @@ let mapControlsAdded = false
 let playbackMarker = null
 let playbackAnimationFrame = null
 let playbackFrameTime = 0
+let lastWheelZoomAt = -Infinity
 
 const originalAllPoints = computed(() => (props.showOriginal ? normalizeRoutePoints(props.originalPoints) : []))
 const optimizedAllPoints = computed(() => normalizeRoutePoints(props.optimizedPoints))
@@ -282,6 +286,7 @@ onMounted(() => {
 onBeforeUnmount(() => {
   unlinkView?.()
   pausePlayback()
+  mapEl.value?.removeEventListener('wheel', handleMapWheel)
   if (mapInstance?.clearOverlays) {
     mapInstance.clearOverlays()
   }
@@ -324,7 +329,8 @@ function drawBaiduMap(BMap) {
     mapInstance = new BMap.Map(mapEl.value)
     const center = centerPoint(allPoints.value)
     mapInstance.centerAndZoom(new BMap.Point(center.longitude, center.latitude), zoomLevel(allPoints.value))
-    mapInstance.enableScrollWheelZoom(true)
+    mapInstance.disableScrollWheelZoom()
+    mapEl.value.addEventListener('wheel', handleMapWheel, { passive: false })
     addMapControls(BMap)
   } else if (mapInstance.clearOverlays) {
     mapInstance.clearOverlays()
@@ -373,6 +379,16 @@ function drawBaiduMap(BMap) {
   drawPlaybackMarker(BMap)
   fitMapViewportOnce(BMap)
   if (props.viewLink && !unlinkView) unlinkView = props.viewLink.register(mapInstance, (lng, lat) => new BMap.Point(lng, lat))
+}
+
+function handleMapWheel(event) {
+  event.preventDefault()
+  if (!mapInstance) return
+  const now = performance.now()
+  const target = wheelZoomTarget(mapInstance.getZoom(), event.deltaY, now - lastWheelZoomAt)
+  if (target == null) return
+  lastWheelZoomAt = now
+  mapInstance.setZoom(target)
 }
 
 function markerIcon(BMap, appearance) {
@@ -604,7 +620,7 @@ function stepPlayback(now) {
   if (!playbackRunning.value) return
   const elapsed = Math.max(0, now - playbackFrameTime)
   playbackFrameTime = now
-  const metersPerSecond = Math.max(playbackTotalDistance.value / 22, 30) * playbackSpeed.value
+  const metersPerSecond = playbackMetersPerSecond(playbackTotalDistance.value, playbackSpeed.value)
   playbackDistance.value = Math.min(playbackTotalDistance.value, playbackDistance.value + (elapsed / 1000) * metersPerSecond)
   updatePlaybackMarker()
   if (playbackDistance.value >= playbackTotalDistance.value) {
