@@ -1118,6 +1118,7 @@
           <section v-if="selectedSplitRoute && currentView === 'position-assignment'" class="panel" style="padding:16px">
             <div class="panel-head"><h2>固定主路线按日执行</h2><div class="panel-actions">
               <button :disabled="fixedMasterRunning || assignmentBatchRunning || assignmentTripReorderRunning || !assignmentScheduleExportReady" @click="generateFixedMaster">{{ fixedMasterRunning ? fixedMasterMessage : '独立生成全点多趟方案' }}</button>
+              <button :disabled="singleTripRunning || fixedMasterRunning || assignmentBatchRunning || assignmentTripReorderRunning || !assignmentScheduleExportReady" @click="generateSingleTripPlan">{{ singleTripRunning ? '正在生成单趟方案…' : '独立生成全点单趟方案' }}</button>
               <button :disabled="!!smallWindowReason" :title="smallWindowReason || '固定无时间窗点基础顺序，联合枚举时间窗点的插入位置及先后顺序'" @click="generateSmallWindowPlan">少量时间窗联合规划（{{ smallWindowCount }}点）</button>
               <button :disabled="!fixedMasterFresh || fixedMasterRunning || assignmentBatchRunning || assignmentTripReorderRunning || fixedMasterCycleTimeWindowStats.violationCount === 0" @click="openTimeWindowRepair('FIXED')">时间窗修正路线</button>
               <button :disabled="!fixedMasterFresh || fixedMasterRunning || assignmentBatchRunning || assignmentTripReorderRunning" @click="openManualRouteTest('FIXED')">手动调整测试</button>
@@ -1157,6 +1158,24 @@
                 <div class="sequence route-point-sequence"><span v-for="point in fixedMasterVisiblePoints(route)" :key="point.order" :style="point.scheduleSkipped ? { background: '#fff', color: '#777', border: '1px solid #aaa' } : {}" :title="point.scheduleSkipped ? '今日不收，完整道路仍经过该点' : ''">{{ point.facilityName }}{{ point.scheduleSkipped ? '（不收）' : '' }}</span></div>
               </article>
               <RouteMapPanel v-if="fixedMasterSelectedRoute" :key="'fixed-master-'+fixedMasterSelectedRoute.routeNo" :original-points="[]" :optimized-points="fixedMasterMapPoints" :optimized-segments="fixedMasterMapSegments" :show-original="false" :optimized-label="fixedMasterDay === 0 || fixedMasterMapIncludeSkipped ? '完整模板连线' : '当日收运点连线'" />
+            </template>
+          </section>
+          <section v-if="selectedSplitRoute && currentView === 'position-assignment'" class="panel" style="padding:16px">
+            <h2>全点单趟＋按载重中途卸料</h2>
+            <p>先忽略载重生成一条完整点位顺序；每天按排班跳过不收点，再按额定载重 × 目标装载率，在下一点装不下时从当前点开往处理厂卸料，然后从处理厂开往下一点。不拆分点位收运。</p>
+            <p v-if="singleTripMessage">{{ singleTripMessage }}</p>
+            <p v-if="singleTripPlan && !singleTripFresh" style="color:#c46b00">点位、排班或参数已变化，请重新生成单趟方案。</p>
+            <template v-if="singleTripFresh">
+              <label>查看 <select v-model.number="singleTripDay"><option :value="0">完整模板（所有点都收）</option><option v-for="day in assignmentScheduleCycleDays" :key="day" :value="day">第{{ day }}天</option></select></label>
+              <label class="route-line-toggle" style="margin-left:18px"><input v-model="singleTripIncludeDetours" type="checkbox" />带中途往返处理厂（地图与统计）</label>
+              <p v-if="singleTripSelected?.disabled">第{{ singleTripDay }}天已停排，无收运路线。</p>
+              <p v-if="singleTripSelected?.error" style="color:red">第{{ singleTripDay }}天道路计算失败：{{ singleTripSelected.error }}</p>
+              <template v-else-if="singleTripSelected?.route && !singleTripSelected.disabled">
+                <p>当天收运点 {{ singleTripSelected.route.pointCount }} 个<template v-if="singleTripIncludeDetours">；中途卸料 {{ singleTripSelected.detours.breaks.length }} 次；目标装载量 {{ singleTripSelected.detours.thresholdKg.toFixed(1) }} kg</template>。</p>
+                <p v-if="singleTripIncludeDetours">里程：{{ formatDistance(singleTripSelected.detours.baseDistance) }} + {{ formatDistance(singleTripSelected.detours.extraDistance) }} = {{ formatDistance(singleTripSelected.detours.totalDistance) }}；耗时：{{ formatDuration(singleTripSelected.detours.totalDurationMinutes) }}（基础 {{ formatDuration(singleTripSelected.detours.baseDurationMinutes) }}，增量 {{ formatDuration(singleTripSelected.detours.extraDurationMinutes) }}）。紫色为中途卸料新增道路；增量已扣除被替换的原路段。</p>
+                <p v-else>原始单趟里程：{{ formatDistance(singleTripSelected.detours.baseDistance) }}；原始耗时：{{ formatDuration(singleTripSelected.detours.baseDurationMinutes) }}。中途卸料路线和增量已从地图、统计中隐藏。</p>
+                <RouteMapPanel :key="'single-trip-'+singleTripDay" :original-points="[]" :optimized-points="singleTripSelected.route.points" :optimized-segments="singleTripIncludeDetours ? singleTripSelected.detours.expandedSegments : singleTripSelected.route.roadSegments" :highlight-segments="singleTripIncludeDetours ? singleTripSelected.detours.detourSegments : []" :show-original="false" optimized-label="单趟收运路线" />
+              </template>
             </template>
           </section>
             </div>
@@ -2329,6 +2348,7 @@ import ClusterMapPanel from './components/ClusterMapPanel.vue'
 import FlowAnalysisPdfReport from './components/FlowAnalysisPdfReport.vue'
 import { balanceAssignmentPhases } from './assignmentPhases.js'
 import { maskFixedTripTemplate, buildFixedDailyRouteResult } from './fixedTripTemplate.js'
+import { buildSingleTripDetours } from './singleTripDetours.js'
 import { applyGarbageDensity } from './garbageDensity.js'
 
 const LOGIN_USERNAME = 'admin'
@@ -2691,6 +2711,11 @@ const fixedMasterRouteNo = ref(null)
 const fixedMasterRunning = ref(false)
 const fixedMasterMessage = ref('')
 const fixedMasterDay = ref(1)
+const singleTripPlan = ref(null)
+const singleTripRunning = ref(false)
+const singleTripMessage = ref('')
+const singleTripDay = ref(1)
+const singleTripIncludeDetours = ref(true)
 const fixedMasterFingerprint = computed(() => JSON.stringify({
   route: selectedSplitRoute.value?.id,
   points: splitPlanPoints.value,
@@ -2700,7 +2725,14 @@ const fixedMasterFingerprint = computed(() => JSON.stringify({
   ends: normalizedEndCandidates(),
   schemes: assignmentVersions.value.map(version => ({ id: version.id, days: version.applicableDays, indices: [...version.selectedIndices] }))
 }))
+const singleTripFingerprint = computed(() => JSON.stringify({ fixed: fixedMasterFingerprint.value, disabled: assignmentVersions.value.map(version => Boolean(version.scheduleDisabled)) }))
 const fixedMasterFresh = computed(() => !!fixedMaster.value && fixedMaster.value.fingerprint === fixedMasterFingerprint.value)
+const singleTripFresh = computed(() => !!singleTripPlan.value && singleTripPlan.value.fingerprint === singleTripFingerprint.value)
+const singleTripSelected = computed(() => {
+  if (!singleTripFresh.value) return null
+  if (singleTripDay.value === 0) return singleTripPlan.value.complete
+  return singleTripPlan.value.days.find(day => day.day === singleTripDay.value) || null
+})
 const fixedMasterDays = computed(() => !fixedMasterFresh.value ? [] : fixedMaster.value.days.map(day => {
   const schemes = assignmentVersions.value.filter(version => (version.applicableDays || []).includes(day.day))
   const disabled = schemes.length > 0 && schemes.every(version => version.scheduleDisabled)
@@ -2921,9 +2953,79 @@ async function generateFixedMaster() {
     fixedMasterMessage.value = `生成失败：${err.message || String(err)}`
   } finally { fixedMasterRunning.value = false }
 }
-async function calculateFixedMasterDays(template, days, options) {
+async function generateSingleTripPlan() {
+  if (singleTripRunning.value || !assignmentScheduleExportReady.value || fixedMasterRunning.value || assignmentBatchRunning.value || assignmentTripReorderRunning.value) return
+  const fingerprint = singleTripFingerprint.value
+  const originals = deepClone(splitPlanPoints.value)
+  const options = { ...optimizeOptions }
+  const schemes = assignmentVersions.value.map(item => ({ indices: [...item.selectedIndices], days: [...(item.applicableDays || [])], disabled: Boolean(item.scheduleDisabled) }))
+  const vehicles = normalizedAssignmentVehicles().map(vehicle => ({ ...vehicle, tripCount: 1 }))
+  singleTripRunning.value = true
+  singleTripMessage.value = '正在规划不受载重限制的完整单趟顺序…'
+  let taskId = null
+  try {
+    if (new Set(originals.map(point => String(point.facilityId))).size !== originals.length) throw new Error('岗位存在重复点位，请先核对')
+    if (vehicles.length !== 1) throw new Error('请选择一辆车并确认额定载重')
+    const request = { ...options, maxRoutes: 1, singleUncappedTrip: true,
+      startLongitude: options.startLongitude ?? originals[0]?.longitude, startLatitude: options.startLatitude ?? originals[0]?.latitude,
+      endLongitude: options.endLongitude ?? originals.at(-1)?.longitude, endLatitude: options.endLatitude ?? originals.at(-1)?.latitude,
+      unitId: selectedSplitCompany.value.id, dispatchMode: 'USER_ORDER', vehicles,
+      endSelectionMode: endAnchorMode.value, endCandidates: normalizedEndCandidates(), points: originals,
+      displayRoadPath: false, useRoadPath: options.multiRouteStrategy === 'ROAD_GLOBAL' }
+    let task = await api('/api/optimize/multi-preview/tasks', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(request) })
+    taskId = task.taskId
+    while (!['DONE', 'FAILED', 'CANCELLED', 'NOT_FOUND'].includes(task.status)) {
+      singleTripMessage.value = task.message || '正在规划完整单趟路线'
+      await new Promise(resolve => setTimeout(resolve, 1000))
+      if (fingerprint !== singleTripFingerprint.value) throw new Error('配置发生变化，请重新生成')
+      task = await api(`/api/optimize/multi-preview/tasks/${taskId}`)
+    }
+    if (task.status !== 'DONE' || !task.result) throw new Error(task.message || '单趟方案生成失败')
+    const template = deepClone(task.result)
+    if (template.routeCount !== 1 || Number(template.unassignedPointCount || 0) !== 0) throw new Error(`单趟未覆盖全部点位（未分配${template.unassignedPointCount || 0}点）`)
+    const route = template.routes[0]
+    const resolveRoad = createFixedRoadResolver(options)
+    singleTripMessage.value = '正在加载单趟完整道路…'
+    const road = await resolveRoad(route.points)
+    if (road.segments?.length !== route.points.length - 1 || road.segments.some(segment => !['OD_CACHE', 'OD_PRELOAD', 'BAIDU_ONLINE', 'SAME_POINT'].includes(segment.pathSource) || !segment.path?.length)) throw new Error('未取得完整道路折线；不以直线冒充道路')
+    route.segments = route.roadSegments = road.segments
+    route.displayDistance = road.distance ?? road.segments.reduce((sum, segment) => sum + Number(segment.distance), 0)
+    route.displayTravelDurationMinutes = road.durationMinutes ?? road.segments.reduce((sum, segment) => sum + Number(segment.durationMinutes), 0)
+    route.displayTotalDurationMinutes = Number(route.displayTravelDurationMinutes) + Number(route.operationDurationMinutes || 0)
+    template.distanceMode = 'ROAD'
+    const ratedKg = Number(vehicles[0].ratedCapacityKg)
+    const rate = Number(options.targetLoadRate)
+    const unloadMinutes = Number(options.terminalUnloadMinutes || 0)
+    const complete = { route, detours: await buildSingleTripDetours(route, ratedKg, rate, unloadMinutes, resolveRoad) }
+    const days = []
+    for (let day = 1; day <= assignmentScheduleCycleDays.value; day += 1) {
+      if (fingerprint !== singleTripFingerprint.value) throw new Error('计算期间配置变化，结果已弃用')
+      singleTripMessage.value = `正在计算第${day}／${assignmentScheduleCycleDays.value}天跳点道路及中途卸料…`
+      const applicable = schemes.filter(scheme => scheme.days.includes(day))
+      if (applicable.length && applicable.every(scheme => scheme.disabled)) {
+        days.push({ day, disabled: true })
+        continue
+      }
+      const indices = [...new Set(applicable.flatMap(scheme => scheme.indices))]
+      const due = new Set(originals.filter((_, index) => indices.includes(index)).map(point => String(point.facilityId)))
+      const daily = await buildFixedDailyRouteResult(template, due, resolveRoad)
+      const dailyRoute = daily.routes[0]
+      days.push({ day, route: dailyRoute, detours: await buildSingleTripDetours(dailyRoute, ratedKg, rate, unloadMinutes, resolveRoad) })
+    }
+    if (fingerprint !== singleTripFingerprint.value) throw new Error('计算期间配置变化，结果已弃用')
+    singleTripPlan.value = { fingerprint, complete, days }
+    singleTripDay.value = 1
+    singleTripIncludeDetours.value = true
+    singleTripMessage.value = `单趟方案已覆盖全部${template.assignedPointCount}个点位；${days.length}天道路已计算，可切换查看。`
+  } catch (err) {
+    if (taskId) await api(`/api/optimize/multi-preview/tasks/${taskId}/cancel`, { method: 'POST' }).catch(() => {})
+    singleTripMessage.value = `生成失败：${err.message || String(err)}`
+  } finally { singleTripRunning.value = false }
+}
+
+function createFixedRoadResolver(options) {
   const cache = new Map()
-  const resolveRoad = async points => {
+  return async points => {
     const key = JSON.stringify(points.map(point => [point.facilityId, point.longitude, point.latitude]))
     if (!cache.has(key)) cache.set(key, (async () => {
       if (Number.isFinite(Number(points[0].longitude)) && Number.isFinite(Number(points[0].latitude)) && points.every(point => point.longitude === points[0].longitude && point.latitude === points[0].latitude)) {
@@ -2933,6 +3035,9 @@ async function calculateFixedMasterDays(template, days, options) {
     })())
     return cache.get(key)
   }
+}
+async function calculateFixedMasterDays(template, days, options) {
+  const resolveRoad = createFixedRoadResolver(options)
   const calculated = []
   for (const day of days) {
     fixedMasterMessage.value = `正在计算第${day.day}天跳点后道路与到达时间…`

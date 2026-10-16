@@ -102,6 +102,7 @@
             class="plot-line optimized"
             :style="{ stroke: props.optimizedColor }"
           />
+          <polyline v-for="(line, index) in fallbackHighlightLines" :key="`highlight-${index}`" :points="line" class="plot-line optimized" style="stroke:#8b5cf6;stroke-width:1.5" />
           <circle
             v-if="fallbackPlaybackPoint"
             :cx="fallbackPlaybackPoint.x"
@@ -142,6 +143,7 @@
           <div class="plot-title">{{ optimizedLabel }}顺序</div>
           <svg viewBox="0 0 100 100" role="img" aria-label="优化后路线坐标预览">
             <polyline :points="routePlot.optimized.line" class="plot-line optimized" :style="{ stroke: props.optimizedColor }" />
+            <polyline v-for="(line, index) in fallbackHighlightLines" :key="`optimized-highlight-${index}`" :points="line" class="plot-line optimized" style="stroke:#8b5cf6;stroke-width:1.5" />
             <g v-for="point in routePlot.optimized.points" :key="point.key">
               <circle :cx="point.x" :cy="point.y" r="2.2" class="plot-point-optimized" :style="fallbackMarkerStyle(point, props.markerColor)">
                 <title>{{ pointTitle(point) }}</title>
@@ -184,6 +186,7 @@ const props = defineProps({
     type: Array,
     default: () => []
   },
+  highlightSegments: { type: Array, default: () => [] },
   optimizedFacilityIds: {
     type: Array,
     default: null
@@ -247,6 +250,11 @@ const markerPoints = computed(() => {
 const extentPoints = computed(() => uniquePoints([...markerPoints.value, ...originalGeometryPoints.value, ...optimizedGeometryPoints.value, ...pendingAllPoints.value]))
 const allPoints = computed(() => extentPoints.value)
 const routePlot = computed(() => buildRoutePlot(originalAllPoints.value, optimizedAllPoints.value, pendingAllPoints.value))
+const fallbackHighlightLines = computed(() => {
+  if (!showOptimizedLine.value || !routePlot.value) return []
+  const bounds = boundsFor([...originalAllPoints.value, ...optimizedAllPoints.value, ...pendingAllPoints.value])
+  return props.highlightSegments.map(segment => projectRoute(normalizeRoutePoints(segment.path || []), bounds).line).filter(Boolean)
+})
 const playbackPoints = computed(() => {
   if (playbackRoute.value === 'original') {
     return originalGeometryPoints.value.length >= 2 ? originalGeometryPoints.value : originalAllPoints.value
@@ -296,7 +304,7 @@ onBeforeUnmount(() => {
 })
 
 watch(
-  () => [props.originalPoints, props.optimizedPoints, props.originalSegments, props.optimizedSegments, props.optimizedFacilityIds, props.optimizedColor, props.markerColor, props.pendingPoints, props.pendingColor, labelsVisible.value, showOriginalLine.value, showOptimizedLine.value, playbackRoute.value, expanded.value],
+  () => [props.originalPoints, props.optimizedPoints, props.originalSegments, props.optimizedSegments, props.highlightSegments, props.optimizedFacilityIds, props.optimizedColor, props.markerColor, props.pendingPoints, props.pendingColor, labelsVisible.value, showOriginalLine.value, showOptimizedLine.value, playbackRoute.value, expanded.value],
   () => renderMap(),
   { deep: true }
 )
@@ -347,6 +355,7 @@ function drawBaiduMap(BMap) {
   }
   if (showOptimizedLine.value) {
     drawPolyline(BMap, optimizedGeometryPoints.value, props.optimizedColor, 5, 0.9, 'solid')
+    props.highlightSegments.forEach(segment => drawPolyline(BMap, normalizeRoutePoints(segment.path || []), '#8b5cf6', 7, 0.95, 'solid'))
   }
   const optimizedMode = showOptimizedLine.value && optimizedAllPoints.value.length && (playbackRoute.value === 'optimized' || !showOriginalLine.value)
   pendingAllPoints.value.forEach((point, index) => {

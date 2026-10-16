@@ -282,6 +282,9 @@ public class RouteOptimizeService {
                 ? (refineWithRoad ? refineContext : (useRoadPath ? distanceContext : new DistanceContext(true, false)))
                 : new DistanceContext(false, false);
         List<DispatchTrip> dispatchPlan = buildDispatchPlan(request, start, end, ratedCapacityKg, maxCapacityKg, targetLoadRate);
+        if (Boolean.TRUE.equals(request.get("singleUncappedTrip")) && dispatchPlan.size() != 1) {
+            throw new IllegalArgumentException("singleUncappedTrip requires exactly one dispatch trip");
+        }
         if (task != null) {
             task.prepare(sourcePoints.size(), dispatchPlan.size(), planningStrategy);
         }
@@ -769,7 +772,7 @@ public class RouteOptimizeService {
             List<Map<String, Object>> candidateEvaluations = new ArrayList<Map<String, Object>>();
             for (RoutePoint candidate : available) {
                 double nextLoad = load + valueOrZero(candidate.getEstimatedWeightKg());
-                if (nextLoad > maxCapacityKg && load > 0D) {
+                if (!Boolean.TRUE.equals(request.get("singleUncappedTrip")) && nextLoad > maxCapacityKg && load > 0D) {
                     continue;
                 }
                 for (int segment = 0; segment < route.size() - 1; segment++) {
@@ -811,7 +814,7 @@ public class RouteOptimizeService {
             selected.put("nextFacilityId", next.getFacilityId()); selected.put("nextFacilityName", next.getFacilityName()); selected.put("increaseDistanceMeters", best.increase);
             double traceTotalMinutes = estimatedRouteDuration(route, request, distanceCalculator);
             traceService.step(trace, routeNo, trip.vehicleId, trip.tripNo, iteration, pointViews(route, request), selected, topCandidates, available.size(), available.size() + 1, candidateEvaluations.size(), routeDistance(route, distanceCalculator), traceTotalMinutes, sumOperationDuration(collectedPoints(route), request) + terminalUnloadDuration(request), traceTotalMinutes, load, distanceCalculator.delegate.useRoadPath ? "OD_PRELOAD" : "DIRECT");
-            if (targetLoadWeightKg > 0D && load >= targetLoadWeightKg) {
+            if (!Boolean.TRUE.equals(request.get("singleUncappedTrip")) && targetLoadWeightKg > 0D && load >= targetLoadWeightKg) {
                 break;
             }
         }
