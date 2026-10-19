@@ -1117,8 +1117,8 @@
               <div class="assignment-schedule-export"><button type="button" class="secondary" :disabled="!assignmentScheduleExportReady || assignmentBatchRunning || loading" @click="exportAssignmentSchedule">导出排班表</button></div>
           <section v-if="selectedSplitRoute && currentView === 'position-assignment'" class="panel" style="padding:16px">
             <div class="panel-head"><h2>固定主路线按日执行</h2><div class="panel-actions">
-              <button :disabled="fixedMasterRunning || assignmentBatchRunning || assignmentTripReorderRunning || !assignmentScheduleExportReady" @click="generateFixedMaster">{{ fixedMasterRunning ? fixedMasterMessage : '独立生成全点多趟方案' }}</button>
-              <button :disabled="singleTripRunning || fixedMasterRunning || assignmentBatchRunning || assignmentTripReorderRunning || !assignmentScheduleExportReady" @click="generateSingleTripPlan">{{ singleTripRunning ? '正在生成单趟方案…' : '独立生成全点单趟方案' }}</button>
+              <button :disabled="fixedMasterRunning || assignmentBatchRunning || assignmentTripReorderRunning || !splitPlanPoints.length" @click="generateFixedMaster">{{ fixedMasterRunning ? fixedMasterMessage : '独立生成全点多趟方案' }}</button>
+              <button :disabled="singleTripRunning || fixedMasterRunning || assignmentBatchRunning || assignmentTripReorderRunning || !splitPlanPoints.length" @click="generateSingleTripPlan">{{ singleTripRunning ? '正在生成单趟方案…' : '独立生成全点单趟方案' }}</button>
               <button :disabled="!!smallWindowReason" :title="smallWindowReason || '固定无时间窗点基础顺序，联合枚举时间窗点的插入位置及先后顺序'" @click="generateSmallWindowPlan">少量时间窗联合规划（{{ smallWindowCount }}点）</button>
               <button :disabled="!fixedMasterFresh || fixedMasterRunning || assignmentBatchRunning || assignmentTripReorderRunning || fixedMasterCycleTimeWindowStats.violationCount === 0" @click="openTimeWindowRepair('FIXED')">时间窗修正路线</button>
               <button :disabled="!fixedMasterFresh || fixedMasterRunning || assignmentBatchRunning || assignmentTripReorderRunning" @click="openManualRouteTest('FIXED')">手动调整测试</button>
@@ -1126,7 +1126,7 @@
               <button :disabled="!fixedMasterFresh || fixedMasterRunning || assignmentBatchRunning || assignmentTripReorderRunning || loading" @click="exportFixedMaster">导出方案</button>
               <button v-if="fixedMaster?.timeWindowOriginalResult" :disabled="!fixedMasterFresh || fixedMasterRunning || assignmentTripReorderRunning" @click="restoreFixedMasterOriginal">恢复修正前全点模板</button>
             </div></div>
-            <p>这是第二套独立方案：按所有点都收生成多趟。时间窗修正共同检查完整模板和整个排班周期，寻找每天跳点后都满足时间窗的固定顺序；趟序调整仍只针对完整模板。每日跳过不收点，重新查询道路并计算距离、耗时、到达时间与时间窗；保留原趟次和卸料时间，不对每日结果单独重排。不保证一定找到全部通过的固定顺序。</p>
+            <p>这是第二套独立方案：按所有点都收生成多趟。无需先生成按日排班；若已有排班，则继续计算每天跳点后的道路、耗时和时间窗。时间窗修正只检查已生成的完整模板及排班日期，不保证一定找到全部通过的固定顺序。</p>
             <p>计划不收依据已确认频次；停排不代表任务已完成。实际满载、漏收、设施关闭等异常需人工调度补收。</p>
             <p>少量时间窗联合规划仅支持1～5个时间窗点；允许、禁收时段均计入。同车配置趟次内联合插入，固定无时间窗点的基础顺序和归属，非全局最优。<template v-if="smallWindowReason"> {{ smallWindowReason }}</template></p>
             <p v-if="fixedMasterMessage">{{ fixedMasterMessage }}</p>
@@ -1142,9 +1142,10 @@
                 <button :disabled="fixedMasterDay === 0" :class="{ active: fixedMasterDay !== 0 && !fixedMasterMapIncludeSkipped }" @click="fixedMasterMapIncludeSkipped = false">仅当日收运点</button>
                 <button :disabled="fixedMasterDay === 0" :class="{ active: fixedMasterDay === 0 || fixedMasterMapIncludeSkipped }" @click="fixedMasterMapIncludeSkipped = true">保留全部点位</button>
               </div>
-              <p class="muted">每日到达时间、时间窗校验和导出统一按跳点后道路计算。“保留全部点位”仅对照模板连线，不改变每日计算结果。两种道路耗时均扣除当日不收点的作业时间。</p>
-              <p>主路线来源：{{ fixedMaster.sourceLabel }}；当天{{ fixedMasterDayData?.disabled ? '已停排' : fixedMasterDayData?.status || '未排班' }}。</p>
-              <p v-if="fixedMasterDayData?.result">完整模板 {{ fixedMasterDayData.result.routeCount }} 趟；全点模板时间窗冲突 {{ fixedMasterTimeWindowStats.violationCount }} 个；当天应收 {{ fixedMasterDayData.indices.length }} 点；当天时间窗冲突 {{ timeWindowStatsForResult(fixedMasterDayData.result).violationCount }} 个；当天应收但模板未分配 {{ fixedMasterDayData.result.dueUnassignedCount || 0 }} 点。</p>
+              <p v-if="assignmentScheduleExportReady" class="muted">每日到达时间、时间窗校验和导出统一按跳点后道路计算。“保留全部点位”仅对照模板连线，不改变每日计算结果。两种道路耗时均扣除当日不收点的作业时间。</p>
+              <p v-else class="muted">当前只生成一次全点模板；没有按日排班，不推断哪些天收运，也不生成每日跳点路线。</p>
+              <p>主路线来源：{{ fixedMaster.sourceLabel }}<template v-if="fixedMasterDay !== 0">；当天{{ fixedMasterDayData?.disabled ? '已停排' : fixedMasterDayData?.status || '未排班' }}</template>。</p>
+              <p v-if="fixedMasterDayData?.result">完整模板 {{ fixedMasterDayData.result.routeCount }} 趟；全点模板时间窗冲突 {{ fixedMasterTimeWindowStats.violationCount }} 个<template v-if="fixedMasterDay !== 0">；当天应收 {{ fixedMasterDayData.indices.length }} 点；当天时间窗冲突 {{ timeWindowStatsForResult(fixedMasterDayData.result).violationCount }} 个；当天应收但模板未分配 {{ fixedMasterDayData.result.dueUnassignedCount || 0 }} 点</template>。</p>
               <p v-if="fixedMasterDayData?.error" style="color:red">{{ fixedMasterDayData.error }}</p>
               <div style="max-height:420px;overflow:auto"><table style="width:100%"><thead><tr><th>主序号</th><th>点位</th><th>当天执行</th><th>到达</th></tr></thead><tbody>
                 <tr v-for="(point, index) in fixedMaster.points" :key="index" :style="{ color: fixedMasterToken(point)?.violation ? 'red' : !fixedMasterDayData?.indices.includes(point.masterIndex) || fixedMasterDayData?.disabled ? '#999' : '' }">
@@ -1162,7 +1163,7 @@
           </section>
           <section v-if="selectedSplitRoute && currentView === 'position-assignment'" class="panel" style="padding:16px">
             <h2>全点单趟＋按载重中途卸料</h2>
-            <p>先忽略载重生成一条完整点位顺序；每天按排班跳过不收点，再按额定载重 × 目标装载率，在下一点装不下时从当前点开往处理厂卸料，然后从处理厂开往下一点。不拆分点位收运。</p>
+            <p>先忽略载重生成一条完整点位顺序；无需先生成按日排班。若已有排班，每天跳过不收点；再按额定载重 × 目标装载率，在下一点装不下时从当前点开往处理厂卸料，然后从处理厂开往下一点。不拆分点位收运。</p>
             <p v-if="singleTripMessage">{{ singleTripMessage }}</p>
             <p v-if="singleTripPlan && !singleTripFresh" style="color:#c46b00">点位、排班或参数已变化，请重新生成单趟方案。</p>
             <template v-if="singleTripFresh">
@@ -1171,7 +1172,7 @@
               <p v-if="singleTripSelected?.disabled">第{{ singleTripDay }}天已停排，无收运路线。</p>
               <p v-if="singleTripSelected?.error" style="color:red">第{{ singleTripDay }}天道路计算失败：{{ singleTripSelected.error }}</p>
               <template v-else-if="singleTripSelected?.route && !singleTripSelected.disabled">
-                <p>当天收运点 {{ singleTripSelected.route.pointCount }} 个<template v-if="singleTripIncludeDetours">；中途卸料 {{ singleTripSelected.detours.breaks.length }} 次；目标装载量 {{ singleTripSelected.detours.thresholdKg.toFixed(1) }} kg</template>。</p>
+                <p>{{ singleTripDay === 0 ? '完整模板点位' : '当天收运点' }} {{ singleTripSelected.route.pointCount }} 个<template v-if="singleTripIncludeDetours">；中途卸料 {{ singleTripSelected.detours.breaks.length }} 次；目标装载量 {{ singleTripSelected.detours.thresholdKg.toFixed(1) }} kg</template>。</p>
                 <p v-if="singleTripIncludeDetours">里程：{{ formatDistance(singleTripSelected.detours.baseDistance) }} + {{ formatDistance(singleTripSelected.detours.extraDistance) }} = {{ formatDistance(singleTripSelected.detours.totalDistance) }}；耗时：{{ formatDuration(singleTripSelected.detours.totalDurationMinutes) }}（基础 {{ formatDuration(singleTripSelected.detours.baseDurationMinutes) }}，增量 {{ formatDuration(singleTripSelected.detours.extraDurationMinutes) }}）。紫色为中途卸料新增道路；增量已扣除被替换的原路段。</p>
                 <p v-else>原始单趟里程：{{ formatDistance(singleTripSelected.detours.baseDistance) }}；原始耗时：{{ formatDuration(singleTripSelected.detours.baseDurationMinutes) }}。中途卸料路线和增量已从地图、统计中隐藏。</p>
                 <RouteMapPanel :key="'single-trip-'+singleTripDay" :original-points="[]" :optimized-points="singleTripSelected.route.points" :optimized-segments="singleTripIncludeDetours ? singleTripSelected.detours.expandedSegments : singleTripSelected.route.roadSegments" :highlight-segments="singleTripIncludeDetours ? singleTripSelected.detours.detourSegments : []" :show-original="false" optimized-label="单趟收运路线" />
@@ -2751,6 +2752,7 @@ const fixedMasterCycleTimeWindowStats = computed(() => {
   const days = fixedMaster.value.days.map(day => ({ day: day.day, count: timeWindowStatsForResult(day.result).violationCount, missing: Number(day.result?.dueUnassignedCount || 0) }))
   const dailyCount = days.reduce((sum, day) => sum + day.count, 0)
   const missing = Number(fixedMaster.value.template.unassignedPointCount || 0) || days.reduce((sum, day) => sum + day.missing, 0)
+  if (!days.length) return { violationCount: templateCount, message: `完整模板：${templateCount}处冲突；尚未生成按日排班，未检查每天跳点后的时间窗。${missing ? '仍有未分配点，不代表任务全部可执行。' : ''}` }
   return { violationCount: templateCount + dailyCount,
     message: `完整模板：${templateCount}处冲突；排班周期：${days.map(day => `第${day.day}天${day.count ? `${day.count}处冲突` : '时间窗通过'}${day.missing ? `（应收未分配${day.missing}点）` : ''}`).join('，')}。${missing ? '仍有未分配点，不代表任务全部可执行。' : ''}` }
 })
@@ -2897,7 +2899,7 @@ async function applySmallWindowPlan() {
   finally { smallWindowDialog.running = false; smallWindowDialog.applying = false; fixedMasterRunning.value = false }
 }
 async function generateFixedMaster() {
-  if (fixedMasterRunning.value || !assignmentScheduleExportReady.value || assignmentBatchRunning.value || assignmentTripReorderRunning.value) return
+  if (fixedMasterRunning.value || !splitPlanPoints.value.length || assignmentBatchRunning.value || assignmentTripReorderRunning.value) return
   const fingerprint = fixedMasterFingerprint.value
   const originals = deepClone(splitPlanPoints.value)
   const metadata = new Map(originals.map((point, index) => [String(point.facilityId), { ...point, masterIndex: index }]))
@@ -2944,17 +2946,19 @@ async function generateFixedMaster() {
     }
     const calculatedDays = await calculateFixedMasterDays(template, days, options)
     if (fingerprint !== fixedMasterFingerprint.value) throw new Error('计算期间配置变化，结果已弃用')
-    fixedMaster.value = { fingerprint, template, points: masterPoints, days: calculatedDays, sourceLabel: '独立全点多趟模板；每日按跳点后道路计算距离、耗时与到达时间' }
-    fixedMasterDay.value = 1
+    fixedMaster.value = { fingerprint, template, points: masterPoints, days: calculatedDays, sourceLabel: calculatedDays.length ? '独立全点多趟模板；每日按跳点后道路计算距离、耗时与到达时间' : '独立全点多趟模板；尚无按日排班' }
+    fixedMasterDay.value = calculatedDays.length ? 1 : 0
     fixedMasterRouteNo.value = template.routes?.[0]?.routeNo || null
-    fixedMasterMessage.value = `全点方案已生成${template.routeCount || 0}趟，未分配${template.unassignedPointCount || 0}点。每日跳点道路和到达时间已计算，日期切换复用结果。`
+    fixedMasterMessage.value = calculatedDays.length
+      ? `全点方案已生成${template.routeCount || 0}趟，未分配${template.unassignedPointCount || 0}点。每日跳点道路和到达时间已计算，日期切换复用结果。`
+      : `全点多趟模板已生成${template.routeCount || 0}趟，未分配${template.unassignedPointCount || 0}点；尚无按日排班，仅展示完整模板。`
   } catch (err) {
     if (taskId) await api(`/api/optimize/multi-preview/tasks/${taskId}/cancel`, { method: 'POST' }).catch(() => {})
     fixedMasterMessage.value = `生成失败：${err.message || String(err)}`
   } finally { fixedMasterRunning.value = false }
 }
 async function generateSingleTripPlan() {
-  if (singleTripRunning.value || !assignmentScheduleExportReady.value || fixedMasterRunning.value || assignmentBatchRunning.value || assignmentTripReorderRunning.value) return
+  if (singleTripRunning.value || !splitPlanPoints.value.length || fixedMasterRunning.value || assignmentBatchRunning.value || assignmentTripReorderRunning.value) return
   const fingerprint = singleTripFingerprint.value
   const originals = deepClone(splitPlanPoints.value)
   const options = { ...optimizeOptions }
@@ -3014,9 +3018,11 @@ async function generateSingleTripPlan() {
     }
     if (fingerprint !== singleTripFingerprint.value) throw new Error('计算期间配置变化，结果已弃用')
     singleTripPlan.value = { fingerprint, complete, days }
-    singleTripDay.value = 1
+    singleTripDay.value = days.length ? 1 : 0
     singleTripIncludeDetours.value = true
-    singleTripMessage.value = `单趟方案已覆盖全部${template.assignedPointCount}个点位；${days.length}天道路已计算，可切换查看。`
+    singleTripMessage.value = days.length
+      ? `单趟方案已覆盖全部${template.assignedPointCount}个点位；${days.length}天道路已计算，可切换查看。`
+      : `单趟完整模板已覆盖全部${template.assignedPointCount}个点位；尚无按日排班，仅展示完整模板及中途卸料模拟。`
   } catch (err) {
     if (taskId) await api(`/api/optimize/multi-preview/tasks/${taskId}/cancel`, { method: 'POST' }).catch(() => {})
     singleTripMessage.value = `生成失败：${err.message || String(err)}`

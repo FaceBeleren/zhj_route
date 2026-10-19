@@ -41,7 +41,7 @@ function fixture() {
       return { segments: body.points.slice(1).map(() => ({ distance: 100, durationMinutes: 1, pathSource: 'OD_CACHE', path: [{ longitude: 118, latitude: 36.8 }, { longitude: 118.01, latitude: 36.8 }] })), distance: 100 * (body.points.length - 1), durationMinutes: body.points.length - 1 }
     }
   }
-  const state = new Function('scope', `with (scope) { ${code}; ${repairCode}; ${modalCode}; ${exportCode}; return { generateFixedMaster, fixedMaster, fixedMasterFresh, fixedMasterDays, fixedMasterMessage, fixedMasterCycleTimeWindowStats, updateFixedMasterTemplate, assignmentWorkbookRequest, openTimeWindowRepair, runTimeWindowRepair, applyTimeWindowRepair }; }`)(scope)
+  const state = new Function('scope', `with (scope) { ${code}; ${repairCode}; ${modalCode}; ${exportCode}; return { generateFixedMaster, generateSingleTripPlan, fixedMaster, fixedMasterDay, fixedMasterFresh, fixedMasterDays, fixedMasterMessage, fixedMasterCycleTimeWindowStats, singleTripPlan, singleTripDay, singleTripFresh, updateFixedMasterTemplate, assignmentWorkbookRequest, openTimeWindowRepair, runTimeWindowRepair, applyTimeWindowRepair }; }`)(scope)
   return { scope, state, requests }
 }
 
@@ -55,6 +55,43 @@ test('plans all points, rebuilds bypass roads and caches repeated daily sequence
   assert.deepEqual(state.fixedMaster.value.days[0].result.routes[0].points.map(point => point.facilityId), [-1, 3, -2])
   assert.equal(state.fixedMaster.value.days[0].result.routes[0].fullTemplatePoints[2].scheduleSkipped, true)
   assert.equal(state.fixedMasterFresh.value, true)
+})
+
+test('without a frequency cycle, still generates the full multi-trip template once', async () => {
+  const { state, scope, requests } = fixture()
+  scope.assignmentScheduleExportReady.value = false
+  scope.assignmentScheduleCycleDays.value = 0
+  scope.assignmentVersions.value = [{ id: 1, selectedIndices: new Set([0, 1, 2]), applicableDays: [], result: scope.assignmentVersions.value[0].result }]
+  await state.generateFixedMaster()
+  assert.equal(state.fixedMasterFresh.value, true)
+  assert.equal(state.fixedMasterDay.value, 0)
+  assert.equal(state.fixedMaster.value.template.routes.length, 2)
+  assert.deepEqual(state.fixedMaster.value.days, [])
+  assert.equal(requests.length, 3)
+  assert.match(state.fixedMasterMessage.value, /尚无按日排班/)
+  assert.match(state.fixedMasterCycleTimeWindowStats.value.message, /未检查每天跳点/)
+})
+
+test('without a frequency cycle, still generates one uncapped full-point trip', async () => {
+  const { state, scope } = fixture()
+  scope.assignmentScheduleExportReady.value = false
+  scope.assignmentScheduleCycleDays.value = 0
+  scope.assignmentVersions.value = [{ id: 1, selectedIndices: new Set([0, 1, 2]), applicableDays: [] }]
+  scope.normalizedAssignmentVehicles = () => [{ ratedCapacityKg: 3000, tripCount: 3 }]
+  scope.buildSingleTripDetours = async () => ({ breaks: [], thresholdKg: 2700 })
+  scope.api = async (url, options) => {
+    if (url === '/api/optimize/multi-preview/tasks') return { taskId: 'single-job', status: 'DONE', result: { routeCount: 1, assignedPointCount: 3, unassignedPointCount: 0, routes: [{ routeNo: 1, tripNo: 1, operationDurationMinutes: 0, points: [
+      { facilityId: -1, role: 'START', longitude: 118, latitude: 36.8 }, ...scope.splitPlanPoints.value.map(point => ({ ...point, role: 'MIDDLE' })), { facilityId: -2, role: 'END', longitude: 118.1, latitude: 36.8 }
+    ] }] } }
+    assert.equal(url, '/api/optimize/route-segments')
+    const points = JSON.parse(options.body).points
+    return { segments: points.slice(1).map(() => ({ distance: 100, durationMinutes: 1, pathSource: 'OD_CACHE', path: [{ longitude: 118, latitude: 36.8 }] })), distance: 100 * (points.length - 1), durationMinutes: points.length - 1 }
+  }
+  await state.generateSingleTripPlan()
+  assert.equal(state.singleTripFresh.value, true)
+  assert.equal(state.singleTripDay.value, 0)
+  assert.equal(state.singleTripPlan.value.complete.route.points.length, 5)
+  assert.deepEqual(state.singleTripPlan.value.days, [])
 })
 
 test('disabled day restoration uses the independent template without new road requests', async () => {

@@ -17,7 +17,7 @@
           {{ optimizedLabel }}
         </label>
         <button v-if="!expanded" class="map-expand-button" type="button" @click="expanded = true">最大化</button>
-        <button type="button" class="map-expand-button" :disabled="captureSaving || !routePlot" title="保存当前视野中的地图；浏览器弹窗请选择当前标签页" @click="saveMapScreenshot">{{ captureSaving ? '保存中…' : '保存截图' }}</button>
+        <button type="button" class="map-expand-button" :disabled="captureSaving || !routePlot" title="保存当前视野中的地图为 PNG" @click="saveMapScreenshot">{{ captureSaving ? '保存中…' : '保存截图' }}</button>
         <label class="plot-toggle">
           <input v-model="labelsVisible" type="checkbox" />
           序号
@@ -163,7 +163,7 @@
 <script setup>
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { distanceAtSlider, playbackMetersPerSecond, wheelZoomTarget } from '../routeMapMotion.js'
-import { mapCaptureCrop, mapScreenshotName } from '../mapScreenshot.js'
+import { drawProjectedRoute, mapCaptureCrop, mapScreenshotName } from '../mapScreenshot.js'
 
 const props = defineProps({
   viewLink: { type: Object, default: null },
@@ -296,6 +296,76 @@ function uniquePoints(points) {
   })
 }
 
+function verifyTileCanBeCaptured(src) {
+  return new Promise((resolve, reject) => {
+    const image = new Image()
+    const timer = setTimeout(() => reject(new Error('百度底图加载超时，暂无法保存完整截图')), 10000)
+    image.crossOrigin = 'anonymous'
+    image.onload = () => {
+      clearTimeout(timer)
+      try {
+        const canvas = document.createElement('canvas')
+        canvas.width = canvas.height = 1
+        canvas.getContext('2d').drawImage(image, 0, 0)
+        canvas.toDataURL('image/png')
+        resolve()
+      } catch {
+        reject(new Error('百度底图不允许页面直接截图，请通过 HTTPS 打开后使用标签页截图'))
+      }
+    }
+    image.onerror = () => {
+      clearTimeout(timer)
+      reject(new Error('百度底图无法完整加载，暂不保存缺少底图的截图'))
+    }
+    image.src = src
+  })
+}
+
+async function captureMapElement(target) {
+  const { default: html2canvas } = await import('html2canvas')
+  if (baiduReady.value) {
+    const tiles = [...target.querySelectorAll('img')].filter(image => image.src.includes('/tile/') && image.complete && image.naturalWidth > 0)
+    if (!tiles.length) throw new Error('百度底图尚未加载完成，请稍后再保存')
+    const tilesByHost = new Map(tiles.map(image => [new URL(image.src).host, image.src]))
+    await Promise.all([...tilesByHost.values()].map(verifyTileCanBeCaptured))
+  }
+  const captured = await html2canvas(target, {
+    backgroundColor: '#ffffff',
+    useCORS: true,
+    allowTaint: false,
+    scale: Math.min(window.devicePixelRatio || 1, 2),
+    imageTimeout: 15000,
+    logging: false
+  })
+  const canvas = document.createElement('canvas')
+  canvas.width = captured.width
+  canvas.height = captured.height
+  canvas.getContext('2d').drawImage(captured, 0, 0)
+  if (baiduReady.value) drawCapturedRouteOverlays(canvas, target)
+  return canvas
+}
+
+function drawCapturedRouteOverlays(canvas, target) {
+  const context = canvas.getContext('2d')
+  if (!context || !mapInstance || !window.BMap) throw new Error('无法绘制截图中的路线')
+  const targetRect = target.getBoundingClientRect()
+  const scaleX = canvas.width / targetRect.width
+  const scaleY = canvas.height / targetRect.height
+  const project = point => mapInstance.pointToPixel(new window.BMap.Point(point.longitude, point.latitude))
+  context.save()
+  context.scale(scaleX, scaleY)
+  if (showOriginalLine.value) {
+    drawProjectedRoute(context, originalGeometryPoints.value, project, { color: '#d84f4f', width: 4, opacity: 0.8, dashed: true })
+  }
+  if (showOptimizedLine.value) {
+    drawProjectedRoute(context, optimizedGeometryPoints.value, project, { color: props.optimizedColor, width: 5, opacity: 0.9 })
+    props.highlightSegments.forEach(segment => {
+      drawProjectedRoute(context, normalizeRoutePoints(segment.path || []), project, { color: '#8b5cf6', width: 7, opacity: 0.95 })
+    })
+  }
+  context.restore()
+}
+
 async function saveMapScreenshot() {
   if (captureSaving.value) return
   clearTimeout(captureStatusTimer)
@@ -306,31 +376,35 @@ async function saveMapScreenshot() {
   try {
     const target = baiduReady.value ? mapEl.value : fallbackMapEl.value
     if (!target) throw new Error('地图尚未显示，无法保存截图')
-    if (!navigator.mediaDevices?.getDisplayMedia) throw new Error('当前浏览器或非安全连接不支持页面截图；请使用 HTTPS 或 localhost 的 Chrome/Edge')
-    mapCaptureCrop(target.getBoundingClientRect(), window.innerWidth, window.innerHeight, window.innerWidth, window.innerHeight)
-    captureStatus.value = '请在浏览器弹窗中选择“当前标签页”'
-    stream = await navigator.mediaDevices.getDisplayMedia({ video: { displaySurface: 'browser' }, audio: false, preferCurrentTab: true, selfBrowserSurface: 'include' })
-    const track = stream.getVideoTracks()[0]
-    if (track?.getSettings().displaySurface !== 'browser') throw new Error('请选择“当前标签页”，不要选择窗口或整个屏幕')
-    video = document.createElement('video')
-    video.muted = true
-    video.playsInline = true
-    video.srcObject = stream
-    await video.play()
-    if (typeof video.requestVideoFrameCallback === 'function') {
-      await new Promise((resolve, reject) => {
-        const timeout = setTimeout(() => reject(new Error('等待地图画面超时，请重试')), 5000)
-        video.requestVideoFrameCallback(() => { clearTimeout(timeout); resolve() })
-      })
+    let canvas
+    if (navigator.mediaDevices?.getDisplayMedia) {
+      mapCaptureCrop(target.getBoundingClientRect(), window.innerWidth, window.innerHeight, window.innerWidth, window.innerHeight)
+      captureStatus.value = '请在浏览器弹窗中选择“当前标签页”'
+      stream = await navigator.mediaDevices.getDisplayMedia({ video: { displaySurface: 'browser' }, audio: false, preferCurrentTab: true, selfBrowserSurface: 'include' })
+      const track = stream.getVideoTracks()[0]
+      if (track?.getSettings().displaySurface !== 'browser') throw new Error('请选择“当前标签页”，不要选择窗口或整个屏幕')
+      video = document.createElement('video')
+      video.muted = true
+      video.playsInline = true
+      video.srcObject = stream
+      await video.play()
+      if (typeof video.requestVideoFrameCallback === 'function') {
+        await new Promise((resolve, reject) => {
+          const timeout = setTimeout(() => reject(new Error('等待地图画面超时，请重试')), 5000)
+          video.requestVideoFrameCallback(() => { clearTimeout(timeout); resolve() })
+        })
+      }
+      const crop = mapCaptureCrop(target.getBoundingClientRect(), window.innerWidth, window.innerHeight, video.videoWidth, video.videoHeight)
+      canvas = document.createElement('canvas')
+      canvas.width = crop.width
+      canvas.height = crop.height
+      const context = canvas.getContext('2d')
+      if (!context) throw new Error('无法创建截图画布')
+      context.drawImage(video, crop.x, crop.y, crop.width, crop.height, 0, 0, crop.width, crop.height)
+    } else {
+      captureStatus.value = '正在生成地图截图…'
+      canvas = await captureMapElement(target)
     }
-    const rect = target.getBoundingClientRect()
-    const crop = mapCaptureCrop(rect, window.innerWidth, window.innerHeight, video.videoWidth, video.videoHeight)
-    const canvas = document.createElement('canvas')
-    canvas.width = crop.width
-    canvas.height = crop.height
-    const context = canvas.getContext('2d')
-    if (!context) throw new Error('无法创建截图画布')
-    context.drawImage(video, crop.x, crop.y, crop.width, crop.height, 0, 0, crop.width, crop.height)
     const blob = await new Promise((resolve, reject) => canvas.toBlob(value => value ? resolve(value) : reject(new Error('无法生成 PNG 图片')), 'image/png'))
     const url = URL.createObjectURL(blob)
     const link = document.createElement('a')

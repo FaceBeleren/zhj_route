@@ -20,3 +20,29 @@ export function mapScreenshotName(now = new Date()) {
   const part = value => String(value).padStart(2, '0')
   return `路线地图-${now.getFullYear()}${part(now.getMonth() + 1)}${part(now.getDate())}-${part(now.getHours())}${part(now.getMinutes())}${part(now.getSeconds())}.png`
 }
+
+export function drawProjectedRoute(context, points, project, { color, width, opacity, dashed = false }) {
+  if (points.length < 2) return false
+  let started = false
+  context.save()
+  context.beginPath()
+  for (const point of points) {
+    const pixel = project(point)
+    if (!pixel || !Number.isFinite(pixel.x) || !Number.isFinite(pixel.y)) {
+      started = false
+      continue
+    }
+    if (started) context.lineTo(pixel.x, pixel.y)
+    else context.moveTo(pixel.x, pixel.y)
+    started = true
+  }
+  context.strokeStyle = color
+  context.lineWidth = width
+  context.globalAlpha = opacity
+  context.lineCap = 'round'
+  context.lineJoin = 'round'
+  context.setLineDash(dashed ? [10, 7] : [])
+  context.stroke()
+  context.restore()
+  return true
+}
