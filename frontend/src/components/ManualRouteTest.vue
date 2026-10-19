@@ -22,10 +22,11 @@
       </div>
       <div v-if="adjustmentMode === 'twoOpt'" class="manual-test-selection">
         <p>优化当前选中趟次：逐个尝试连续区段反转，采用里程更短（差异不足1米时耗时更少）且通过完整路线时间窗、载重和工作时长检查的候选；不跨固定锚点。</p>
+        <label>搜索时限 <select v-model.number="twoOptMinutes" :disabled="busy"><option :value="1">1分钟</option><option :value="5">5分钟</option><option :value="10">10分钟</option><option :value="30">30分钟</option></select></label>
         <button :disabled="busy" @click="optimizeTwoOptRoute">开始 2-opt 优化当前趟</button>
         <button v-if="autoRunning" @click="cancelSelection">取消计算</button>
         <button v-if="autoCandidate" :disabled="busy" @click="adoptSelectedCandidate">采用候选到编辑列表</button>
-        <p>搜索上限30秒或2000个候选（基准复算及在途道路请求另计）；达到上限返回已检查结果，不保证全局最优。</p>
+        <p>按所选时限搜索，不限制候选数量；没有进一步改善会提前结束。基准复算及在途道路请求另计；达到时限返回已检查结果，不保证全局最优。</p>
         <p v-if="autoMessage">{{ autoMessage }}</p>
       </div>
       <div v-if="autoRunning || autoProgress" class="manual-auto-progress" role="status">
@@ -79,6 +80,7 @@ const draft = ref(createManualDraft(props.result))
 const tripIndex = ref(Math.max(0, draft.value.routes.findIndex(route => Number(route.routeNo) === Number(props.initialRouteNo))))
 const busy = ref(false), progress = ref(''), error = ref(''), comparison = ref(null), scenarioIndex = ref(0), calculationId = ref(0)
 let requestId = 0
+const twoOptMinutes = ref(5)
 const adjustmentMode = ref('manual'), selectedTokens = ref(new Set()), autoRunning = ref(false), autoCandidate = ref(null), autoProgress = ref(null), autoMessage = ref(''), selectedComparison = ref(false), autoElapsed = ref(0)
 const markedTokens = ref(new Set())
 let autoController = null, autoTimer = null
@@ -126,7 +128,7 @@ async function optimizeTwoOptRoute() {
   autoController = new AbortController(); autoElapsed.value = 0
   autoTimer = setInterval(() => { autoElapsed.value = Date.now() - started }, 1000)
   try {
-    const result = await optimizeTwoOpt({ draft: before, routeIndex: activeTrip, options: props.options,
+    const result = await optimizeTwoOpt({ draft: before, routeIndex: activeTrip, options: props.options, timeLimitMs: twoOptMinutes.value * 60000,
       resolveRoad: props.resolveRoad, buildSchedules: props.buildSchedules, isViolation: props.isViolation, signal: autoController.signal,
       onProgress: value => { if (id === requestId) { autoProgress.value = value; progress.value = value.message } } })
     if (id !== requestId) return

@@ -20,7 +20,7 @@ export function* twoOptCandidates(input, routeIndex) {
   }
 }
 
-export async function optimizeTwoOpt({ draft, routeIndex, options, resolveRoad, buildSchedules, isViolation, signal, onProgress = () => {}, timeLimitMs = 30000, maxEvaluations = 2000 }) {
+export async function optimizeTwoOpt({ draft, routeIndex, options, resolveRoad, buildSchedules, isViolation, signal, onProgress = () => {}, timeLimitMs = 300000, maxEvaluations = Infinity }) {
   const baseline = clone(draft), started = Date.now()
   if (!baseline.routes[routeIndex]) throw new Error('请选择有效趟次')
   for (const route of baseline.routes) {
