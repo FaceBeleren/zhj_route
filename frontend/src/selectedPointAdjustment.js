@@ -69,7 +69,7 @@ export function* selectedAdjustmentCandidates(input, tokens) {
   }
 }
 
-function operationallyFeasible(comparison, options) {
+export function operationallyFeasible(comparison, options) {
   // Time windows annotate the comparison only; they must not filter distance improvements.
   if (comparison.scenarios.some(s => s.manual.missing)) return false
   for (const scenario of comparison.scenarios) {

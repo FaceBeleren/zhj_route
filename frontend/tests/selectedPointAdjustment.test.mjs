@@ -153,7 +153,7 @@ test('manual calculation is hidden and guarded in selection mode; adopting switc
   const calculation = ui.slice(ui.indexOf('async function calculate()'), ui.indexOf('</script>'))
   assert.match(calculation, /adjustmentMode.value !== 'manual'/)
   const save = ui.slice(ui.indexOf('async function saveManual()'), ui.indexOf('async function calculate()'))
-  assert.equal((save.match(/adjustmentMode.value === 'selected' && \(!comparison.value \|\| !selectedComparison.value\)/g) || []).length, 2)
+  assert.equal((save.match(/adjustmentMode.value !== 'manual' && \(!comparison.value \|\| !selectedComparison.value\)/g) || []).length, 2)
   const code = ui.slice(ui.indexOf('function adoptSelectedCandidate()'), ui.indexOf('async function optimizeSelection()'))
   const candidate = { routes: [{ points: [{ facilityId: 42 }] }] }
   const scope = { busy: { value: false }, autoCandidate: { value: candidate }, draft: { value: null }, adjustmentMode: { value: 'selected' }, autoMessage: { value: '' }, clearDrag() {} }
