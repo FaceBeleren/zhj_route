@@ -3,7 +3,7 @@
     <div class="route-map-head">
       <div>
         <strong>路线地图</strong>
-        <small>{{ mapStatus }}</small>
+        <small>{{ captureStatus || mapStatus }}</small>
       </div>
       <div class="route-map-actions">
         <label v-if="props.showOriginal" class="route-line-toggle original" :class="{ muted: !showOriginalLine }">
@@ -17,6 +17,7 @@
           {{ optimizedLabel }}
         </label>
         <button v-if="!expanded" class="map-expand-button" type="button" @click="expanded = true">最大化</button>
+        <button type="button" class="map-expand-button" :disabled="captureSaving || !routePlot" title="保存当前视野中的地图；浏览器弹窗请选择当前标签页" @click="saveMapScreenshot">{{ captureSaving ? '保存中…' : '保存截图' }}</button>
         <label class="plot-toggle">
           <input v-model="labelsVisible" type="checkbox" />
           序号
@@ -88,7 +89,7 @@
     <div v-show="baiduReady" ref="mapEl" class="baidu-route-map"></div>
 
     <div v-if="!baiduReady && routePlot" class="route-plot fallback-plot">
-      <div class="plot-card wide">
+      <div ref="fallbackMapEl" class="plot-card wide">
         <div class="plot-title">坐标预览</div>
         <svg viewBox="0 0 100 100" role="img" aria-label="路线坐标预览叠加对比">
           <polyline
@@ -162,6 +163,7 @@
 <script setup>
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { distanceAtSlider, playbackMetersPerSecond, wheelZoomTarget } from '../routeMapMotion.js'
+import { mapCaptureCrop, mapScreenshotName } from '../mapScreenshot.js'
 
 const props = defineProps({
   viewLink: { type: Object, default: null },
@@ -214,8 +216,12 @@ const BAIDU_SCRIPT_TIMEOUT_MS = 8000
 let baiduMapLoader = null
 
 const mapEl = ref(null)
+const fallbackMapEl = ref(null)
 const baiduReady = ref(false)
 const mapStatus = ref('未配置百度地图 AK 时使用坐标预览')
+const captureSaving = ref(false)
+const captureStatus = ref('')
+let captureStatusTimer = null
 const labelsVisible = ref(true)
 const showOriginalLine = ref(props.showOriginal)
 const showOptimizedLine = ref(true)
@@ -290,11 +296,67 @@ function uniquePoints(points) {
   })
 }
 
+async function saveMapScreenshot() {
+  if (captureSaving.value) return
+  clearTimeout(captureStatusTimer)
+  let stream
+  let video
+  captureSaving.value = true
+  captureStatus.value = ''
+  try {
+    const target = baiduReady.value ? mapEl.value : fallbackMapEl.value
+    if (!target) throw new Error('地图尚未显示，无法保存截图')
+    if (!navigator.mediaDevices?.getDisplayMedia) throw new Error('当前浏览器或非安全连接不支持页面截图；请使用 HTTPS 或 localhost 的 Chrome/Edge')
+    mapCaptureCrop(target.getBoundingClientRect(), window.innerWidth, window.innerHeight, window.innerWidth, window.innerHeight)
+    captureStatus.value = '请在浏览器弹窗中选择“当前标签页”'
+    stream = await navigator.mediaDevices.getDisplayMedia({ video: { displaySurface: 'browser' }, audio: false, preferCurrentTab: true, selfBrowserSurface: 'include' })
+    const track = stream.getVideoTracks()[0]
+    if (track?.getSettings().displaySurface !== 'browser') throw new Error('请选择“当前标签页”，不要选择窗口或整个屏幕')
+    video = document.createElement('video')
+    video.muted = true
+    video.playsInline = true
+    video.srcObject = stream
+    await video.play()
+    if (typeof video.requestVideoFrameCallback === 'function') {
+      await new Promise((resolve, reject) => {
+        const timeout = setTimeout(() => reject(new Error('等待地图画面超时，请重试')), 5000)
+        video.requestVideoFrameCallback(() => { clearTimeout(timeout); resolve() })
+      })
+    }
+    const rect = target.getBoundingClientRect()
+    const crop = mapCaptureCrop(rect, window.innerWidth, window.innerHeight, video.videoWidth, video.videoHeight)
+    const canvas = document.createElement('canvas')
+    canvas.width = crop.width
+    canvas.height = crop.height
+    const context = canvas.getContext('2d')
+    if (!context) throw new Error('无法创建截图画布')
+    context.drawImage(video, crop.x, crop.y, crop.width, crop.height, 0, 0, crop.width, crop.height)
+    const blob = await new Promise((resolve, reject) => canvas.toBlob(value => value ? resolve(value) : reject(new Error('无法生成 PNG 图片')), 'image/png'))
+    const url = URL.createObjectURL(blob)
+    const link = document.createElement('a')
+    link.href = url
+    link.download = mapScreenshotName()
+    document.body.appendChild(link)
+    link.click()
+    link.remove()
+    setTimeout(() => URL.revokeObjectURL(url), 60000)
+    captureStatus.value = '截图已保存为 PNG'
+  } catch (error) {
+    captureStatus.value = error.name === 'NotAllowedError' || error.name === 'AbortError' ? '已取消截图' : `保存截图失败：${error.message || String(error)}`
+  } finally {
+    stream?.getTracks().forEach(track => track.stop())
+    if (video) video.srcObject = null
+    captureSaving.value = false
+    captureStatusTimer = setTimeout(() => { captureStatus.value = '' }, 6000)
+  }
+}
+
 onMounted(() => {
   renderMap()
 })
 
 onBeforeUnmount(() => {
+  clearTimeout(captureStatusTimer)
   unlinkView?.()
   pausePlayback()
   mapEl.value?.removeEventListener('wheel', handleMapWheel)
