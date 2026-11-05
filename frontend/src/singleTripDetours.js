@@ -56,7 +56,7 @@ export async function buildSingleTripDetours(route, ratedCapacityKg, targetLoadR
   const baseDurationMinutes = Number(route.displayTotalDurationMinutes || 0)
   const extraDurationMinutes = extraTravelMinutes + breaks.length * Number(unloadMinutes || 0)
   const returnTrip = await buildFinalReturnTrip([route], resolveRoad)
-  return { thresholdKg, breaks, baseDistance, extraDistance, totalDistance: baseDistance + extraDistance,
+  return { thresholdKg, breaks, unloadMinutes: Number(unloadMinutes || 0), baseDistance, extraDistance, totalDistance: baseDistance + extraDistance,
     baseDurationMinutes, extraDurationMinutes, totalDurationMinutes: baseDurationMinutes + extraDurationMinutes,
     expandedSegments, detourSegments, returnTrip }
 }

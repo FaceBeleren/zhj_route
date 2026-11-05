@@ -1176,7 +1176,7 @@
                 <p>全部点位先排一条顺序；每天跳点后重新按累计重量确定中途卸料位置。</p>
                 <small>全点固定顺序 · 每日跳点 · 卸料位置按日变化</small>
                 <strong class="assignment-strategy-status">{{ singleTripRunning ? '计算中' : singleTripFresh ? '已生成' : singleTripPlan ? '配置已变化，需重算' : '尚未生成' }}</strong>
-                <div class="assignment-strategy-actions"><button type="button" class="secondary" :aria-pressed="planningView === 'SINGLE'" @click="planningView = 'SINGLE'">查看结果</button><button type="button" :disabled="singleTripRunning || fixedMasterRunning || assignmentBatchRunning || assignmentTripReorderRunning || !splitPlanPoints.length" @click="planningView = 'SINGLE'; generateSingleTripPlan()">{{ singleTripRunning ? '正在生成…' : '生成全点单趟' }}</button></div>
+                <div class="assignment-strategy-actions"><button type="button" class="secondary" :aria-pressed="planningView === 'SINGLE'" @click="planningView = 'SINGLE'">查看结果</button><button type="button" :disabled="singleTripRunning || singleTripRepairRunning || fixedMasterRunning || assignmentBatchRunning || assignmentTripReorderRunning || !splitPlanPoints.length" @click="planningView = 'SINGLE'; generateSingleTripPlan()">{{ singleTripRunning ? '正在生成…' : '生成全点单趟' }}</button></div>
               </article>
             </div>
           </section>
@@ -1236,10 +1236,19 @@
             </template>
           </section>
           <section v-if="selectedSplitRoute && planningView === 'SINGLE'" class="panel" style="padding:16px">
-            <div class="panel-head"><h2>规划结果 · 全点单趟动态卸料</h2><div class="panel-actions"><button type="button" :disabled="!singleTripFresh || singleTripRunning || fixedMasterRunning || assignmentBatchRunning || assignmentTripReorderRunning || loading" @click="exportSingleTrip">导出方案</button></div></div>
+            <div class="panel-head"><h2>规划结果 · 全点单趟动态卸料</h2><div class="panel-actions"><button type="button" :disabled="!singleTripFresh || singleTripRunning || singleTripRepairRunning || loading" @click="runSingleTripTimeWindowRepair">{{ singleTripRepairRunning ? '正在修正…' : '时间窗修正路线' }}</button><button v-if="singleTripRepairRunning" type="button" class="secondary" @click="singleTripRepairController?.abort()">取消计算</button><button type="button" :disabled="!singleTripFresh || singleTripRunning || singleTripRepairRunning || fixedMasterRunning || assignmentBatchRunning || assignmentTripReorderRunning || loading" @click="exportSingleTrip">导出方案</button></div></div>
             <p>先忽略载重生成一条完整点位顺序；无需先生成按日排班。若已有排班，每天跳过不收点；再按额定载重 × 目标装载率，在下一点装不下时从当前点开往处理厂卸料，然后从处理厂开往下一点。不拆分点位收运。末次到处理厂后返回初始点可独立开关。</p>
             <p v-if="singleTripMessage">{{ singleTripMessage }}</p>
             <p v-else-if="!singleTripFresh" class="muted">尚未生成全点单趟方案，请点击上方对应策略的生成按钮。</p>
+             <p v-if="singleTripRepairMessage" role="status">{{ singleTripRepairMessage }}</p>
+             <div v-if="singleTripRepairPreview" class="optimization-box">
+                <strong>完整模板及每日时间窗修正试算</strong>
+                <p>冲突 {{ singleTripRepairPreview.result.before.violations }} → {{ singleTripRepairPreview.result.after.violations }} 处；完整模板及每天均按跳点、估重卸料、处理厂往返道路和卸料时间重新校验。到达与收完都需在允许时段内。</p>
+                <p>完整模板候选：{{ singleTripRepairPreview.result.complete.route.points.filter(point => point.role === 'MIDDLE').map(point => point.facilityName || point.facilityId).join(' → ') }}；冲突{{ singleTripRepairPreview.result.complete.timeline.violationCount }}处。</p>
+                <details><summary>查看每天的修正结果</summary><div style="max-height:240px;overflow:auto"><p v-for="day in singleTripRepairPreview.result.days" :key="'single-repair-'+day.day">第{{ day.day }}天：{{ day.disabled ? '停排' : `${day.timeline.violationCount}处冲突；${day.timeline.legs.length}段收运行程；${day.route.points.filter(point => point.role === 'MIDDLE').map(point => point.facilityName || point.facilityId).join(' → ')}` }}</p></div></details>
+                <button v-if="singleTripRepairPreview.result.improved" type="button" :disabled="singleTripRepairRunning || !singleTripFresh || singleTripRepairPreview.owner !== singleTripPlan" @click="applySingleTripTimeWindowRepair">应用修正顺序并更新每天路线</button>
+                <button type="button" class="secondary" @click="singleTripRepairPreview = null">放弃试算</button>
+              </div>
             <p v-if="singleTripPlan && !singleTripFresh" style="color:#c46b00">点位、排班或参数已变化，请重新生成单趟方案。</p>
             <template v-if="singleTripFresh">
               <label>查看 <select v-model.number="singleTripDay"><option :value="0">完整模板（所有点都收）</option><option v-for="day in assignmentScheduleCycleDays" :key="day" :value="day">第{{ day }}天</option></select></label>
@@ -1251,7 +1260,17 @@
               <template v-else-if="singleTripSelected?.route && !singleTripSelected.disabled">
                 <p>{{ singleTripDay === 0 ? '完整模板点位' : '当天收运点' }} {{ singleTripSelected.route.pointCount }} 个<template v-if="singleTripIncludeDetours">；中途卸料 {{ singleTripSelected.detours.breaks.length }} 次；目标装载量 {{ singleTripSelected.detours.thresholdKg.toFixed(1) }} kg</template>。</p>
                 <p>里程：基础 {{ formatDistance(singleTripDisplay.baseDistance) }} + 中途卸料增量 {{ formatDistance(singleTripDisplay.detourDistance) }} + 最终返场 {{ formatDistance(singleTripDisplay.returnDistance) }} = {{ formatDistance(singleTripDisplay.totalDistance) }}；耗时：基础 {{ formatDuration(singleTripDisplay.baseDurationMinutes) }} + 中途卸料增量 {{ formatDuration(singleTripDisplay.detourDurationMinutes) }} + 最终返场 {{ formatDuration(singleTripDisplay.returnDurationMinutes) }} = {{ formatDuration(singleTripDisplay.totalDurationMinutes) }}。紫色为已开启的新增道路；中途卸料增量已扣除被替换的原路段。</p>
-                <RouteMapPanel :key="'single-trip-'+singleTripDay" :original-points="[]" :optimized-points="singleTripSelected.route.points" :optimized-segments="singleTripDisplay.segments" :highlight-segments="singleTripDisplay.highlightSegments" :show-original="false" optimized-label="单趟收运路线" />
+                <p>按当前估重分段：{{ singleTripSelectedTimeline.legs.length }} 段；当前展示场景时间窗冲突 {{ singleTripPlannedTimeline.violationCount }} 处。时间窗按到达与收完校验；关闭中途卸料开关时，地图与行程时间不计卸料，修正校验仍按开启状态计算。</p>
+                <div class="route-display-toggle"><span>行程地图</span><button type="button" :class="{ active: singleTripOverview }" @click="singleTripOverview = true">全部行程总览</button><button type="button" :class="{ active: !singleTripOverview }" @click="singleTripOverview = false">单段详情</button></div>
+                <div class="multi-route-cards">
+                  <button v-for="leg in singleTripLegs" :key="'single-leg-'+leg.no" type="button" class="multi-route-card" :class="{ active: !singleTripOverview && singleTripSelectedLeg?.no === leg.no }" @click="singleTripLegNo = leg.no; singleTripOverview = false">
+                    <strong>{{ leg.returnOnly ? '最终返场' : `第${leg.no}段收运` }}</strong> · {{ leg.pointCount }}点 · {{ formatDistance(leg.distance) }} · {{ formatDuration(leg.durationMinutes) }}<template v-if="!leg.returnOnly"> · {{ leg.startTime }}—{{ leg.endTime }} · 时间窗冲突{{ leg.violationCount }}处</template>
+                    <div>{{ leg.points.map(point => point.facilityName || point.facilityId).join(' → ') }}</div>
+                  </button>
+                </div>
+                <RouteMapPanel v-if="singleTripOverview" :key="'single-overview-'+singleTripDay" :original-points="[]" :optimized-points="singleTripSelected.route.points" :route-layers="singleTripOverviewLayers" :highlight-segments="singleTripIncludeDetours ? singleTripSelected.detours.detourSegments : []" :show-original="false" optimized-label="全部收运行程" />
+                <RouteMapPanel v-else-if="singleTripSelectedLeg" :key="'single-leg-'+singleTripDay+'-'+singleTripSelectedLeg.no" :original-points="[]" :optimized-points="singleTripSelectedLeg.points" :optimized-segments="singleTripSelectedLeg.segments" :show-original="false" :optimized-label="singleTripSelectedLeg.returnOnly ? '最终返场' : `第${singleTripSelectedLeg.no}段收运`" />
+                <div v-if="!singleTripOverview && singleTripSelectedLeg && !singleTripSelectedLeg.returnOnly" style="max-height:320px;overflow:auto"><table style="width:100%"><thead><tr><th>顺序</th><th>点位</th><th>到达</th><th>收完／离开</th><th>时间窗</th></tr></thead><tbody><tr v-for="(point,index) in singleTripSelectedLeg.points" :key="`${singleTripDay}-${singleTripSelectedLeg.no}-${index}`" :style="{ color: point.timeWindowViolation ? 'red' : '' }"><td>{{ index + 1 }}</td><td>{{ point.facilityName || point.facilityId }}</td><td>{{ point.arrivalTime || '—' }}</td><td>{{ point.departureTime || '—' }}</td><td>{{ point.role === 'MIDDLE' ? (point.timeWindowViolation ? '超窗' : '通过') : '场站' }}</td></tr></tbody></table></div>
               </template>
             </template>
           </section>
@@ -2428,6 +2447,7 @@ import FlowAnalysisPdfReport from './components/FlowAnalysisPdfReport.vue'
 import { balanceAssignmentPhases } from './assignmentPhases.js'
 import { maskFixedTripTemplate, buildFixedDailyRouteResult } from './fixedTripTemplate.js'
 import { buildSingleTripDetours, composeSingleTripDisplay } from './singleTripDetours.js'
+import { singleTripTimeline, repairSingleTripPlan } from './singleTripTimeWindow.js'
 import { buildSingleTripExport } from './singleTripExport.js'
 import { buildRouteOverviewLayers, hasCompleteRoadGeometry, routeOverviewPoints } from './routeOverview.js'
 import { buildFlowActualMap, buildFlowParkingAccessLayers, flowRoadKey, normalizeFlowRoadSegments, flowPolylineMeters } from './flowActualMap.js'
@@ -2976,6 +2996,12 @@ const fixedMasterMessage = ref('')
 const fixedMasterDay = ref(1)
 const singleTripPlan = ref(null)
 const singleTripRunning = ref(false)
+const singleTripRepairRunning = ref(false)
+const singleTripRepairMessage = ref('')
+const singleTripRepairPreview = ref(null)
+const singleTripOverview = ref(true)
+const singleTripLegNo = ref(1)
+let singleTripRepairController = null
 const singleTripMessage = ref('')
 const singleTripDay = ref(1)
 const singleTripIncludeDetours = ref(true)
@@ -3000,6 +3026,23 @@ const singleTripSelected = computed(() => {
   if (singleTripDay.value === 0) return singleTripPlan.value.complete
   return singleTripPlan.value.days.find(day => day.day === singleTripDay.value) || null
 })
+const singleTripSelectedTimeline = computed(() => {
+  const selected = singleTripSelected.value
+  if (!selected?.route || !selected.detours) return null
+  return singleTripTimeline(selected.route, selected.detours, parseClockMinutes(optimizeOptions.plannedStartTime), arrivalViolatesTimeWindow, timeWindowViolationDistance, singleTripIncludeDetours.value)
+})
+const singleTripPlannedTimeline = computed(() => {
+  const selected = singleTripSelected.value
+  if (!selected?.route || !selected.detours) return null
+  return singleTripTimeline(selected.route, selected.detours, parseClockMinutes(optimizeOptions.plannedStartTime), arrivalViolatesTimeWindow, timeWindowViolationDistance)
+})
+const singleTripLegs = computed(() => {
+  const legs = singleTripSelectedTimeline.value?.legs || []
+  const returnTrip = singleTripIncludeReturn.value ? singleTripSelected.value?.detours?.returnTrip : null
+  return returnTrip?.roadSegments?.length ? [...legs, { no: legs.length + 1, points: returnTrip.points, segments: returnTrip.roadSegments, distance: returnTrip.distance, durationMinutes: returnTrip.durationMinutes, pointCount: 0, violationCount: 0, returnOnly: true }] : legs
+})
+const singleTripSelectedLeg = computed(() => singleTripLegs.value.find(leg => leg.no === singleTripLegNo.value) || singleTripLegs.value[0])
+const singleTripOverviewLayers = computed(() => singleTripLegs.value.map((leg, index) => ({ key: leg.no, label: leg.returnOnly ? '最终返场' : `第${leg.no}段`, color: leg.returnOnly ? '#8b5cf6' : ['#1976d2', '#f97316', '#10b981', '#d946ef', '#eab308'][index % 5], points: leg.points, segments: leg.segments })))
 const singleTripDisplay = computed(() => {
   const selected = singleTripSelected.value
   if (!selected?.route || !selected.detours) return null
@@ -3245,8 +3288,47 @@ async function generateFixedMaster() {
     fixedMasterMessage.value = `生成失败：${err.message || String(err)}`
   } finally { fixedMasterRunning.value = false }
 }
+async function runSingleTripTimeWindowRepair() {
+  if (!singleTripFresh.value || singleTripRunning.value || singleTripRepairRunning.value) return
+  const owner = singleTripPlan.value
+  const fingerprint = singleTripFingerprint.value
+  const options = { ...optimizeOptions }
+  const vehicle = normalizedAssignmentVehicles()[0]
+  const controller = new AbortController()
+  singleTripRepairController = controller
+  singleTripRepairRunning.value = true
+  singleTripRepairPreview.value = null
+  singleTripRepairMessage.value = '正在按完整模板及每天实际收运点检查时间窗和中途卸料…'
+  try {
+    const result = await repairSingleTripPlan(owner, {
+      capacityKg: Number(vehicle?.ratedCapacityKg), loadRate: Number(options.targetLoadRate),
+      unloadMinutes: Number(options.terminalUnloadMinutes || 0),
+      resolveRoad: createFixedRoadResolver(options), startMinutes: parseClockMinutes(options.plannedStartTime),
+      isViolation: arrivalViolatesTimeWindow, penaltyForViolation: timeWindowViolationDistance,
+      signal: controller.signal,
+      onProgress: progress => { singleTripRepairMessage.value = `第${progress.round}轮：已检查${progress.evaluated}个顺序，正在移动${progress.point}；当前最少${progress.best.violations}处冲突…` }
+    })
+    if (owner !== singleTripPlan.value || fingerprint !== singleTripFingerprint.value) throw new Error('点位或规划参数已变化，请重新计算')
+    singleTripRepairPreview.value = { owner, fingerprint, result }
+    singleTripRepairMessage.value = `修正试算完成：时间窗冲突 ${result.before.violations} → ${result.after.violations} 处；比较了${result.evaluated}个顺序。${result.improved ? '可预览并应用。' : '未找到进一步改善，原路线未改变。'}`
+  } catch (err) {
+    singleTripRepairMessage.value = err.name === 'AbortError' ? '已取消，原路线未改变。' : `时间窗修正失败：${err.message || String(err)}`
+  } finally {
+    if (singleTripRepairController === controller) singleTripRepairController = null
+    singleTripRepairRunning.value = false
+  }
+}
+function applySingleTripTimeWindowRepair() {
+  const preview = singleTripRepairPreview.value
+  if (!preview?.result?.improved || preview.owner !== singleTripPlan.value || preview.fingerprint !== singleTripFingerprint.value) return
+  singleTripPlan.value = { ...preview.owner, complete: preview.result.complete, days: preview.result.days }
+  singleTripRepairMessage.value = `已应用修正顺序；完整模板和每天的卸料位置、道路与到达时间均已重新计算。剩余时间窗冲突${preview.result.after.violations}处。`
+  singleTripRepairPreview.value = null
+  singleTripOverview.value = true
+  singleTripLegNo.value = 1
+}
 async function generateSingleTripPlan() {
-  if (singleTripRunning.value || !splitPlanPoints.value.length || fixedMasterRunning.value || assignmentBatchRunning.value || assignmentTripReorderRunning.value) return
+  if (singleTripRunning.value || singleTripRepairRunning.value || !splitPlanPoints.value.length || fixedMasterRunning.value || assignmentBatchRunning.value || assignmentTripReorderRunning.value) return
   const fingerprint = singleTripFingerprint.value
   const originals = deepClone(splitPlanPoints.value)
   const options = { ...optimizeOptions }
@@ -3306,6 +3388,10 @@ async function generateSingleTripPlan() {
     }
     if (fingerprint !== singleTripFingerprint.value) throw new Error('计算期间配置变化，结果已弃用')
     singleTripPlan.value = { fingerprint, complete, days }
+    singleTripRepairPreview.value = null
+    singleTripRepairMessage.value = ''
+    singleTripOverview.value = true
+    singleTripLegNo.value = 1
     singleTripDay.value = days.length ? 1 : 0
     singleTripIncludeDetours.value = true
     singleTripIncludeReturn.value = true
