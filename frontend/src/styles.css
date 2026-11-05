@@ -1873,6 +1873,13 @@ tbody tr.active {
   font-size: 12px;
 }
 
+.route-playback-bar.has-display-choices { flex-wrap: wrap; justify-content: flex-start; }
+.route-playback-bar.has-display-choices .route-playback-main { width: 100%; }
+.route-playback-visibility { display: flex; align-items: center; gap: 12px; width: 100%; color: #536274; }
+.route-playback-visibility label { display: inline-flex; align-items: center; gap: 4px; cursor: pointer; }
+.route-playback-visibility input { margin: 0; accent-color: #1565c0; }
+.route-playback-bar.has-display-choices .route-playback-progress { width: 100%; }
+
 .route-playback-main {
   display: flex;
   align-items: center;

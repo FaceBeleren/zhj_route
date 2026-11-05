@@ -11,7 +11,7 @@
           <span class="line-swatch"></span>
           {{ originalLabel }}
         </label>
-        <label class="route-line-toggle optimized" :class="{ muted: !showOptimizedLine }" :style="{ color: props.optimizedColor, borderColor: props.optimizedColor }">
+        <label v-if="props.showOptimizedToggle" class="route-line-toggle optimized" :class="{ muted: !showOptimizedLine }" :style="{ color: props.optimizedColor, borderColor: props.optimizedColor }">
           <input v-model="showOptimizedLine" type="checkbox" />
           <span class="line-swatch" :style="{ background: props.optimizedColor }"></span>
           {{ optimizedLabel }}
@@ -37,7 +37,7 @@
     </div>
 
     <p v-if="pendingAllPoints.length" :style="{ color: props.pendingColor }">● 待插入时间窗点（{{ pendingAllPoints.length }}个，不参与连线）</p>
-    <div v-if="props.showPlayback" class="route-playback-bar">
+    <div v-if="props.showPlayback" class="route-playback-bar" :class="{ 'has-display-choices': props.displayChoices.length }">
       <div class="route-playback-main">
         <div class="route-playback-choice" aria-label="选择播放路线">
           <span>播放路线</span>
@@ -79,6 +79,10 @@
           <option :value="4">4x</option>
         </select>
       </div>
+      <div v-if="props.displayChoices.length" class="route-playback-visibility" aria-label="展示路线">
+        <span>展示路线</span>
+        <label v-for="choice in props.displayChoices" :key="choice.key"><input type="checkbox" :checked="choice.checked" @change="$emit('toggle-display-choice', choice.key)" />{{ choice.label }}</label>
+      </div>
       <div class="route-playback-progress">
         <span class="route-playback-label">
           <span>{{ playbackLabel }}</span>
@@ -86,7 +90,7 @@
             class="route-playback-help"
             tabindex="0"
             aria-label="播放距离口径说明"
-            :data-tooltip="hasCustomPlaybackChoices ? '播放进度按当前可见折线坐标测距；分段之间不补虚构连线，不等同车辆日报里程。' : '该数值由地图道路折线坐标二次测距，仅用于动画播放进度；正式路线距离以上方 OD 缓存或百度接口统计为准。'"
+            :data-tooltip="hasCustomPlaybackChoices ? '播放进度按所选播放轨迹的折线坐标测距；分段之间不补虚构连线，不等同车辆日报里程。' : '该数值由地图道路折线坐标二次测距，仅用于动画播放进度；正式路线距离以上方 OD 缓存或百度接口统计为准。'"
           >!</span>
         </span>
         <div class="route-progress-track">
@@ -98,6 +102,7 @@
 
     <div v-show="baiduReady" ref="mapEl" class="baidu-route-map"></div>
 
+    <div v-if="!baiduReady && !routePlot && props.viewportPoints.length" class="route-plot fallback-plot"><div class="plot-card wide">流水与 GPS 图层已隐藏，可在“展示路线”中重新勾选。</div></div>
     <div v-if="!baiduReady && routePlot" class="route-plot fallback-plot">
       <div ref="fallbackMapEl" class="plot-card wide">
         <div class="plot-title">坐标预览</div>
@@ -202,10 +207,13 @@ const props = defineProps({
     default: () => []
   },
   routeLayers: { type: Array, default: () => [] },
+  viewportPoints: { type: Array, default: () => [] },
+  displayChoices: { type: Array, default: () => [] },
   focusLegendOnHover: { type: Boolean, default: false },
   playbackChoices: { type: Array, default: () => [] },
   optimizedMarkerPoints: { type: Array, default: null },
   showPlayback: { type: Boolean, default: true },
+  showOptimizedToggle: { type: Boolean, default: true },
   highlightSegments: { type: Array, default: () => [] },
   optimizedFacilityIds: {
     type: Array,
@@ -228,6 +236,7 @@ const props = defineProps({
     default: false
   }
 })
+const emit = defineEmits(['toggle-display-choice'])
 
 const BAIDU_MAP_AK = import.meta.env.VITE_BAIDU_MAP_AK || ''
 const BAIDU_SCRIPT_TIMEOUT_MS = 8000
@@ -294,10 +303,14 @@ const optimizedGeometryPoints = computed(() => pathCoordinatesFromSegments(props
 const optimizedFacilityIdSet = computed(() => new Set((props.optimizedFacilityIds || []).map((id) => String(id))))
 const markerPoints = computed(() => {
   const optimizedActive = showOptimizedLine.value && optimizedAllPoints.value.length && (playbackRoute.value === 'optimized' || !showOriginalLine.value)
-  if (optimizedActive && props.focusLegendOnHover && focusedLayer.value) return focusedLayer.value.points
+  if (optimizedActive && props.focusLegendOnHover && focusedLayer.value) {
+    return focusedLayer.value.gpsActual
+      ? optimizedMarkerAllPoints.value.filter(point => String(point.facilityId || "").startsWith("gps-"))
+      : focusedLayer.value.points
+  }
   return optimizedActive ? optimizedMarkerAllPoints.value : originalAllPoints.value
 })
-const extentPoints = computed(() => uniquePoints([...markerPoints.value, ...originalGeometryPoints.value, ...optimizedGeometryPoints.value, ...overviewLayers.value.flatMap(layer => layer.geometry), ...pendingAllPoints.value]))
+const extentPoints = computed(() => uniquePoints([...markerPoints.value, ...originalGeometryPoints.value, ...optimizedGeometryPoints.value, ...overviewLayers.value.flatMap(layer => layer.geometry), ...pendingAllPoints.value, ...normalizeRoutePoints(props.viewportPoints)]))
 const allPoints = computed(() => extentPoints.value)
 const routePlot = computed(() => buildRoutePlot(originalAllPoints.value, optimizedMarkerAllPoints.value, pendingAllPoints.value))
 const fallbackHighlightLines = computed(() => {
@@ -504,7 +517,7 @@ onBeforeUnmount(() => {
 })
 
 watch(
-  () => [props.originalPoints, props.optimizedPoints, props.optimizedMarkerPoints, props.originalSegments, props.optimizedSegments, props.routeLayers, props.highlightSegments, props.optimizedFacilityIds, props.optimizedColor, props.markerColor, props.pendingPoints, props.pendingColor, labelsVisible.value, showOriginalLine.value, showOptimizedLine.value, playbackRoute.value, expanded.value],
+  () => [props.originalPoints, props.optimizedPoints, props.optimizedMarkerPoints, props.originalSegments, props.optimizedSegments, props.routeLayers, props.viewportPoints, props.highlightSegments, props.optimizedFacilityIds, props.optimizedColor, props.markerColor, props.pendingPoints, props.pendingColor, labelsVisible.value, showOriginalLine.value, showOptimizedLine.value, playbackRoute.value, expanded.value],
   () => renderMap(),
   { deep: true }
 )

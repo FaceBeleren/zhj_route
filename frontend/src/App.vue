@@ -164,12 +164,12 @@
             <div class="route-display-toggle"><span>地图展示</span><button type="button" :class="{ active: flowMapMode === 'DIRECT' }" @click="setFlowMapMode('DIRECT')">点位直线</button><button type="button" :class="{ active: flowMapMode === 'ROAD' }" @click="setFlowMapMode('ROAD')">道路折线</button><span v-if="flowRoadLoading">加载道路 {{ flowRoadLoaded }}/{{ flowBaseAndParkingLayers.length }} 段…</span><button v-if="flowMapMode === 'ROAD' && flowRoadError" type="button" class="secondary" @click="loadFlowMapRoads(true)">重试道路</button></div>
             <div class="flow-marker-legend"><span><i class="through"></i>仅途经</span><span><i class="once"></i>收运1次</span><span><i class="twice"></i>收运2次</span><span><i class="often"></i>收运3次及以上</span><small>标记颜色表示当前筛选范围内的收运次数；路线颜色仍按趟区分。</small></div>
             <div class="flow-actual-distance-grid"><div><span>按折线坐标测得的参考里程</span><strong>{{ flowRoadDistanceMeters == null ? '切换道路折线后计算' : formatDistance(flowRoadDistanceMeters) }}</strong><small v-if="flowRoadDistanceMeters != null">出场段 {{ formatDistance(flowRoadDepartureDistanceMeters) }} + 流水段 {{ formatDistance(flowRoadBaseDistanceMeters) }} + 返场段 {{ formatDistance(flowRoadReturnDistanceMeters) }}</small></div><div><span>收运日报计算里程</span><strong>{{ flowVehicleReport?.mileageKm == null ? '尚未查询' : Number(flowVehicleReport.mileageKm).toFixed(2) + ' km' }}</strong><small v-if="flowVehicleReport">{{ flowVehicleReport.carCode }} · {{ flowVehicleReport.day }} · GPS {{ flowVehicleReport.gpsStatus || flowVehicleReport.hasGps || '状态未知' }}</small></div></div>
-            <div class="route-display-toggle"><button type="button" :disabled="flowVehicleQueryLoading || !flowGpsCarCode" @click="loadFlowVehicleDay">{{ flowVehicleQueryLoading ? '正在查询车辆运行数据…' : '查询当天日报与 GPS 轨迹' }}</button><label v-if="flowGpsTrack?.points?.length" class="flow-return-toggle"><input v-model="flowShowGpsTrack" type="checkbox" /> 显示实际 GPS 轨迹</label><span v-if="flowGpsTrack?.points?.length">GPS 按趟次时间切层 · 共 {{ flowGpsTrack.points.length }} 个定位点</span></div>
-            <div v-if="flowGpsTrack?.points?.length" class="flow-gps-layer-choices" aria-label="GPS 趟次图层"><label v-for="layer in flowGpsEligibleLayers" :key="layer.key" :class="{ muted: !flowShowGpsTrack || flowHiddenGpsLayerKeys.has(layer.key) }"><input type="checkbox" :checked="flowShowGpsTrack && !flowHiddenGpsLayerKeys.has(layer.key)" :disabled="!flowShowGpsTrack" @change="toggleFlowGpsLayer(layer.key)" /><i :style="{ borderColor: layer.color }"></i>{{ layer.label }}（{{ layer.points.length }}点）</label></div>
+            <div class="route-display-toggle"><button type="button" :disabled="flowVehicleQueryLoading || !flowGpsCarCode" @click="loadFlowVehicleDay">{{ flowVehicleQueryLoading ? '正在查询车辆运行数据…' : '查询当天日报与 GPS 轨迹' }}</button><span v-if="flowGpsTrack?.points?.length">GPS 按趟次时间切层 · 共 {{ flowGpsTrack.points.length }} 个定位点</span></div>
+            <div v-if="flowGpsTrack?.points?.length" class="flow-gps-layer-choices" aria-label="GPS 趟次图层"><label v-for="layer in flowGpsEligibleLayers" :key="layer.key" :class="{ muted: flowHiddenGpsLayerKeys.has(layer.key) }"><input type="checkbox" :checked="!flowHiddenGpsLayerKeys.has(layer.key)" @change="toggleFlowGpsLayer(layer.key)" /><i :style="{ borderColor: layer.color }"></i>{{ layer.label }}（{{ layer.points.length }}点）</label></div>
             <p v-if="!flowGpsCarCode" class="muted">请先选择一辆车，才能查询它当天的日报与 GPS 轨迹或播放路线。</p>
             <p v-if="flowVehicleQueryError" class="flow-warning">车辆运行数据查询失败：{{ flowVehicleQueryError }}</p>
             <p v-if="flowGpsTrack?.points?.length" class="muted">GPS 图层按流水事件时间划分，不是按车辆到场 GPS 精确判定；灰色图层是流水时间无法归属的片段。选择某一趟时，只显示该趟对应的 GPS 图层。</p>
-            <p class="muted">小车可切换播放当前车辆、趟次的流水路线或已显示的 GPS 轨迹；分段之间不绘制虚构连线，进度距离不等同车辆日报里程。</p>
+            <p class="muted">小车可切换播放当前车辆、趟次的流水路线或所选 GPS 轨迹；播放路线与地图线层显示独立，分段之间不绘制虚构连线，进度距离不等同车辆日报里程。</p>
             <p v-if="flowParkingError" class="flow-warning">停车场候选加载失败：{{ flowParkingError }}</p>
             <p v-else-if="flowParkingLoading" class="muted">正在加载停车场候选…</p>
             <p v-else-if="flowShowReturnToParking && !flowSelectedParking" class="flow-warning">流水未提供实际停车场；请选择停车场后才会绘制和计算出场、返场段。</p>
@@ -178,7 +178,7 @@
             <p class="muted">{{ flowMapMode === 'ROAD' ? '道路折线是按流水点位顺序推算的路线，不是车辆实际行驶轨迹；折线测距不代表实际里程。' : '点位直线仅表示流水先后顺序，不代表道路或实际里程。' }} 同一设施重复出现只画一个标记，序号列出当前筛选趟次中的每次位置；多个趟次时跨趟连续编号，悬停可看车辆、趟次和各趟内序号。连线与测距始终保留每次流水事件。{{ flowShowCollectedOnly ? '当前仅隐藏纯途经点的标记，途经事件仍参与连线与测距。' : '当前包含收运与途经点的标记。' }}</p>
             <p v-if="flowActualMap.missingCoordinateCount" class="flow-warning">{{ flowActualMap.missingCoordinateCount }} 个流水事件缺少有效坐标，地图已跳过；相邻可绘点之间的连线仅表示先后顺序。</p>
             <p v-if="flowMapMode === 'ROAD' && flowRoadError" class="flow-warning">道路折线未完成：{{ flowRoadError }}。未用点位直线冒充道路。</p>
-            <RouteMapPanel v-if="flowDisplayedPoints.length" :key="'flow-actual-'+flowRunVersion+'-'+flowMapDay+'-'+flowMapCarCode+'-'+flowMapTripIndex+'-'+flowMapMode" :original-points="[]" :optimized-points="flowDisplayedPoints" :optimized-marker-points="flowMapMarkers" :route-layers="flowDisplayedLayers" :playback-choices="flowPlaybackChoices" :show-original="false" :show-playback="true" :optimized-label="flowMapMode === 'ROAD' ? '流水道路折线' : '流水顺序连线'" />
+            <RouteMapPanel v-if="flowMapViewportPoints.length" :key="'flow-actual-'+flowRunVersion+'-'+flowMapDay+'-'+flowMapCarCode+'-'+flowMapTripIndex+'-'+flowMapMode" :original-points="[]" :optimized-points="flowDisplayedPoints" :optimized-marker-points="flowMapMarkers" :viewport-points="flowDisplayedLayers.length ? [] : flowMapViewportPoints" :route-layers="flowDisplayedLayers" :focus-legend-on-hover="true" :playback-choices="flowPlaybackChoices" :display-choices="flowDisplayChoices" @toggle-display-choice="toggleFlowDisplayChoice" :show-original="false" :show-optimized-toggle="false" :show-playback="true" optimized-label="流水与 GPS 路线" />
             <div v-else-if="flowRoadLoading" class="empty">正在计算所选趟次的道路折线…</div>
             <div v-else-if="!flowRoadError" class="empty">当前筛选的趟次没有可绘制的有效坐标。</div>
           </section>
@@ -2486,7 +2486,13 @@ const flowMapCars = computed(() => [...new Set((flowMapSelectedDay.value?.trips 
 const flowGpsCarCode = computed(() => flowMapCarCode.value !== 'ALL' ? flowMapCarCode.value : flowMapCars.value.length === 1 ? flowMapCars.value[0] : '')
 const flowVehicleReport = ref(null)
 const flowGpsTrack = ref(null)
-const flowShowGpsTrack = ref(true)
+const flowShowRouteLayer = ref(true)
+const flowShowGpsLayer = ref(true)
+const flowDisplayChoices = computed(() => [{ key: 'flow', label: '流水', checked: flowShowRouteLayer.value }, { key: 'gps', label: 'GPS', checked: flowShowGpsLayer.value }])
+function toggleFlowDisplayChoice(key) {
+  if (key === 'flow') flowShowRouteLayer.value = !flowShowRouteLayer.value
+  if (key === 'gps') flowShowGpsLayer.value = !flowShowGpsLayer.value
+}
 const flowHiddenGpsLayerKeys = ref(new Set())
 const flowVehicleQueryLoading = ref(false)
 const flowVehicleQueryError = ref('')
@@ -2510,7 +2516,6 @@ async function loadFlowVehicleDay() {
     const track = await api(`/api/flow-analysis/vehicle-gps-track?${params}`, { signal: controller.signal })
     if (queryId !== flowVehicleQueryId) return
     flowGpsTrack.value = track
-    flowShowGpsTrack.value = true
     flowHiddenGpsLayerKeys.value = new Set()
     if (!track.points?.length) flowVehicleQueryError.value = '该车当天没有可绘制的 GPS 坐标；日报里程已显示。'
   } catch (error) {
@@ -2544,8 +2549,7 @@ const flowGpsAllLayers = computed(() => buildFlowGpsLayers(flowGpsTrack.value?.p
   flowDayTripRows.value.filter(row => String(row.trip.carCode || '') === flowGpsTrack.value?.carCode)))
 const flowGpsEligibleLayers = computed(() => flowMapTripIndex.value === 'ALL' ? flowGpsAllLayers.value
   : flowGpsAllLayers.value.filter(layer => layer.kind === 'trip' && String(layer.tripIndex) === flowMapTripIndex.value))
-const flowGpsVisibleLayers = computed(() => flowShowGpsTrack.value
-  ? flowGpsEligibleLayers.value.filter(layer => !flowHiddenGpsLayerKeys.value.has(layer.key)) : [])
+const flowGpsVisibleLayers = computed(() => flowGpsEligibleLayers.value.filter(layer => !flowHiddenGpsLayerKeys.value.has(layer.key)))
 function toggleFlowGpsLayer(key) {
   const hidden = new Set(flowHiddenGpsLayerKeys.value)
   if (hidden.has(key)) hidden.delete(key)
@@ -2556,13 +2560,13 @@ const flowParkingAccessLayers = computed(() => flowShowReturnToParking.value
   ? buildFlowParkingAccessLayers(flowDayTripRows.value, flowMapTripRows.value, flowSelectedParking.value) : [])
 const flowBaseAndParkingLayers = computed(() => [...flowActualMap.value.layers, ...flowParkingAccessLayers.value])
 const flowMapMarkers = computed(() => {
-  const markers = [...flowActualMap.value.markers]
-  if (flowParkingAccessLayers.value.length && flowSelectedParking.value) markers.push({
+  const markers = flowShowRouteLayer.value ? [...flowActualMap.value.markers] : []
+  if (flowShowRouteLayer.value && flowParkingAccessLayers.value.length && flowSelectedParking.value) markers.push({
     ...flowSelectedParking.value, flowMapMarker: true, flowCollectionCount: 0, flowThroughCount: 0,
     flowVisitLabel: '车场', flowVisitTitle: '所选停车场，出场及返场路段为道路推算，并非实际行驶轨迹',
     routeColor: '#8b5cf6'
   })
-  if (flowGpsVisibleLayers.value.length) {
+  if (flowShowGpsLayer.value && flowGpsVisibleLayers.value.length) {
     const points = flowGpsVisibleLayers.value.flatMap(layer => layer.points)
     const tripLabel = flowMapTripIndex.value === 'ALL' ? '' : `第${Number(flowMapTripIndex.value) + 1}趟`
     const first = points[0]
@@ -2595,22 +2599,24 @@ const flowRoadError = ref('')
 const flowRoadLoaded = ref(0)
 let flowRoadRequestId = 0
 let flowRoadAbortController = null
-const flowDisplayedLayers = computed(() => {
+const flowResolvedLayers = computed(() => {
   if (flowMapMode.value === 'DIRECT') return [...flowBaseAndParkingLayers.value, ...flowGpsVisibleLayers.value]
   const cache = flowRoadCache.value
   const layers = flowBaseAndParkingLayers.value
   if (layers.some(layer => layer.points.length >= 2 && !cache.has(flowRoadKey(layer.points)))) return flowGpsVisibleLayers.value
   return [...layers.map(layer => ({ ...layer, segments: layer.points.length >= 2 ? cache.get(flowRoadKey(layer.points)) : [] })), ...flowGpsVisibleLayers.value]
 })
-const flowPlaybackChoices = computed(() => buildFlowPlaybackChoices(flowDisplayedLayers.value,
+const flowDisplayedLayers = computed(() => flowResolvedLayers.value.filter(layer => layer.gpsActual ? flowShowGpsLayer.value : flowShowRouteLayer.value))
+const flowPlaybackChoices = computed(() => buildFlowPlaybackChoices(flowResolvedLayers.value,
   flowGpsVisibleLayers.value, flowGpsCarCode.value, flowMapMode.value))
 const flowDisplayedPoints = computed(() => routeOverviewPoints(flowDisplayedLayers.value))
-const flowRoadBaseDistanceMeters = computed(() => flowMapMode.value === 'ROAD' && flowBaseAndParkingLayers.value.length && flowDisplayedLayers.value.length > flowGpsVisibleLayers.value.length
-  ? flowPolylineMeters(flowDisplayedLayers.value.filter(layer => !layer.departureFromParking && !layer.returnToParking && !layer.gpsActual)) : null)
-const flowRoadDepartureDistanceMeters = computed(() => flowMapMode.value === 'ROAD' && flowDisplayedLayers.value.length
-  ? flowPolylineMeters(flowDisplayedLayers.value.filter(layer => layer.departureFromParking)) : null)
-const flowRoadReturnDistanceMeters = computed(() => flowMapMode.value === 'ROAD' && flowDisplayedLayers.value.length
-  ? flowPolylineMeters(flowDisplayedLayers.value.filter(layer => layer.returnToParking)) : null)
+const flowMapViewportPoints = computed(() => routeOverviewPoints([...flowBaseAndParkingLayers.value, ...flowGpsEligibleLayers.value]))
+const flowRoadBaseDistanceMeters = computed(() => flowMapMode.value === 'ROAD' && flowBaseAndParkingLayers.value.length && flowResolvedLayers.value.length > flowGpsVisibleLayers.value.length
+  ? flowPolylineMeters(flowResolvedLayers.value.filter(layer => !layer.departureFromParking && !layer.returnToParking && !layer.gpsActual)) : null)
+const flowRoadDepartureDistanceMeters = computed(() => flowMapMode.value === 'ROAD' && flowResolvedLayers.value.length
+  ? flowPolylineMeters(flowResolvedLayers.value.filter(layer => layer.departureFromParking)) : null)
+const flowRoadReturnDistanceMeters = computed(() => flowMapMode.value === 'ROAD' && flowResolvedLayers.value.length
+  ? flowPolylineMeters(flowResolvedLayers.value.filter(layer => layer.returnToParking)) : null)
 const flowRoadDistanceMeters = computed(() => flowRoadBaseDistanceMeters.value == null ? null
   : flowRoadDepartureDistanceMeters.value + flowRoadBaseDistanceMeters.value + flowRoadReturnDistanceMeters.value)
 function setFlowMapMode(mode) {
