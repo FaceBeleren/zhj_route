@@ -1215,9 +1215,10 @@
               <p v-if="fixedMasterDayData?.result && fixedMasterIncludeReturn && fixedMasterReturnTrip">收运趟 {{ formatDistance(fixedMasterRouteTotals.distance) }} + 独立返场趟 {{ formatDistance(fixedMasterReturnTrip.distance) }} = {{ formatDistance(fixedMasterRouteTotals.distance + fixedMasterReturnTrip.distance) }}；耗时合计 {{ formatDuration(fixedMasterRouteTotals.durationMinutes + fixedMasterReturnTrip.durationMinutes) }}。返场不计收运趟数与点位时间窗。</p>
               <p v-if="fixedMasterDayData?.error" style="color:red">{{ fixedMasterDayData.error }}</p>
               <div class="route-display-toggle"><span>趟次地图</span><button type="button" :class="{ active: fixedMasterOverview }" @click="fixedMasterOverview = true">全部趟数总览</button><button type="button" :class="{ active: !fixedMasterOverview }" @click="fixedMasterOverview = false">单趟详情</button></div>
-              <div style="max-height:420px;overflow:auto"><table style="width:100%"><thead><tr><th>主序号</th><th>点位</th><th>当天执行</th><th>到达</th></tr></thead><tbody>
-                <tr v-for="(point, index) in fixedMaster.points" :key="index" :style="{ color: fixedMasterToken(point)?.violation ? 'red' : !fixedMasterDayData?.indices.includes(point.masterIndex) || fixedMasterDayData?.disabled ? '#999' : '' }">
-                  <td>{{ point.templateToken }}</td><td>{{ point.facilityName }}</td><td>{{ fixedMasterDayData?.disabled ? '停排' : !fixedMasterDayData?.indices.includes(point.masterIndex) ? '按频次今日不收' : fixedMasterToken(point)?.token || '应收未分配' }}</td><td>{{ fixedMasterToken(point)?.arrival || '—' }}</td>
+              <div style="max-height:420px;overflow:auto"><table style="width:100%"><thead><tr><th>主序号</th><th>点位</th><th>当天执行</th><th>到达</th><th>离开／卸料完毕</th></tr></thead><tbody>
+                <tr v-for="row in fixedMasterTableRows" :key="row.key" :style="row.terminal ? { background: '#eef4ff', color: fixedMasterTerminalSchedule(row.routeNo)?.arrival ? '#174a78' : '#999' } : { color: fixedMasterToken(row.point)?.violation ? 'red' : !fixedMasterDayData?.indices.includes(row.point.masterIndex) || fixedMasterDayData?.disabled ? '#999' : '' }">
+                  <template v-if="row.terminal"><td>第{{ row.tripNo }}趟终点</td><td>{{ row.point.facilityName || '处理厂' }}</td><td>{{ fixedMasterDayData?.disabled ? '停排' : fixedMasterTerminalSchedule(row.routeNo)?.arrival ? '到厂卸料' : '本趟今日无收运点' }}</td><td>{{ fixedMasterTerminalSchedule(row.routeNo)?.arrival || '—' }}</td><td>{{ fixedMasterTerminalSchedule(row.routeNo)?.departure || '—' }}</td></template>
+                  <template v-else><td>{{ row.point.templateToken }}</td><td>{{ row.point.facilityName }}</td><td>{{ fixedMasterDayData?.disabled ? '停排' : !fixedMasterDayData?.indices.includes(row.point.masterIndex) ? '按频次今日不收' : fixedMasterToken(row.point)?.token || '应收未分配' }}</td><td>{{ fixedMasterToken(row.point)?.arrival || '—' }}</td><td>{{ fixedMasterToken(row.point)?.departure || '—' }}</td></template>
                 </tr>
               </tbody></table></div>
               <article v-for="route in fixedMasterDayData?.result?.routes || []" :key="route.routeNo" class="multi-route-card" :class="{ active: !fixedMasterOverview && !fixedMasterShowReturn && fixedMasterRouteNo === route.routeNo }" @click="fixedMasterRouteNo = route.routeNo; fixedMasterShowReturn = false; fixedMasterOverview = false">
@@ -3085,16 +3086,45 @@ const fixedMasterTripDisabledReason = computed(() => {
   return ''
 })
 
+const fixedMasterTableRows = computed(() => {
+  if (!fixedMasterFresh.value) return []
+  const byId = new Map(fixedMaster.value.points.map(point => [String(point.facilityId), point]))
+  const used = new Set()
+  const rows = []
+  for (const route of fixedMaster.value.template.routes || []) {
+    for (const point of route.points || []) {
+      if (point.role !== 'MIDDLE') continue
+      const id = String(point.facilityId)
+      const rowPoint = byId.get(id)
+      if (rowPoint) { rows.push({ key: `point-${id}`, point: rowPoint }); used.add(id) }
+    }
+    const terminal = route.points?.at(-1)
+    if (terminal?.role === 'END') rows.push({ key: `terminal-${route.routeNo}`, terminal: true, point: terminal, routeNo: route.routeNo, tripNo: route.tripNo })
+  }
+  for (const point of fixedMaster.value.points) {
+    if (!used.has(String(point.facilityId))) rows.push({ key: `unassigned-${point.facilityId}`, point })
+  }
+  return rows
+})
+const fixedMasterRouteSchedules = computed(() => buildRouteSchedules(fixedMasterDayData.value?.result, optimizeOptions.plannedStartTime))
+function fixedMasterTerminalSchedule(routeNo) {
+  if (fixedMasterDayData.value?.disabled) return null
+  const route = fixedMasterDayData.value?.result?.routes?.find(item => Number(item.routeNo) === Number(routeNo))
+  if (!route?.points?.some(point => point.role === 'MIDDLE' && !point.scheduleSkipped)) return null
+  const terminal = route.points.at(-1)
+  if (terminal?.role !== 'END') return null
+  const stop = fixedMasterRouteSchedules.value.get(Number(routeNo))?.pointsByOrder.get(Number(terminal.order))
+  return stop ? { arrival: stop.arrivalTime, departure: stop.departureTime } : null
+}
 function fixedMasterToken(point) {
   const result = fixedMasterDayData.value?.result
   if (!result) return null
-  const schedules = buildRouteSchedules(result, optimizeOptions.plannedStartTime)
   for (const route of result.routes || []) {
     for (const candidate of route.points || []) {
       if (candidate.role !== 'MIDDLE' || candidate.scheduleSkipped) continue
       if (String(candidate.facilityId) !== String(point.facilityId)) continue
-      const schedule = schedules.get(Number(route.routeNo))?.pointsByOrder.get(Number(candidate.order))
-      return { token: candidate.templateToken, arrival: schedule?.arrivalTime, violation: arrivalViolatesTimeWindow(candidate, schedule?.arrivalMinutes) }
+      const schedule = fixedMasterRouteSchedules.value.get(Number(route.routeNo))?.pointsByOrder.get(Number(candidate.order))
+      return { token: candidate.templateToken, arrival: schedule?.arrivalTime, departure: schedule?.departureTime, violation: arrivalViolatesTimeWindow(candidate, schedule?.arrivalMinutes) }
     }
   }
   return null
