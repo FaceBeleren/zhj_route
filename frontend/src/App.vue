@@ -166,6 +166,21 @@
             <div class="flow-actual-distance-grid"><div><span>按折线坐标测得的参考里程</span><strong>{{ flowRoadDistanceMeters == null ? '切换道路折线后计算' : formatDistance(flowRoadDistanceMeters) }}</strong><small v-if="flowRoadDistanceMeters != null">出场段 {{ formatDistance(flowRoadDepartureDistanceMeters) }} + 流水段 {{ formatDistance(flowRoadBaseDistanceMeters) }} + 返场段 {{ formatDistance(flowRoadReturnDistanceMeters) }}</small></div><div><span>收运日报计算里程</span><strong>{{ flowVehicleReport?.mileageKm == null ? '尚未查询' : Number(flowVehicleReport.mileageKm).toFixed(2) + ' km' }}</strong><small v-if="flowVehicleReport">{{ flowVehicleReport.carCode }} · {{ flowVehicleReport.day }} · GPS {{ flowVehicleReport.gpsStatus || flowVehicleReport.hasGps || '状态未知' }}</small></div></div>
             <div class="route-display-toggle"><button type="button" :disabled="flowVehicleQueryLoading || !flowGpsCarCode" @click="loadFlowVehicleDay">{{ flowVehicleQueryLoading ? '正在查询车辆运行数据…' : '查询当天日报与 GPS 轨迹' }}</button><span v-if="flowGpsTrack?.points?.length">GPS 按趟次时间切层 · 共 {{ flowGpsTrack.points.length }} 个定位点</span></div>
             <div v-if="flowGpsTrack?.points?.length" class="flow-gps-layer-choices" aria-label="GPS 趟次图层"><label v-for="layer in flowGpsEligibleLayers" :key="layer.key" :class="{ muted: flowHiddenGpsLayerKeys.has(layer.key) }"><input type="checkbox" :checked="!flowHiddenGpsLayerKeys.has(layer.key)" @change="toggleFlowGpsLayer(layer.key)" /><i :style="{ borderColor: layer.color }"></i>{{ layer.label }}（{{ layer.points.length }}点）</label></div>
+            <div v-if="flowGpsTrack?.points?.length" class="route-display-toggle">
+              <button type="button" :disabled="!flowGpsVisibleLayers.length" @click="calculateFlowGpsMileage">计算所选 GPS 里程</button>
+            </div>
+            <div v-if="flowGpsMileage" class="flow-actual-distance-grid" aria-live="polite">
+              <div>
+                <span>所选 GPS 里程</span>
+                <strong>{{ (flowGpsMileage.totalMeters / 1000).toFixed(2) }} km</strong>
+                <small v-for="row in flowGpsMileage.rows" :key="row.key">{{ row.label }}：{{ (row.meters / 1000).toFixed(2) }} km</small>
+              </div>
+              <div v-if="flowGpsMileageDifferenceKm != null">
+                <span>与全天日报的差值（所选 GPS − 日报）</span>
+                <strong>{{ flowGpsMileageDifferenceKm > 0 ? '+' : '' }}{{ flowGpsMileageDifferenceKm.toFixed(2) }} km</strong>
+                <small>只勾选部分图层时，两者的时间范围不同。</small>
+              </div>
+            </div>
             <p v-if="!flowGpsCarCode" class="muted">请先选择一辆车，才能查询它当天的日报与 GPS 轨迹或播放路线。</p>
             <p v-if="flowVehicleQueryError" class="flow-warning">车辆运行数据查询失败：{{ flowVehicleQueryError }}</p>
             <p v-if="flowGpsTrack?.points?.length" class="muted">GPS 图层按流水事件时间划分，不是按车辆到场 GPS 精确判定；仅展示 GPS 时的收运点仍来自流水记录。灰色图层是流水时间无法归属的片段。选择某一趟时，只显示该趟对应的 GPS 图层。</p>
@@ -2550,6 +2565,21 @@ const flowGpsAllLayers = computed(() => buildFlowGpsLayers(flowGpsTrack.value?.p
 const flowGpsEligibleLayers = computed(() => flowMapTripIndex.value === 'ALL' ? flowGpsAllLayers.value
   : flowGpsAllLayers.value.filter(layer => layer.kind === 'trip' && String(layer.tripIndex) === flowMapTripIndex.value))
 const flowGpsVisibleLayers = computed(() => flowGpsEligibleLayers.value.filter(layer => !flowHiddenGpsLayerKeys.value.has(layer.key)))
+const flowGpsMileage = ref(null)
+watch(flowGpsVisibleLayers, () => { flowGpsMileage.value = null })
+const flowGpsMileageDifferenceKm = computed(() => {
+  const reportKm = flowVehicleReport.value?.mileageKm
+  if (!flowGpsMileage.value || reportKm == null || !Number.isFinite(Number(reportKm))) return null
+  return flowGpsMileage.value.totalMeters / 1000 - Number(reportKm)
+})
+function calculateFlowGpsMileage() {
+  // Each layer is already sorted by GPS time. Do not join across layer boundaries.
+  const rows = flowGpsVisibleLayers.value.map(({ key, label, points }) => ({
+    key, label, meters: points.reduce((sum, point, i) =>
+      i === 0 ? sum : sum + coordinateDistance(points[i - 1], point), 0)
+  }))
+  flowGpsMileage.value = { rows, totalMeters: rows.reduce((sum, row) => sum + row.meters, 0) }
+}
 function toggleFlowGpsLayer(key) {
   const hidden = new Set(flowHiddenGpsLayerKeys.value)
   if (hidden.has(key)) hidden.delete(key)
