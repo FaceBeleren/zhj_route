@@ -1,3 +1,5 @@
+import { buildFinalReturnTrip } from './finalReturnTrip.js'
+
 const ROAD_SOURCES = new Set(['OD_CACHE', 'OD_PRELOAD', 'BAIDU_ONLINE', 'SAME_POINT'])
 
 export function planSingleTripBreaks(route, ratedCapacityKg, targetLoadRate) {
@@ -53,7 +55,28 @@ export async function buildSingleTripDetours(route, ratedCapacityKg, targetLoadR
   const baseDistance = baseSegments.reduce((sum, segment) => sum + Number(segment.distance), 0)
   const baseDurationMinutes = Number(route.displayTotalDurationMinutes || 0)
   const extraDurationMinutes = extraTravelMinutes + breaks.length * Number(unloadMinutes || 0)
+  const returnTrip = await buildFinalReturnTrip([route], resolveRoad)
   return { thresholdKg, breaks, baseDistance, extraDistance, totalDistance: baseDistance + extraDistance,
     baseDurationMinutes, extraDurationMinutes, totalDurationMinutes: baseDurationMinutes + extraDurationMinutes,
-    expandedSegments, detourSegments }
+    expandedSegments, detourSegments, returnTrip }
+}
+
+export function composeSingleTripDisplay(route, detours, includeDetours, includeReturn) {
+  const returnTrip = includeReturn ? detours.returnTrip : null
+  const detourDistance = includeDetours ? detours.extraDistance : 0
+  const detourDurationMinutes = includeDetours ? detours.extraDurationMinutes : 0
+  const returnDistance = returnTrip?.distance || 0
+  const returnDurationMinutes = returnTrip?.durationMinutes || 0
+  return {
+    segments: [...(includeDetours ? detours.expandedSegments : route.roadSegments), ...(returnTrip?.roadSegments || [])],
+    highlightSegments: [...(includeDetours ? detours.detourSegments : []), ...(returnTrip?.roadSegments || [])],
+    baseDistance: detours.baseDistance,
+    detourDistance,
+    returnDistance,
+    totalDistance: detours.baseDistance + detourDistance + returnDistance,
+    baseDurationMinutes: detours.baseDurationMinutes,
+    detourDurationMinutes,
+    returnDurationMinutes,
+    totalDurationMinutes: detours.baseDurationMinutes + detourDurationMinutes + returnDurationMinutes
+  }
 }

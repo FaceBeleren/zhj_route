@@ -68,9 +68,13 @@ public class RouteExportService {
             }
             fixedRequest.put("schemes", fixedSchemes);
             fixedRequest.put("masterSourceLabel", master.isEmpty() ? "未生成有效主路线，此页仅显示原点位排班，不代表固定执行路线。" : "主路线来源：" + value(master.get("sourceLabel")));
-            if (!master.isEmpty()) writeOptimizedAssignmentSchedule(workbook, fixedRequest, "固定主路线排班表", true);
+            if (!master.isEmpty()) writeOptimizedAssignmentSchedule(workbook, fixedRequest,
+                    map(request.get("singleTripDetails")).isEmpty() ? "固定主路线排班表" : "单趟主路线排班表", true);
             if (!maps(request.get("fixedDailySchemes")).isEmpty()) {
                 writeAssignmentPoints(workbook, headerStyle, schemeStyles, maps(request.get("fixedDailySchemes")), "每日到达时间");
+            }
+            if (!map(request.get("singleTripDetails")).isEmpty()) {
+                writeSingleTripDetails(workbook, headerStyle, schemeStyles, map(request.get("singleTripDetails")));
             }
             workbook.write(out);
             return out.toByteArray();
@@ -319,6 +323,70 @@ public class RouteExportService {
             }
         }
         finishAssignmentSheet(sheet, rowIndex, new int[]{14, 18, 9, 18, 16, 9, 9, 14, 28, 14, 28, 14, 14, 14, 14, 16});
+    }
+
+    private void writeSingleTripDetails(Workbook workbook, CellStyle headerStyle, List<CellStyle> schemeStyles, Map<String, Object> details) {
+        List<Map<String, Object>> schemes = maps(details.get("schemes"));
+        Sheet totals = workbook.createSheet("单趟里程构成");
+        writeHeader(totals, headerStyle, "方案", "适用日", "带中途卸料", "带最终返场", "目标装载量kg", "中途卸料次数",
+                "基础距离m", "中途卸料增量m", "最终返场距离m", "总距离m", "基础耗时min", "中途卸料增量min", "最终返场耗时min", "总耗时min");
+        Sheet legs = workbook.createSheet("卸料与返场明细");
+        writeHeader(legs, headerStyle, "方案", "适用日", "类型", "卸料前点", "处理厂", "下一收运点/返场点", "卸料前装载kg",
+                "原路段距离m", "前往处理厂m", "处理厂到下一点m", "距离增量m", "原路段耗时min", "前往处理厂min", "处理厂到下一点min", "含卸料的耗时增量min");
+        int totalRow = 1;
+        int legRow = 1;
+        for (int schemeIndex = 0; schemeIndex < schemes.size(); schemeIndex++) {
+            Map<String, Object> scheme = schemes.get(schemeIndex);
+            Map<String, Object> breakdown = map(scheme.get("breakdown"));
+            Row row = totals.createRow(totalRow++);
+            write(row, 0, scheme.get("name"));
+            write(row, 1, applicableDays(scheme));
+            write(row, 2, Boolean.TRUE.equals(details.get("includeDetours")) ? "是" : "否");
+            write(row, 3, Boolean.TRUE.equals(details.get("includeReturn")) ? "是" : "否");
+            write(row, 4, breakdown.get("thresholdKg"));
+            write(row, 5, breakdown.get("breakCount"));
+            write(row, 6, breakdown.get("baseDistance"));
+            write(row, 7, breakdown.get("detourDistance"));
+            write(row, 8, breakdown.get("returnDistance"));
+            write(row, 9, breakdown.get("totalDistance"));
+            write(row, 10, breakdown.get("baseDurationMinutes"));
+            write(row, 11, breakdown.get("detourDurationMinutes"));
+            write(row, 12, breakdown.get("returnDurationMinutes"));
+            write(row, 13, breakdown.get("totalDurationMinutes"));
+            applyRowStyle(row, schemeStyles.get(schemeIndex % schemeStyles.size()));
+            for (Map<String, Object> item : maps(breakdown.get("breakDetails"))) {
+                Row leg = legs.createRow(legRow++);
+                write(leg, 0, scheme.get("name"));
+                write(leg, 1, applicableDays(scheme));
+                write(leg, 2, "中途卸料");
+                write(leg, 3, item.get("afterPoint"));
+                write(leg, 4, item.get("terminal"));
+                write(leg, 5, item.get("nextPoint"));
+                write(leg, 6, item.get("loadKg"));
+                write(leg, 7, item.get("originalDistance"));
+                write(leg, 8, item.get("toTerminalDistance"));
+                write(leg, 9, item.get("fromTerminalDistance"));
+                write(leg, 10, item.get("extraDistance"));
+                write(leg, 11, item.get("originalDurationMinutes"));
+                write(leg, 12, item.get("toTerminalDurationMinutes"));
+                write(leg, 13, item.get("fromTerminalDurationMinutes"));
+                write(leg, 14, item.get("extraDurationMinutes"));
+                applyRowStyle(leg, schemeStyles.get(schemeIndex % schemeStyles.size()));
+            }
+            if (Boolean.TRUE.equals(details.get("includeReturn")) && !value(breakdown.get("returnFrom")).isEmpty()) {
+                Row leg = legs.createRow(legRow++);
+                write(leg, 0, scheme.get("name"));
+                write(leg, 1, applicableDays(scheme));
+                write(leg, 2, "最终返场");
+                write(leg, 3, breakdown.get("returnFrom"));
+                write(leg, 5, breakdown.get("returnTo"));
+                write(leg, 10, breakdown.get("returnDistance"));
+                write(leg, 14, breakdown.get("returnDurationMinutes"));
+                applyRowStyle(leg, schemeStyles.get(schemeIndex % schemeStyles.size()));
+            }
+        }
+        finishAssignmentSheet(totals, totalRow, new int[]{24, 18, 14, 14, 16, 14, 16, 20, 20, 16, 17, 21, 21, 17});
+        finishAssignmentSheet(legs, legRow, new int[]{24, 18, 14, 25, 25, 28, 18, 18, 18, 21, 18, 22, 22, 26, 27});
     }
 
     private void writeAssignmentSchedule(Workbook workbook, Map<String, Object> request) {
@@ -643,6 +711,8 @@ public class RouteExportService {
         if ("START".equals(value)) return "起点";
         if ("END".equals(value)) return "终点";
         if ("MIDDLE".equals(value)) return "收运点";
+        if ("UNLOAD".equals(value)) return "中途卸料";
+        if ("RETURN".equals(value)) return "最终返场";
         return value;
     }
 

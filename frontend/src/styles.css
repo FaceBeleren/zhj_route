@@ -731,6 +731,79 @@ button:disabled {
   border-top: 1px solid #e3e9ef;
 }
 
+.assignment-source-points > p {
+  margin: 8px 14px;
+}
+
+.assignment-source-points .point-list {
+  max-height: 230px;
+}
+
+.assignment-strategy-panel {
+  padding: 16px;
+}
+
+.assignment-strategy-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+  margin-top: 14px;
+}
+
+.assignment-strategy-card {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 0;
+  padding: 16px;
+  border: 1px solid #d8e4ef;
+  border-radius: 10px;
+  background: #f8fafc;
+}
+
+.assignment-strategy-card.active {
+  border-color: #2670c8;
+  box-shadow: 0 0 0 2px #d9e9fd;
+  background: #f5f9ff;
+}
+
+.assignment-strategy-card h3,
+.assignment-strategy-card p {
+  margin: 0;
+}
+
+.assignment-strategy-card p {
+  line-height: 1.5;
+}
+
+.assignment-strategy-card small {
+  color: #66758a;
+}
+
+.assignment-strategy-status {
+  color: #235c9c;
+  font-size: 12px;
+}
+
+.assignment-strategy-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: auto;
+  padding-top: 4px;
+}
+
+.assignment-planning-result {
+  padding: 16px;
+  min-width: 0;
+}
+
+@media (max-width: 1100px) {
+  .assignment-strategy-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
 .assignment-frequency-overview {
   margin-bottom: 14px;
   padding: 10px 12px;
@@ -3391,6 +3464,30 @@ tbody tr.active {
 .flow-company-results em { display: block; padding: 9px 10px; color: #71859a; font-style: normal; }
 .flow-selected-company { color: #176b45; font-size: 12px; }
 .flow-analysis-results { display: grid; grid-template-columns: minmax(340px, 1fr) minmax(420px, 1.25fr); gap: 14px; align-items: stretch; }
+.flow-actual-map-panel { display: grid; gap: 10px; }
+.flow-actual-map-filters { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
+.flow-actual-map-filters label { display: grid; gap: 5px; min-width: 0; font-size: 12px; color: #526b82; }
+.flow-actual-map-filters label.flow-return-toggle { display: flex; align-items: end; gap: 7px; padding-bottom: 5px; }
+.flow-actual-map-filters label.flow-return-toggle input { width: auto; margin: 0; }
+.flow-actual-map-filters select { width: 100%; min-width: 0; }
+.flow-actual-distance-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+.flow-actual-distance-grid > div { display: grid; gap: 4px; padding: 10px 12px; border: 1px solid #dce7f1; border-radius: 7px; background: #f8fbff; }
+.flow-actual-distance-grid span { color: #64798c; font-size: 12px; }
+.flow-actual-distance-grid strong { color: #234b6d; font-size: 16px; }
+.flow-actual-distance-grid small { color: #64798c; font-size: 12px; }
+.flow-gps-layer-choices { display: flex; flex-wrap: wrap; gap: 6px 10px; }
+.flow-gps-layer-choices label { display: inline-flex; align-items: center; gap: 5px; padding: 4px 7px; border: 1px solid #dce7f1; border-radius: 6px; background: #f8fbff; color: #34506c; font-size: 12px; cursor: pointer; }
+.flow-gps-layer-choices label.muted { opacity: 0.5; }
+.flow-gps-layer-choices input { margin: 0; }
+.flow-gps-layer-choices i { display: inline-block; width: 15px; border-top: 3px dashed; }
+.flow-marker-legend { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; color: #526b82; font-size: 12px; }
+.flow-marker-legend span { display: inline-flex; align-items: center; gap: 5px; }
+.flow-marker-legend i { display: inline-block; width: 12px; height: 12px; border: 2px solid #fff; border-radius: 50%; box-shadow: 0 0 0 1px #94a3b8; }
+.flow-marker-legend i.through { background: #fff; border-color: #64748b; }
+.flow-marker-legend i.once { background: #22c55e; }
+.flow-marker-legend i.twice { background: #0d9488; }
+.flow-marker-legend i.often { background: #1d4ed8; }
+.flow-marker-legend small { color: #71859a; }
 .flow-daily-panel, .flow-groups-panel { padding: 14px; min-width: 0; height: min(760px, calc(100vh - 300px)); min-height: 420px; overflow: hidden; } .flow-daily-panel { display: flex; flex-direction: column; } .flow-daily-panel .flow-days-content { flex: 1 1 auto; min-height: 0; overflow-y: auto; padding-right: 4px; } .flow-groups-panel { overflow-y: auto; }
 .flow-daily-actions { display: inline-flex; align-items: center; justify-content: flex-end; gap: 8px; flex-wrap: wrap; }
 .flow-collapse-button { border: 1px solid #cbd9e8; border-radius: 6px; padding: 6px 10px; background: #fff; color: #315f8a; font-size: 12px; cursor: pointer; white-space: nowrap; }
@@ -3565,6 +3662,7 @@ tbody tr.active {
 .flow-conclusion-metrics strong { color: #214f75; font-size: 16px; }
 .flow-conclusion-panel ul { margin: 12px 0 0; padding-left: 20px; color: #445f76; line-height: 1.7; }
 @media (max-width: 1050px) { .flow-analysis-filters { grid-template-columns: repeat(3, minmax(130px, 1fr)); } .flow-analysis-results { grid-template-columns: 1fr; } .flow-daily-panel, .flow-groups-panel { height: auto; min-height: 0; overflow: visible; } .flow-daily-panel .flow-days-content { max-height: 620px; overflow-y: auto; } }
+@media (max-width: 650px) { .flow-actual-map-filters, .flow-actual-distance-grid { grid-template-columns: 1fr; } }
 @media (max-width: 1050px) { .flow-route-compare-grid { grid-template-columns: 1fr; } .flow-process-steps { grid-template-columns: repeat(3, minmax(110px, 1fr)); } }
 @media (max-width: 650px) { .flow-analysis-filters { grid-template-columns: 1fr; } .flow-company-input-row { align-items: stretch; } .flow-process-steps { grid-template-columns: 1fr; } .flow-route-metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 

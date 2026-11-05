@@ -1,6 +1,7 @@
 package com.zhj.route.controller;
 
 import com.zhj.route.service.FlowAnalysisService;
+import com.zhj.route.service.ClyxVehicleDayService;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -16,9 +17,23 @@ import java.util.Map;
 @RequestMapping("/api/flow-analysis")
 public class FlowAnalysisController {
     private final FlowAnalysisService flowAnalysisService;
+    private final ClyxVehicleDayService clyxVehicleDayService;
 
-    public FlowAnalysisController(FlowAnalysisService flowAnalysisService) {
+    public FlowAnalysisController(FlowAnalysisService flowAnalysisService, ClyxVehicleDayService clyxVehicleDayService) {
         this.flowAnalysisService = flowAnalysisService;
+        this.clyxVehicleDayService = clyxVehicleDayService;
+    }
+
+    @GetMapping("/vehicle-daily-report")
+    public Map<String, Object> vehicleDailyReport(@RequestParam String unitId, @RequestParam String routeId,
+            @RequestParam String carCode, @RequestParam String day) {
+        return clyxVehicleDayService.report(unitId, routeId, carCode, day);
+    }
+
+    @GetMapping("/vehicle-gps-track")
+    public Map<String, Object> vehicleGpsTrack(@RequestParam String unitId, @RequestParam String routeId,
+            @RequestParam String carCode, @RequestParam String day) {
+        return clyxVehicleDayService.track(unitId, routeId, carCode, day);
     }
 
     @GetMapping("/vehicles")

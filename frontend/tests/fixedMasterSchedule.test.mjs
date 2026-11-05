@@ -3,6 +3,7 @@ import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import { ref, computed, reactive } from 'vue'
 import { maskFixedTripTemplate, buildFixedDailyRouteResult } from '../src/fixedTripTemplate.js'
+import { buildFinalReturnTrip } from '../src/finalReturnTrip.js'
 
 // Exercise the actual component state/functions without requiring database or browser access.
 const app = readFileSync(new URL('../src/App.vue', import.meta.url), 'utf8')
@@ -15,7 +16,7 @@ const exportCode = app.slice(app.indexOf('function fixedMasterExportSchemes('), 
 function fixture() {
   const requests = []
   const scope = {
-    ref, computed, maskFixedTripTemplate, buildFixedDailyRouteResult, compactAssignmentReorderResult,
+    ref, computed, maskFixedTripTemplate, buildFixedDailyRouteResult, buildFinalReturnTrip, compactAssignmentReorderResult,
     assignmentBatchRunning: ref(false), assignmentTripReorderRunning: ref(false),
     timeRepairScope: ref('ASSIGNMENT'), timeRepairFixedOwner: ref(null), timeRepairVersion: ref(null), timeRepairOriginal: ref(null), timeRepairPreview: ref(null), timeRepairError: ref(''), timeRepairVisible: ref(false),
     timeWindowStatsForResult: () => ({ violationCount: 1, reorderable: true }),
@@ -50,7 +51,9 @@ test('plans all points, rebuilds bypass roads and caches repeated daily sequence
   scope.assignmentVersions.value[0].selectedIndices = new Set([0, 2])
   await state.generateFixedMaster()
   assert.deepEqual(state.fixedMaster.value.points.map(point => point.facilityId), [3, 2, 1])
-  assert.deepEqual(requests.map(request => request.points.map(point => point.facilityId)), [[1, 2, 3], [-1, 3, 2, -2], [-2, 1, -2], [-1, 3, -2]])
+  assert.deepEqual(requests.map(request => request.points.map(point => point.facilityId)), [[1, 2, 3], [-1, 3, 2, -2], [-2, 1, -2], [-2, -1], [-1, 3, -2]])
+  assert.deepEqual(state.fixedMaster.value.returnTrip.points.map(point => point.facilityId), [-2, -1])
+  assert.equal(state.fixedMaster.value.days[0].returnTrip.distance, 100)
   assert.deepEqual(state.fixedMaster.value.days[1].result.routes.map(route => route.tripNo), [1, 2])
   assert.deepEqual(state.fixedMaster.value.days[0].result.routes[0].points.map(point => point.facilityId), [-1, 3, -2])
   assert.equal(state.fixedMaster.value.days[0].result.routes[0].fullTemplatePoints[2].scheduleSkipped, true)
@@ -67,7 +70,7 @@ test('without a frequency cycle, still generates the full multi-trip template on
   assert.equal(state.fixedMasterDay.value, 0)
   assert.equal(state.fixedMaster.value.template.routes.length, 2)
   assert.deepEqual(state.fixedMaster.value.days, [])
-  assert.equal(requests.length, 3)
+  assert.equal(requests.length, 4)
   assert.match(state.fixedMasterMessage.value, /尚无按日排班/)
   assert.match(state.fixedMasterCycleTimeWindowStats.value.message, /未检查每天跳点/)
 })

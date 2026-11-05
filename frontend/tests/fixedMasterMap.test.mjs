@@ -7,7 +7,7 @@ const code = app.slice(app.indexOf('// Independent display state:'), app.indexOf
 test('map toggles reuse actual and retained geometries without changing daily metrics', () => {
   const all = [{ facilityId: -1 }, { facilityId: 1 }, { facilityId: 2, scheduleSkipped: true }, { facilityId: -2 }]
   const route = { points: all.filter(point => !point.scheduleSkipped), fullTemplatePoints: all, roadSegments: [{ pathSource: 'OD_CACHE', distance: 100 }], fullTemplateSegments: [{ pathSource: 'OD_CACHE', distance: 300 }], durationMinutes: 40 }
-  const scope = { ref, computed, fixedMasterDay: ref(1), fixedMasterSelectedRoute: ref(route), buildDirectRouteSegments: points => points.slice(1).map(() => ({ pathSource: 'DIRECT' })) }
+  const scope = { ref, computed, fixedMasterDay: ref(1), fixedMasterDisplayedRoute: ref(route), buildDirectRouteSegments: points => points.slice(1).map(() => ({ pathSource: 'DIRECT' })) }
   const state = new Function('scope', `with (scope) { ${code}; return { fixedMasterMapMode, fixedMasterMapIncludeSkipped, fixedMasterMapPoints, fixedMasterMapSegments }; }`)(scope)
   assert.equal(state.fixedMasterMapPoints.value.length, 3)
   assert.equal(state.fixedMasterMapSegments.value[0].distance, 100)

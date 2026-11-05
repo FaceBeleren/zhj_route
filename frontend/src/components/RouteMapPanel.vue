@@ -32,12 +32,21 @@
       <span><i class="shared"></i>共享</span>
       <span><i class="low"></i>低频</span>
     </div>
+    <div v-if="overviewLayers.length" class="route-point-legend" aria-label="趟次颜色图例">
+      <span v-for="layer in overviewLayers" :key="layer.key"><i :style="layer.gpsActual ? { background: 'transparent', borderTop: `3px dashed ${layer.color}` } : { background: layer.color }"></i>{{ layer.label }}</span>
+    </div>
 
     <p v-if="pendingAllPoints.length" :style="{ color: props.pendingColor }">● 待插入时间窗点（{{ pendingAllPoints.length }}个，不参与连线）</p>
-    <div class="route-playback-bar">
+    <div v-if="props.showPlayback" class="route-playback-bar">
       <div class="route-playback-main">
         <div class="route-playback-choice" aria-label="选择播放路线">
           <span>播放路线</span>
+          <template v-if="hasCustomPlaybackChoices">
+            <button v-for="choice in props.playbackChoices" :key="choice.key" class="route-choice-button optimized"
+              :class="{ active: playbackRoute === choice.key }" type="button" :disabled="!choice.paths?.length"
+              @click="setPlaybackRoute(choice.key)">{{ choice.label }}</button>
+          </template>
+          <template v-else>
           <button
             v-if="props.showOriginal"
             class="route-choice-button original"
@@ -55,6 +64,7 @@
           >
             {{ optimizedLabel }}
           </button>
+          </template>
         </div>
         <button class="route-playback-button primary" type="button" :disabled="!canPlay" @click="togglePlayback">
           {{ playbackRunning ? '暂停' : '播放' }}
@@ -76,7 +86,7 @@
             class="route-playback-help"
             tabindex="0"
             aria-label="播放距离口径说明"
-            data-tooltip="该数值由地图道路折线坐标二次测距，仅用于动画播放进度；正式路线距离以上方 OD 缓存或百度接口统计为准。"
+            :data-tooltip="hasCustomPlaybackChoices ? '播放进度按当前可见折线坐标测距；分段之间不补虚构连线，不等同车辆日报里程。' : '该数值由地图道路折线坐标二次测距，仅用于动画播放进度；正式路线距离以上方 OD 缓存或百度接口统计为准。'"
           >!</span>
         </span>
         <div class="route-progress-track">
@@ -98,14 +108,16 @@
             class="plot-line original"
           />
           <polyline
-            v-if="showOptimizedLine && routePlot.compare.optimizedLine"
+            v-if="showOptimizedLine && !overviewLayers.length && routePlot.compare.optimizedLine"
             :points="routePlot.compare.optimizedLine"
             class="plot-line optimized"
             :style="{ stroke: props.optimizedColor }"
           />
+          <polyline v-for="layer in fallbackOverviewLayers" v-if="showOptimizedLine" :key="`overview-${layer.key}`" :points="layer.line" class="plot-line optimized" :style="{ stroke: layer.color, strokeDasharray: layer.gpsActual ? '8 5' : undefined }" />
           <polyline v-for="(line, index) in fallbackHighlightLines" :key="`highlight-${index}`" :points="line" class="plot-line optimized" style="stroke:#8b5cf6;stroke-width:1.5" />
+          <text v-if="fallbackPlaybackPoint && hasCustomPlaybackChoices" :x="fallbackPlaybackPoint.x" :y="fallbackPlaybackPoint.y" text-anchor="middle" dominant-baseline="central" font-size="6">🚚</text>
           <circle
-            v-if="fallbackPlaybackPoint"
+            v-else-if="fallbackPlaybackPoint"
             :cx="fallbackPlaybackPoint.x"
             :cy="fallbackPlaybackPoint.y"
             r="2.8"
@@ -116,7 +128,7 @@
             <text :x="point.x + 2.8" :y="point.y - 2" :style="{ fill: props.pendingColor }">待{{ point.label }}</text>
           </g>
           <g v-for="point in routePlot.compare.points" :key="point.key">
-            <circle :cx="point.x" :cy="point.y" r="2.2" :style="fallbackMarkerStyle(point, props.showOriginal ? '#475569' : props.markerColor)">
+            <circle :cx="point.x" :cy="point.y" r="2.2" :style="fallbackMarkerStyle(point, props.showOriginal ? '#475569' : point.routeColor || props.markerColor)">
               <title>{{ pointTitle(point) }}</title>
             </circle>
             <text v-if="point.labelAlways || labelsVisible" :x="point.x + 2.8" :y="point.y - 2">
@@ -143,10 +155,11 @@
         <div v-if="showOptimizedLine" class="plot-card">
           <div class="plot-title">{{ optimizedLabel }}顺序</div>
           <svg viewBox="0 0 100 100" role="img" aria-label="优化后路线坐标预览">
-            <polyline :points="routePlot.optimized.line" class="plot-line optimized" :style="{ stroke: props.optimizedColor }" />
+            <polyline v-if="!overviewLayers.length" :points="routePlot.optimized.line" class="plot-line optimized" :style="{ stroke: props.optimizedColor }" />
+            <polyline v-for="layer in fallbackOverviewLayers" v-if="showOptimizedLine" :key="`overview-detail-${layer.key}`" :points="layer.line" class="plot-line optimized" :style="{ stroke: layer.color, strokeDasharray: layer.gpsActual ? '8 5' : undefined }" />
             <polyline v-for="(line, index) in fallbackHighlightLines" :key="`optimized-highlight-${index}`" :points="line" class="plot-line optimized" style="stroke:#8b5cf6;stroke-width:1.5" />
             <g v-for="point in routePlot.optimized.points" :key="point.key">
-              <circle :cx="point.x" :cy="point.y" r="2.2" class="plot-point-optimized" :style="fallbackMarkerStyle(point, props.markerColor)">
+              <circle :cx="point.x" :cy="point.y" r="2.2" class="plot-point-optimized" :style="fallbackMarkerStyle(point, point.routeColor || props.markerColor)">
                 <title>{{ pointTitle(point) }}</title>
               </circle>
               <text v-if="point.labelAlways || labelsVisible" :x="point.x + 2.8" :y="point.y - 2">
@@ -162,7 +175,7 @@
 
 <script setup>
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
-import { distanceAtSlider, playbackMetersPerSecond, wheelZoomTarget } from '../routeMapMotion.js'
+import { distanceAtSlider, playbackMetersPerSecond, playbackPathsDistance, playbackPointAtDistance, wheelZoomTarget } from '../routeMapMotion.js'
 import { drawProjectedRoute, mapCaptureCrop, mapScreenshotName } from '../mapScreenshot.js'
 
 const props = defineProps({
@@ -188,6 +201,10 @@ const props = defineProps({
     type: Array,
     default: () => []
   },
+  routeLayers: { type: Array, default: () => [] },
+  playbackChoices: { type: Array, default: () => [] },
+  optimizedMarkerPoints: { type: Array, default: null },
+  showPlayback: { type: Boolean, default: true },
   highlightSegments: { type: Array, default: () => [] },
   optimizedFacilityIds: {
     type: Array,
@@ -227,7 +244,7 @@ const showOriginalLine = ref(props.showOriginal)
 const showOptimizedLine = ref(true)
 const expanded = ref(false)
 const playbackRoute = ref('optimized')
-const playbackSpeed = ref(0.5)
+const playbackSpeed = ref(props.playbackChoices.length ? 0.1 : 0.5)
 const playbackRunning = ref(false)
 const playbackDistance = ref(0)
 let mapInstance = null
@@ -243,6 +260,19 @@ let resumeAfterSeek = false
 
 const originalAllPoints = computed(() => (props.showOriginal ? normalizeRoutePoints(props.originalPoints) : []))
 const optimizedAllPoints = computed(() => normalizeRoutePoints(props.optimizedPoints))
+const optimizedMarkerAllPoints = computed(() => props.optimizedMarkerPoints == null ? optimizedAllPoints.value : normalizeRoutePoints(props.optimizedMarkerPoints))
+const overviewLayers = computed(() => props.routeLayers.map((layer, index) => {
+  const points = normalizeRoutePoints(layer.points || [])
+  const segments = layer.segments || []
+  return { key: layer.key ?? index, label: layer.label || `第${index + 1}趟`, color: layer.color || '#1f6fca', points, segments,
+    gpsActual: Boolean(layer.gpsActual),
+    geometry: pathCoordinatesFromSegments(segments, points) }
+}))
+const fallbackOverviewLayers = computed(() => {
+  if (!routePlot.value) return []
+  const bounds = boundsFor([...originalAllPoints.value, ...optimizedAllPoints.value, ...pendingAllPoints.value])
+  return overviewLayers.value.map(layer => ({ ...layer, line: projectRoute(layer.geometry, bounds).line }))
+})
 const pendingAllPoints = computed(() => normalizeRoutePoints(props.pendingPoints))
 const originalLinePoints = computed(() => (showOriginalLine.value ? originalAllPoints.value : []))
 const optimizedLinePoints = computed(() => (showOptimizedLine.value ? optimizedAllPoints.value : []))
@@ -251,11 +281,11 @@ const optimizedGeometryPoints = computed(() => pathCoordinatesFromSegments(props
 const optimizedFacilityIdSet = computed(() => new Set((props.optimizedFacilityIds || []).map((id) => String(id))))
 const markerPoints = computed(() => {
   const optimizedActive = showOptimizedLine.value && optimizedAllPoints.value.length && (playbackRoute.value === 'optimized' || !showOriginalLine.value)
-  return optimizedActive ? optimizedAllPoints.value : originalAllPoints.value
+  return optimizedActive ? optimizedMarkerAllPoints.value : originalAllPoints.value
 })
-const extentPoints = computed(() => uniquePoints([...markerPoints.value, ...originalGeometryPoints.value, ...optimizedGeometryPoints.value, ...pendingAllPoints.value]))
+const extentPoints = computed(() => uniquePoints([...markerPoints.value, ...originalGeometryPoints.value, ...optimizedGeometryPoints.value, ...overviewLayers.value.flatMap(layer => layer.geometry), ...pendingAllPoints.value]))
 const allPoints = computed(() => extentPoints.value)
-const routePlot = computed(() => buildRoutePlot(originalAllPoints.value, optimizedAllPoints.value, pendingAllPoints.value))
+const routePlot = computed(() => buildRoutePlot(originalAllPoints.value, optimizedMarkerAllPoints.value, pendingAllPoints.value))
 const fallbackHighlightLines = computed(() => {
   if (!showOptimizedLine.value || !routePlot.value) return []
   const bounds = boundsFor([...originalAllPoints.value, ...optimizedAllPoints.value, ...pendingAllPoints.value])
@@ -267,13 +297,17 @@ const playbackPoints = computed(() => {
   }
   return optimizedGeometryPoints.value.length >= 2 ? optimizedGeometryPoints.value : optimizedAllPoints.value
 })
-const playbackTotalDistance = computed(() => routeDistance(playbackPoints.value))
-const canPlay = computed(() => playbackPoints.value.length >= 2 && playbackTotalDistance.value > 0)
+const hasCustomPlaybackChoices = computed(() => props.playbackChoices.length > 0)
+const playbackPaths = computed(() => hasCustomPlaybackChoices.value
+  ? (props.playbackChoices.find(choice => choice.key === playbackRoute.value)?.paths || []).map(normalizeRoutePoints)
+  : [playbackPoints.value])
+const playbackTotalDistance = computed(() => playbackPathsDistance(playbackPaths.value))
+const canPlay = computed(() => (hasCustomPlaybackChoices.value || !overviewLayers.value.length) && playbackTotalDistance.value > 0)
 const playbackPercent = computed(() => {
   if (!canPlay.value) return 0
   return Math.min(100, Math.round((playbackDistance.value / playbackTotalDistance.value) * 1000) / 10)
 })
-const playbackCurrentPoint = computed(() => pointAtDistance(playbackPoints.value, playbackDistance.value))
+const playbackCurrentPoint = computed(() => playbackPointAtDistance(playbackPaths.value, playbackDistance.value))
 const fallbackPlaybackPoint = computed(() => {
   if (!routePlot.value || !playbackCurrentPoint.value) return null
   const bounds = boundsFor([...originalAllPoints.value, ...optimizedAllPoints.value, ...pendingAllPoints.value])
@@ -358,7 +392,8 @@ function drawCapturedRouteOverlays(canvas, target) {
     drawProjectedRoute(context, originalGeometryPoints.value, project, { color: '#d84f4f', width: 4, opacity: 0.8, dashed: true })
   }
   if (showOptimizedLine.value) {
-    drawProjectedRoute(context, optimizedGeometryPoints.value, project, { color: props.optimizedColor, width: 5, opacity: 0.9 })
+    if (overviewLayers.value.length) overviewLayers.value.forEach(layer => drawProjectedRoute(context, layer.geometry, project, { color: layer.color, width: layer.gpsActual ? 3 : 5, opacity: 0.9, dashed: layer.gpsActual }))
+    else drawProjectedRoute(context, optimizedGeometryPoints.value, project, { color: props.optimizedColor, width: 5, opacity: 0.9 })
     props.highlightSegments.forEach(segment => {
       drawProjectedRoute(context, normalizeRoutePoints(segment.path || []), project, { color: '#8b5cf6', width: 7, opacity: 0.95 })
     })
@@ -440,10 +475,11 @@ onBeforeUnmount(() => {
 })
 
 watch(
-  () => [props.originalPoints, props.optimizedPoints, props.originalSegments, props.optimizedSegments, props.highlightSegments, props.optimizedFacilityIds, props.optimizedColor, props.markerColor, props.pendingPoints, props.pendingColor, labelsVisible.value, showOriginalLine.value, showOptimizedLine.value, playbackRoute.value, expanded.value],
+  () => [props.originalPoints, props.optimizedPoints, props.optimizedMarkerPoints, props.originalSegments, props.optimizedSegments, props.routeLayers, props.highlightSegments, props.optimizedFacilityIds, props.optimizedColor, props.markerColor, props.pendingPoints, props.pendingColor, labelsVisible.value, showOriginalLine.value, showOptimizedLine.value, playbackRoute.value, expanded.value],
   () => renderMap(),
   { deep: true }
 )
+watch(() => props.playbackChoices, () => { if (hasCustomPlaybackChoices.value) resetPlayback() }, { deep: true })
 
 async function renderMap() {
   await nextTick()
@@ -490,7 +526,8 @@ function drawBaiduMap(BMap) {
     drawPolyline(BMap, originalGeometryPoints.value, '#d84f4f', 4, 0.8, 'dashed')
   }
   if (showOptimizedLine.value) {
-    drawPolyline(BMap, optimizedGeometryPoints.value, props.optimizedColor, 5, 0.9, 'solid')
+    if (overviewLayers.value.length) overviewLayers.value.forEach(layer => drawPolyline(BMap, layer.geometry, layer.color, layer.gpsActual ? 3 : 5, 0.9, layer.gpsActual ? 'dashed' : 'solid'))
+    else drawPolyline(BMap, optimizedGeometryPoints.value, props.optimizedColor, 5, 0.9, 'solid')
     props.highlightSegments.forEach(segment => drawPolyline(BMap, normalizeRoutePoints(segment.path || []), '#8b5cf6', 7, 0.95, 'solid'))
   }
   const optimizedMode = showOptimizedLine.value && optimizedAllPoints.value.length && (playbackRoute.value === 'optimized' || !showOriginalLine.value)
@@ -504,13 +541,13 @@ function drawBaiduMap(BMap) {
   })
   markerPoints.value.forEach((point, index) => {
     const isOptimizedPoint = optimizedMode && (props.optimizedFacilityIds === null || optimizedFacilityIdSet.value.has(String(point.facilityId)))
-    const appearance = markerAppearance(point, isOptimizedPoint ? props.markerColor : '#dc2626')
+    const appearance = markerAppearance(point, isOptimizedPoint ? point.routeColor || props.markerColor : '#dc2626')
     const marker = new BMap.Marker(new BMap.Point(point.longitude, point.latitude), { icon: markerIcon(BMap, appearance) })
     const semanticLabel = pointSemanticLabel(point)
-    marker.setTitle(`${point.facilityName || String(point.facilityId || index + 1)}${semanticLabel ? `（${semanticLabel}）` : ''}${point.comparisonArrivalTime ? ` 到达${point.comparisonArrivalTime}` : ''}`)
+    marker.setTitle(`${point.facilityName || String(point.facilityId || index + 1)}${semanticLabel ? `（${semanticLabel}）` : ''}${point.flowVisitTitle ? `；${point.flowVisitTitle}` : ''}${point.comparisonArrivalTime ? ` 到达${point.comparisonArrivalTime}` : ''}`)
     mapInstance.addOverlay(marker)
     if (labelsVisible.value) {
-      const label = new BMap.Label(String(index + 1), {
+      const label = new BMap.Label(overviewLayers.value.length ? point.label : String(index + 1), {
         offset: new BMap.Size(12, -18)
       })
       label.setStyle({
@@ -545,6 +582,15 @@ function markerIcon(BMap, appearance) {
 }
 
 function markerAppearance(point, fallbackColor) {
+  if (point.flowMapMarker) {
+    const count = point.flowCollectionCount
+    if (count >= 3) return { fill: '#1d4ed8', stroke: '#ffffff', strokeWidth: 2.4, center: '#ffffff' }
+    if (count === 2) return { fill: '#0d9488', stroke: '#ffffff', strokeWidth: 2.4, center: '#ffffff' }
+    if (count === 1) return { fill: '#22c55e', stroke: '#ffffff', strokeWidth: 2.4, center: '#ffffff' }
+    if (point.flowThroughCount > 0) return { fill: '#ffffff', stroke: '#64748b', strokeWidth: 2.6, center: '#64748b' }
+    return { fill: point.routeColor || fallbackColor, stroke: '#ffffff', strokeWidth: 2.4, center: '#ffffff' }
+  }
+  if (point.flowThrough) return { fill: '#ffffff', stroke: point.routeColor || fallbackColor, strokeWidth: 2.6, center: point.routeColor || fallbackColor }
   if (point.comparisonSelected) return { fill: props.changedPointColor, stroke: point.timeWindowViolation ? '#dc2626' : '#ffffff', strokeWidth: point.timeWindowViolation ? 3.5 : 2.4, center: '#ffffff' }
   if (point.timeWindowViolation) return { fill: '#dc2626', stroke: '#ffffff', strokeWidth: 2.4, center: '#ffffff' }
   if (point.scheduleSkipped) return { fill: '#ffffff', stroke: '#71889a', strokeWidth: 2.4, center: '#ffffff' }
@@ -563,6 +609,8 @@ function fallbackMarkerStyle(point, fallbackColor) {
 }
 
 function pointSemanticLabel(point) {
+  if (point.flowMapMarker) return `收运${point.flowCollectionCount}次、途经${point.flowThroughCount}次`
+  if (point.flowThrough) return '流水途经，未收运'
   if (point.comparisonSelected) return point.timeWindowViolation ? '本次选中或挪动；到达时间超出时间窗' : '本次选中或挪动'
   if (point.timeWindowViolation) return '到达时间超出时间窗'
   if (point.scheduleSkipped) return '今日不收（道路仍经过）'
@@ -576,10 +624,14 @@ function pointSemanticLabel(point) {
 function drawPlaybackMarker(BMap) {
   playbackMarker = null
   const point = playbackCurrentPoint.value
-  if (!point) return
-  playbackMarker = new BMap.Marker(new BMap.Point(point.longitude, point.latitude))
+  if (!props.showPlayback || !canPlay.value || !point) return
+  const icon = hasCustomPlaybackChoices.value ? vehiclePlaybackIcon(BMap) : null
+  playbackMarker = icon
+    ? new BMap.Marker(new BMap.Point(point.longitude, point.latitude), { icon })
+    : new BMap.Marker(new BMap.Point(point.longitude, point.latitude))
   playbackMarker.setTitle('轨迹播放位置')
-  const label = new BMap.Label('车', { offset: new BMap.Size(12, -22) })
+  const label = hasCustomPlaybackChoices.value ? null : new BMap.Label('车', { offset: new BMap.Size(12, -22) })
+  if (label) {
   label.setStyle({
     color: '#ffffff',
     border: '0',
@@ -590,7 +642,14 @@ function drawPlaybackMarker(BMap) {
     fontWeight: '600'
   })
   playbackMarker.setLabel(label)
+  }
   mapInstance.addOverlay(playbackMarker)
+}
+
+function vehiclePlaybackIcon(BMap) {
+  const svg = '<svg xmlns="http://www.w3.org/2000/svg" width="38" height="30" viewBox="0 0 38 30"><rect x="3" y="7" width="20" height="15" rx="3" fill="#1d4ed8" stroke="white" stroke-width="2"/><path d="M23 12h7l5 6v4H23z" fill="#2563eb" stroke="white" stroke-width="2"/><circle cx="11" cy="23" r="4" fill="#172554" stroke="white" stroke-width="1.5"/><circle cx="29" cy="23" r="4" fill="#172554" stroke="white" stroke-width="1.5"/></svg>'
+  return new BMap.Icon('data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svg), new BMap.Size(38, 30),
+    { anchor: new BMap.Size(19, 15), imageSize: new BMap.Size(38, 30) })
 }
 
 function updatePlaybackMarker() {
@@ -692,7 +751,13 @@ function normalizeRoutePoints(points) {
       comparisonSelected: Boolean(point.comparisonSelected),
       longitude: Number(point.longitude),
       latitude: Number(point.latitude),
-      label: String(index + 1),
+      label: String(point.flowVisitLabel ?? point.overviewOrder ?? index + 1),
+      routeColor: point.routeColor,
+      flowThrough: Boolean(point.flowThrough),
+      flowMapMarker: Boolean(point.flowMapMarker),
+      flowCollectionCount: Number(point.flowCollectionCount || 0),
+      flowThroughCount: Number(point.flowThroughCount || 0),
+      flowVisitTitle: point.flowVisitTitle,
       candidateMultiCollection: Boolean(point.candidateMultiCollection),
       candidateShared: Boolean(point.candidateShared),
       candidateLowFrequency: Boolean(point.candidateLowFrequency),
@@ -798,52 +863,11 @@ function stepPlayback(now) {
   playbackAnimationFrame = requestAnimationFrame(stepPlayback)
 }
 
-function routeDistance(points) {
-  let total = 0
-  for (let index = 1; index < points.length; index += 1) {
-    total += distanceBetween(points[index - 1], points[index])
-  }
-  return total
-}
-
-function pointAtDistance(points, distance) {
-  if (points.length === 0) return null
-  if (points.length === 1 || distance <= 0) return points[0]
-  let remaining = distance
-  for (let index = 1; index < points.length; index += 1) {
-    const from = points[index - 1]
-    const to = points[index]
-    const segmentDistance = distanceBetween(from, to)
-    if (remaining <= segmentDistance) {
-      const ratio = segmentDistance === 0 ? 0 : remaining / segmentDistance
-      return {
-        longitude: from.longitude + (to.longitude - from.longitude) * ratio,
-        latitude: from.latitude + (to.latitude - from.latitude) * ratio
-      }
-    }
-    remaining -= segmentDistance
-  }
-  return points[points.length - 1]
-}
-
-function distanceBetween(a, b) {
-  const earthRadius = 6371000
-  const lat1 = toRadians(a.latitude)
-  const lat2 = toRadians(b.latitude)
-  const deltaLat = toRadians(b.latitude - a.latitude)
-  const deltaLng = toRadians(b.longitude - a.longitude)
-  const sinLat = Math.sin(deltaLat / 2)
-  const sinLng = Math.sin(deltaLng / 2)
-  const h = sinLat * sinLat + Math.cos(lat1) * Math.cos(lat2) * sinLng * sinLng
-  return earthRadius * 2 * Math.atan2(Math.sqrt(h), Math.sqrt(1 - h))
-}
-
-function toRadians(value) {
-  return (value * Math.PI) / 180
-}
 
 function pathSourceSummary() {
-  const visibleSegments = showOptimizedLine.value ? props.optimizedSegments : props.originalSegments
+  const visibleSegments = showOptimizedLine.value
+    ? (overviewLayers.value.length ? overviewLayers.value.flatMap(layer => layer.segments) : props.optimizedSegments)
+    : props.originalSegments
   const sources = new Set((visibleSegments || []).map((segment) => segment.pathSource || 'DIRECT'))
   if (sources.size === 0) return '直线回退'
   return Array.from(sources).map(pathSourceLabel).join('/')
@@ -852,6 +876,8 @@ function pathSourceSummary() {
 function pathSourceLabel(source) {
   if (source === 'OD_CACHE' || source === 'OD_PRELOAD') return 'OD缓存道路折线'
   if (source === 'BAIDU_ONLINE') return '百度在线道路折线'
+  if (source === 'FLOW_POINT_LINE') return '流水点位顺序线'
+  if (source === 'GPS_ACTUAL') return '车辆 GPS 实际轨迹'
   return '直线回退'
 }
 
@@ -919,7 +945,7 @@ function projectRoute(points, bounds) {
       key: `${point.facilityId || index}-${index}`,
       x,
       y,
-      label: String(index + 1),
+      label: point.label || String(index + 1),
       labelAlways: index === 0 || index === points.length - 1
     }
   })
@@ -954,6 +980,6 @@ function mergeProjectedPoints(original, optimized) {
 
 function pointTitle(point) {
   const semanticLabel = pointSemanticLabel(point)
-  return `${point.label}. ${point.facilityName || point.facilityId || '未知点位'}${semanticLabel ? `（${semanticLabel}）` : ''}`
+  return `${point.label}. ${point.facilityName || point.facilityId || '未知点位'}${semanticLabel ? `（${semanticLabel}）` : ''}${point.flowVisitTitle ? `；${point.flowVisitTitle}` : ''}`
 }
 </script>

@@ -17,6 +17,73 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 class RouteExportServiceTest {
 
     @Test
+    void singleTripExportKeepsAssignmentWorkbookStyleAndAddsDetourBreakdown() throws Exception {
+        Map<String, Object> request = new HashMap<>();
+        request.put("cycleDays", 1);
+        request.put("scheduleStartDate", "2026-10-22");
+        request.put("points", Arrays.asList(exportPoint(0, "A", "A点")));
+        Map<String, Object> full = scheme(Arrays.asList(), Arrays.asList(0));
+        full.put("name", "全点单趟完整模板");
+        full.put("status", "DONE");
+        Map<String, Object> route = new HashMap<>();
+        route.put("routeNo", 1);
+        route.put("tripNo", 1);
+        route.put("distance", 1500D);
+        route.put("durationMinutes", 40D);
+        route.put("points", Arrays.asList(routePoint("P", "起点", "START"), routePoint("A", "A点", "MIDDLE"),
+                routePoint("T", "处理厂", "UNLOAD"), routePoint("T", "处理厂", "END"), routePoint("P", "起点", "RETURN")));
+        Map<String, Object> result = new HashMap<>();
+        result.put("routeCount", 1);
+        result.put("routes", Arrays.asList(route));
+        full.put("result", result);
+        request.put("schemes", Arrays.asList(full));
+        Map<String, Object> day = scheme(Arrays.asList(1), Arrays.asList(0));
+        day.put("name", "第1天");
+        day.put("result", result);
+        request.put("scheduleSchemes", Arrays.asList(day));
+        request.put("fixedDailySchemes", Arrays.asList(day));
+        Map<String, Object> master = new HashMap<>();
+        master.put("points", Arrays.asList(exportPoint(0, "A", "A点")));
+        master.put("schemes", Arrays.asList(day));
+        request.put("fixedMaster", master);
+        Map<String, Object> breakItem = new HashMap<>();
+        breakItem.put("afterPoint", "A点");
+        breakItem.put("terminal", "处理厂");
+        breakItem.put("nextPoint", "下一点");
+        breakItem.put("extraDistance", 700D);
+        Map<String, Object> breakdown = new HashMap<>();
+        breakdown.put("baseDistance", 600D);
+        breakdown.put("detourDistance", 700D);
+        breakdown.put("returnDistance", 200D);
+        breakdown.put("totalDistance", 1500D);
+        breakdown.put("breakCount", 1);
+        breakdown.put("breakDetails", Arrays.asList(breakItem));
+        breakdown.put("returnFrom", "处理厂");
+        breakdown.put("returnTo", "起点");
+        Map<String, Object> detailScheme = new HashMap<>();
+        detailScheme.put("name", "全点单趟完整模板");
+        detailScheme.put("breakdown", breakdown);
+        Map<String, Object> singleTrip = new HashMap<>();
+        singleTrip.put("includeDetours", true);
+        singleTrip.put("includeReturn", true);
+        singleTrip.put("schemes", Arrays.asList(detailScheme));
+        request.put("singleTripDetails", singleTrip);
+        try (XSSFWorkbook workbook = new XSSFWorkbook(new ByteArrayInputStream(new RouteExportService().exportAssignmentVersions(request)))) {
+            assertEquals(1500D, workbook.getSheet("方案总览").getRow(1).getCell(8).getNumericCellValue());
+            assertEquals("中途卸料", workbook.getSheet("点位顺序").getRow(3).getCell(7).getStringCellValue());
+            assertEquals("最终返场", workbook.getSheet("点位顺序").getRow(5).getCell(7).getStringCellValue());
+            assertTrue(workbook.getSheet("趟次路线") != null);
+            assertTrue(workbook.getSheet("路段明细") != null);
+            assertTrue(workbook.getSheet("排班表") != null);
+            assertTrue(workbook.getSheet("优化排班表") != null);
+            assertTrue(workbook.getSheet("单趟主路线排班表") != null);
+            assertEquals(700D, workbook.getSheet("单趟里程构成").getRow(1).getCell(7).getNumericCellValue());
+            assertEquals("中途卸料", workbook.getSheet("卸料与返场明细").getRow(1).getCell(2).getStringCellValue());
+            assertEquals("最终返场", workbook.getSheet("卸料与返场明细").getRow(2).getCell(2).getStringCellValue());
+        }
+    }
+
+    @Test
     void parallelExportSeparatesFullTemplateDetailsFromDailyScheduleAndArrivalRows() throws Exception {
         Map<String, Object> request = new HashMap<>();
         request.put("cycleDays", 1);

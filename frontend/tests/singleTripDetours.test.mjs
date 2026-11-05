@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { planSingleTripBreaks, buildSingleTripDetours } from '../src/singleTripDetours.js'
+import { planSingleTripBreaks, buildSingleTripDetours, composeSingleTripDisplay } from '../src/singleTripDetours.js'
 
 const point = (id, role, weight = 0) => ({ facilityId: id, facilityName: id, role, estimatedWeightKg: weight, longitude: id.length, latitude: 1 })
 const segment = (from, to, distance, durationMinutes) => ({ distance, durationMinutes, pathSource: 'OD_CACHE', path: [from, to] })
@@ -13,7 +13,9 @@ test('在下一整点装不下时才从上一点卸料，等于阈值不卸料',
 test('新增里程扣掉被替换的直达段，并计入中途卸料时间', async () => {
   const points = [point('S', 'START'), point('A', 'MIDDLE', 60), point('B', 'MIDDLE', 50), point('E', 'END')]
   const route = { points, roadSegments: [segment(points[0], points[1], 100, 1), segment(points[1], points[2], 200, 2), segment(points[2], points[3], 300, 3)], displayTotalDurationMinutes: 20 }
-  const resolveRoad = async ([from, end, to]) => ({ segments: [segment(from, end, 500, 5), segment(end, to, 400, 4)] })
+  const resolveRoad = async path => path.length === 2
+    ? { segments: [segment(path[0], path[1], 250, 2.5)] }
+    : { segments: [segment(path[0], path[1], 500, 5), segment(path[1], path[2], 400, 4)] }
   const result = await buildSingleTripDetours(route, 100, 0.9, 15, resolveRoad)
   assert.deepEqual(result.breaks, [1])
   assert.equal(result.baseDistance, 600)
@@ -23,6 +25,22 @@ test('新增里程扣掉被替换的直达段，并计入中途卸料时间', as
   assert.equal(result.totalDurationMinutes, 42)
   assert.equal(result.expandedSegments.length, 4)
   assert.equal(result.detourSegments.length, 2)
+  assert.equal(result.returnTrip.distance, 250)
+  assert.deepEqual(result.returnTrip.points.map(point => point.facilityId), ['E', 'S'])
+  const both = composeSingleTripDisplay(route, result, true, true)
+  assert.equal(both.totalDistance, 1550)
+  assert.equal(both.totalDurationMinutes, 44.5)
+  assert.equal(both.segments.length, 5)
+  assert.equal(both.highlightSegments.length, 3)
+  const returnOnly = composeSingleTripDisplay(route, result, false, true)
+  assert.equal(returnOnly.totalDistance, 850)
+  assert.equal(returnOnly.segments.length, 4)
+  const detoursOnly = composeSingleTripDisplay(route, result, true, false)
+  assert.equal(detoursOnly.totalDistance, 1300)
+  assert.equal(detoursOnly.segments.length, 4)
+  const neither = composeSingleTripDisplay(route, result, false, false)
+  assert.equal(neither.totalDistance, 600)
+  assert.equal(neither.segments.length, 3)
 })
 
 test('单个点超过阈值或卸料道路缺失时明确失败', async () => {

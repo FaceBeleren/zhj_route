@@ -152,6 +152,37 @@
             <div v-if="flowAnalysisResult.tripCountMismatchRecords" class="flow-warning">有 {{ flowAnalysisResult.tripCountMismatchRecords }} 条流水记录的预计趟数与实际切分趟数不一致，请结合时间轴核对场站事件。</div>
           </section>
 
+          <section v-if="flowAnalysisResult.dailyTrips?.length" class="panel flow-actual-map-panel">
+            <div class="panel-head"><div><h2>流水实际趟次地图</h2><span class="muted">按流水时间顺序连点；各车到中转站／处理厂即切为下一趟</span></div><span class="flow-generated-status">当前 {{ flowMapTripRows.length }} 趟</span></div>
+            <div class="flow-actual-map-filters">
+              <label>日期<select v-model="flowMapDay" @change="flowMapCarCode = 'ALL'; flowMapTripIndex = 'ALL'"><option v-for="day in flowAnalysisResult.dailyTrips" :key="'flow-map-day-'+day.date" :value="String(day.date || '')">{{ day.date || '日期未知' }} · {{ day.tripCount }}趟</option></select></label>
+              <label>车辆<select v-model="flowMapCarCode" @change="flowMapTripIndex = 'ALL'"><option value="ALL">全部车辆</option><option v-for="carCode in flowMapCars" :key="'flow-map-car-'+carCode" :value="carCode">{{ carCode }}</option></select></label>
+              <label>趟次<select v-model="flowMapTripIndex"><option value="ALL">全部趟次</option><option v-for="row in flowMapTripOptions" :key="'flow-map-trip-'+row.index" :value="String(row.index)">第{{ row.index + 1 }}趟 · {{ row.trip.carCode || '车辆未知' }} · {{ row.trip.end?.facilityName || '未到站' }}</option></select></label>
+              <label>出场／返场停车场<select v-model="flowReturnParkingId" :disabled="flowParkingLoading || !flowParkingLots.length"><option value="">{{ flowParkingLoading ? '正在加载停车场' : '请选择停车场' }}</option><option v-for="parking in flowParkingLots" :key="'flow-parking-'+parking.facilityId" :value="String(parking.facilityId)">{{ parking.facilityName || parking.facilityId }}</option></select></label>
+              <label class="flow-return-toggle"><input v-model="flowShowReturnToParking" type="checkbox" /> 绘制出场＋返场</label>
+            </div>
+            <div class="route-display-toggle"><span>地图展示</span><button type="button" :class="{ active: flowMapMode === 'DIRECT' }" @click="setFlowMapMode('DIRECT')">点位直线</button><button type="button" :class="{ active: flowMapMode === 'ROAD' }" @click="setFlowMapMode('ROAD')">道路折线</button><span v-if="flowRoadLoading">加载道路 {{ flowRoadLoaded }}/{{ flowBaseAndParkingLayers.length }} 段…</span><button v-if="flowMapMode === 'ROAD' && flowRoadError" type="button" class="secondary" @click="loadFlowMapRoads(true)">重试道路</button></div>
+            <div class="flow-marker-legend"><span><i class="through"></i>仅途经</span><span><i class="once"></i>收运1次</span><span><i class="twice"></i>收运2次</span><span><i class="often"></i>收运3次及以上</span><small>标记颜色表示当前筛选范围内的收运次数；路线颜色仍按趟区分。</small></div>
+            <div class="flow-actual-distance-grid"><div><span>按折线坐标测得的参考里程</span><strong>{{ flowRoadDistanceMeters == null ? '切换道路折线后计算' : formatDistance(flowRoadDistanceMeters) }}</strong><small v-if="flowRoadDistanceMeters != null">出场段 {{ formatDistance(flowRoadDepartureDistanceMeters) }} + 流水段 {{ formatDistance(flowRoadBaseDistanceMeters) }} + 返场段 {{ formatDistance(flowRoadReturnDistanceMeters) }}</small></div><div><span>收运日报计算里程</span><strong>{{ flowVehicleReport?.mileageKm == null ? '尚未查询' : Number(flowVehicleReport.mileageKm).toFixed(2) + ' km' }}</strong><small v-if="flowVehicleReport">{{ flowVehicleReport.carCode }} · {{ flowVehicleReport.day }} · GPS {{ flowVehicleReport.gpsStatus || flowVehicleReport.hasGps || '状态未知' }}</small></div></div>
+            <div class="route-display-toggle"><button type="button" :disabled="flowVehicleQueryLoading || !flowGpsCarCode" @click="loadFlowVehicleDay">{{ flowVehicleQueryLoading ? '正在查询车辆运行数据…' : '查询当天日报与 GPS 轨迹' }}</button><label v-if="flowGpsTrack?.points?.length" class="flow-return-toggle"><input v-model="flowShowGpsTrack" type="checkbox" /> 显示实际 GPS 轨迹</label><span v-if="flowGpsTrack?.points?.length">GPS 按趟次时间切层 · 共 {{ flowGpsTrack.points.length }} 个定位点</span></div>
+            <div v-if="flowGpsTrack?.points?.length" class="flow-gps-layer-choices" aria-label="GPS 趟次图层"><label v-for="layer in flowGpsEligibleLayers" :key="layer.key" :class="{ muted: !flowShowGpsTrack || flowHiddenGpsLayerKeys.has(layer.key) }"><input type="checkbox" :checked="flowShowGpsTrack && !flowHiddenGpsLayerKeys.has(layer.key)" :disabled="!flowShowGpsTrack" @change="toggleFlowGpsLayer(layer.key)" /><i :style="{ borderColor: layer.color }"></i>{{ layer.label }}（{{ layer.points.length }}点）</label></div>
+            <p v-if="!flowGpsCarCode" class="muted">请先选择一辆车，才能查询它当天的日报与 GPS 轨迹或播放路线。</p>
+            <p v-if="flowVehicleQueryError" class="flow-warning">车辆运行数据查询失败：{{ flowVehicleQueryError }}</p>
+            <p v-if="flowGpsTrack?.points?.length" class="muted">GPS 图层按流水事件时间划分，不是按车辆到场 GPS 精确判定；灰色图层是流水时间无法归属的片段。选择某一趟时，只显示该趟对应的 GPS 图层。</p>
+            <p class="muted">小车可切换播放当前车辆、趟次的流水路线或已显示的 GPS 轨迹；分段之间不绘制虚构连线，进度距离不等同车辆日报里程。</p>
+            <p v-if="flowParkingError" class="flow-warning">停车场候选加载失败：{{ flowParkingError }}</p>
+            <p v-else-if="flowParkingLoading" class="muted">正在加载停车场候选…</p>
+            <p v-else-if="flowShowReturnToParking && !flowSelectedParking" class="flow-warning">流水未提供实际停车场；请选择停车场后才会绘制和计算出场、返场段。</p>
+            <p v-else-if="flowShowReturnToParking && flowSelectedParking && !flowParkingAccessLayers.length" class="muted">当前筛选不含当天该车首趟的首个有效位置或末趟的到站事件，未推算出场／返场段。</p>
+            <p v-else-if="flowParkingAccessLayers.length" class="muted">紫色为所选停车场 → 每辆车当天首个记录位置，以及当天最后一趟记录终点 → 所选停车场。只绘制当前筛选包含的路段；这是推算路线，不代表车辆实际出入场或 GPS 轨迹。</p>
+            <p class="muted">{{ flowMapMode === 'ROAD' ? '道路折线是按流水点位顺序推算的路线，不是车辆实际行驶轨迹；折线测距不代表实际里程。' : '点位直线仅表示流水先后顺序，不代表道路或实际里程。' }} 同一设施重复出现只画一个标记，序号列出当前筛选趟次中的每次位置；多个趟次时跨趟连续编号，悬停可看车辆、趟次和各趟内序号。连线与测距始终保留每次流水事件。{{ flowShowCollectedOnly ? '当前仅隐藏纯途经点的标记，途经事件仍参与连线与测距。' : '当前包含收运与途经点的标记。' }}</p>
+            <p v-if="flowActualMap.missingCoordinateCount" class="flow-warning">{{ flowActualMap.missingCoordinateCount }} 个流水事件缺少有效坐标，地图已跳过；相邻可绘点之间的连线仅表示先后顺序。</p>
+            <p v-if="flowMapMode === 'ROAD' && flowRoadError" class="flow-warning">道路折线未完成：{{ flowRoadError }}。未用点位直线冒充道路。</p>
+            <RouteMapPanel v-if="flowDisplayedPoints.length" :key="'flow-actual-'+flowRunVersion+'-'+flowMapDay+'-'+flowMapCarCode+'-'+flowMapTripIndex+'-'+flowMapMode" :original-points="[]" :optimized-points="flowDisplayedPoints" :optimized-marker-points="flowMapMarkers" :route-layers="flowDisplayedLayers" :playback-choices="flowPlaybackChoices" :show-original="false" :show-playback="true" :optimized-label="flowMapMode === 'ROAD' ? '流水道路折线' : '流水顺序连线'" />
+            <div v-else-if="flowRoadLoading" class="empty">正在计算所选趟次的道路折线…</div>
+            <div v-else-if="!flowRoadError" class="empty">当前筛选的趟次没有可绘制的有效坐标。</div>
+          </section>
+
           <section class="flow-analysis-results">
             <section class="panel flow-daily-panel">
               <div class="panel-head"><div><h2>每日实际趟次</h2><span class="muted">历史顺序仅在这里展示，不参与候选分堆判断</span></div><div class="flow-daily-actions"><button type="button" class="flow-collapse-button" @click="toggleFlowTrips">{{ flowTripsCollapsed ? '展开实际趟次' : '收起实际趟次' }}</button><label class="flow-filter-toggle" :class="{ active: flowShowCollectedOnly }"><input v-model="flowShowCollectedOnly" type="checkbox" /><span class="flow-filter-check" aria-hidden="true">✓</span><span class="flow-filter-copy"><strong>只展示收运点位</strong><small>隐藏纯途经点</small></span></label></div></div>
@@ -1037,11 +1068,7 @@
             <div class="panel-head">
               <div>
                 <h2>岗位分配</h2>
-                <span class="muted">把一条已有路线或岗位的规划点位拆成多趟实际收运路线</span>
-              </div>
-              <div class="panel-actions">
-                <button @click="generateAssignmentVersions" :disabled="!selectedSplitRoute || !assignmentVersions.length || assignmentVersions.some(version => version.selectedIndices.size < 3) || assignmentBatchRunning || assignmentTripReorderRunning || loading">生成全部方案</button>
-                <button v-if="assignmentBatchRunning" class="secondary" @click="stopAssignmentVersionGeneration">停止</button>
+                <span class="muted">选择岗位点位、排班和车辆参数，再比较三种平行的路线规划策略</span>
               </div>
             </div>
             <div class="optimizer-controls">
@@ -1113,12 +1140,49 @@
               </div>
               <p v-if="assignmentFrequencyGenerationMessage" class="assignment-version-hint">{{ assignmentFrequencyGenerationMessage }}</p>
               <p v-if="assignmentBatchRunning" class="assignment-version-hint">正在逐套优化，已完成的方案会保留各自结果。</p>
-              <p v-else-if="assignmentVersions.some(version => version.selectedIndices.size < 3)" class="assignment-version-hint">请为每一套至少选择 3 个点位，再生成全部方案。</p>
+              <p v-else-if="assignmentVersions.some(version => version.selectedIndices.size < 3)" class="assignment-version-hint">按排班逐套规划时，请为每一套至少选择 3 个点位。</p>
               <div class="assignment-schedule-export"><button type="button" class="secondary" :disabled="!assignmentScheduleExportReady || assignmentBatchRunning || loading" @click="exportAssignmentSchedule">导出排班表</button></div>
-          <section v-if="selectedSplitRoute && currentView === 'position-assignment'" class="panel" style="padding:16px">
-            <div class="panel-head"><h2>固定主路线按日执行</h2><div class="panel-actions">
-              <button :disabled="fixedMasterRunning || assignmentBatchRunning || assignmentTripReorderRunning || !splitPlanPoints.length" @click="generateFixedMaster">{{ fixedMasterRunning ? fixedMasterMessage : '独立生成全点多趟方案' }}</button>
-              <button :disabled="singleTripRunning || fixedMasterRunning || assignmentBatchRunning || assignmentTripReorderRunning || !splitPlanPoints.length" @click="generateSingleTripPlan">{{ singleTripRunning ? '正在生成单趟方案…' : '独立生成全点单趟方案' }}</button>
+            </div>
+          </section>
+
+          <section v-if="selectedSplitRoute" class="panel assignment-source-points">
+            <div class="panel-head compact"><h2>岗位原路线点位</h2><div class="assignment-point-actions"><span class="muted">已选 {{ assignmentSelectedPoints.length }} / {{ splitPlanPoints.length }}</span><button type="button" class="secondary" :disabled="loading || assignmentSelectionLocked" @click="selectAllAssignmentPoints">全选</button><button type="button" class="secondary" :disabled="loading || assignmentSelectionLocked" @click="invertAssignmentPoints">反选</button></div></div>
+            <p class="muted">这里的勾选用于编辑当前排班点位套；两个全点策略始终使用岗位全部收运点。处置场／处理厂不参与收运候选，仍可作为终点。</p>
+            <p v-if="assignmentFrequencyError" class="assignment-frequency-note">点位频次读取失败：{{ assignmentFrequencyError }}</p>
+            <ol class="point-list split-point-list assignment-point-list">
+              <li v-for="(point, index) in splitPlanPoints" :key="`${point.facilityId}-${index}`"><label class="assignment-point-option"><input type="checkbox" :checked="assignmentSelectedPointIndices.has(index)" :disabled="loading || assignmentSelectionLocked" @change="toggleAssignmentPoint(index)" /><span>{{ point.facilityName || point.facilityId }} <em class="assignment-frequency" :title="assignmentFrequencyTitle(point)">频次 {{ assignmentFrequencyLabel(point) }}</em><em v-if="assignmentPointPhase(index)?.period > 1" class="assignment-phase">第{{ assignmentPointPhase(index).phase + 1 }}组</em><small>{{ point.facilityTypeName || '-' }} · {{ formatWeight(point.estimatedWeightKg) }}<template v-if="point.containerInfo"> · 桶 {{ point.containerInfo }}</template></small></span></label></li>
+            </ol>
+          </section>
+
+          <section v-if="selectedSplitRoute" class="panel assignment-strategy-panel">
+            <div class="panel-head compact"><div><h2>选择规划策略</h2><span class="muted">三种方案独立计算、结果分别保留；切换查看不会重新生成。</span></div></div>
+            <div class="assignment-strategy-grid">
+              <article class="assignment-strategy-card" :class="{ active: planningView === 'ASSIGNMENT' }">
+                <h3>按排班逐套规划</h3>
+                <p>每套点位分别优化并拆成多趟；适合让每天的应收点重新规划路线。</p>
+                <small>按套重新排序 · 按载重拆趟 · 可按日期适用</small>
+                <strong class="assignment-strategy-status">{{ assignmentBatchRunning ? '计算中' : assignmentVersions.filter(version => version.result).length ? `已生成 ${assignmentVersions.filter(version => version.result).length} 套` : '尚未生成' }}</strong>
+                <div class="assignment-strategy-actions"><button type="button" class="secondary" :aria-pressed="planningView === 'ASSIGNMENT'" @click="planningView = 'ASSIGNMENT'">查看结果</button><button type="button" :disabled="!selectedSplitRoute || !assignmentVersions.length || assignmentVersions.some(version => version.selectedIndices.size < 3) || assignmentBatchRunning || fixedMasterRunning || singleTripRunning || assignmentTripReorderRunning || loading" @click="planningView = 'ASSIGNMENT'; generateAssignmentVersions()">{{ assignmentBatchRunning ? '正在逐套生成…' : '生成逐套方案' }}</button><button v-if="assignmentBatchRunning" type="button" class="secondary" @click="stopAssignmentVersionGeneration">停止</button></div>
+              </article>
+              <article class="assignment-strategy-card" :class="{ active: planningView === 'FIXED' }">
+                <h3>全点多趟固定模板</h3>
+                <p>全部点位先分多趟；每天沿原趟次跳过不收点并重算道路，不跨趟调点。</p>
+                <small>全点固定分趟 · 每日跳点 · 可能出现未装满趟</small>
+                <strong class="assignment-strategy-status">{{ fixedMasterRunning ? '计算中' : fixedMasterFresh ? '已生成' : fixedMaster ? '配置已变化，需重算' : '尚未生成' }}</strong>
+                <div class="assignment-strategy-actions"><button type="button" class="secondary" :aria-pressed="planningView === 'FIXED'" @click="planningView = 'FIXED'">查看结果</button><button type="button" :disabled="fixedMasterRunning || singleTripRunning || assignmentBatchRunning || assignmentTripReorderRunning || !splitPlanPoints.length" @click="planningView = 'FIXED'; generateFixedMaster()">{{ fixedMasterRunning ? '正在生成…' : '生成全点多趟' }}</button></div>
+              </article>
+              <article class="assignment-strategy-card" :class="{ active: planningView === 'SINGLE' }">
+                <h3>全点单趟动态卸料</h3>
+                <p>全部点位先排一条顺序；每天跳点后重新按累计重量确定中途卸料位置。</p>
+                <small>全点固定顺序 · 每日跳点 · 卸料位置按日变化</small>
+                <strong class="assignment-strategy-status">{{ singleTripRunning ? '计算中' : singleTripFresh ? '已生成' : singleTripPlan ? '配置已变化，需重算' : '尚未生成' }}</strong>
+                <div class="assignment-strategy-actions"><button type="button" class="secondary" :aria-pressed="planningView === 'SINGLE'" @click="planningView = 'SINGLE'">查看结果</button><button type="button" :disabled="singleTripRunning || fixedMasterRunning || assignmentBatchRunning || assignmentTripReorderRunning || !splitPlanPoints.length" @click="planningView = 'SINGLE'; generateSingleTripPlan()">{{ singleTripRunning ? '正在生成…' : '生成全点单趟' }}</button></div>
+              </article>
+            </div>
+          </section>
+
+          <section v-if="selectedSplitRoute && planningView === 'FIXED'" class="panel" style="padding:16px">
+            <div class="panel-head"><h2>规划结果 · 全点多趟固定模板</h2><div class="panel-actions">
               <button :disabled="!!smallWindowReason" :title="smallWindowReason || '固定无时间窗点基础顺序，联合枚举时间窗点的插入位置及先后顺序'" @click="generateSmallWindowPlan">少量时间窗联合规划（{{ smallWindowCount }}点）</button>
               <button :disabled="!fixedMasterFresh || fixedMasterRunning || assignmentBatchRunning || assignmentTripReorderRunning || fixedMasterCycleTimeWindowStats.violationCount === 0" @click="openTimeWindowRepair('FIXED')">时间窗修正路线</button>
               <button :disabled="!fixedMasterFresh || fixedMasterRunning || assignmentBatchRunning || assignmentTripReorderRunning" @click="openManualRouteTest('FIXED')">手动调整测试</button>
@@ -1126,14 +1190,16 @@
               <button :disabled="!fixedMasterFresh || fixedMasterRunning || assignmentBatchRunning || assignmentTripReorderRunning || loading" @click="exportFixedMaster">导出方案</button>
               <button v-if="fixedMaster?.timeWindowOriginalResult" :disabled="!fixedMasterFresh || fixedMasterRunning || assignmentTripReorderRunning" @click="restoreFixedMasterOriginal">恢复修正前全点模板</button>
             </div></div>
-            <p>这是第二套独立方案：按所有点都收生成多趟。无需先生成按日排班；若已有排班，则继续计算每天跳点后的道路、耗时和时间窗。时间窗修正只检查已生成的完整模板及排班日期，不保证一定找到全部通过的固定顺序。</p>
+            <p>按所有点都收生成固定多趟；无需先生成按日排班。若已有排班，每天只在原趟内跳过不收点，再计算道路、耗时和时间窗，不跨趟调点。最后从实际末趟处理厂单独返回初始点，不作为收运趟。</p>
             <p>计划不收依据已确认频次；停排不代表任务已完成。实际满载、漏收、设施关闭等异常需人工调度补收。</p>
             <p>少量时间窗联合规划仅支持1～5个时间窗点；允许、禁收时段均计入。同车配置趟次内联合插入，固定无时间窗点的基础顺序和归属，非全局最优。<template v-if="smallWindowReason"> {{ smallWindowReason }}</template></p>
             <p v-if="fixedMasterMessage">{{ fixedMasterMessage }}</p>
+            <p v-else-if="!fixedMasterFresh" class="muted">尚未生成全点多趟方案，请点击上方对应策略的生成按钮。</p>
             <p v-if="fixedMasterFresh">{{ fixedMasterCycleTimeWindowStats.message }}</p>
             <p v-if="fixedMaster && !fixedMasterFresh" style="color:#c46b00">点位、排班或规划参数已变化，固定方案已失效，请重新生成。旧结果不会用于导出。</p>
             <template v-if="fixedMasterFresh">
               <label>查看 <select v-model.number="fixedMasterDay"><option :value="0">完整模板（所有点都收）</option><option v-for="day in assignmentScheduleCycleDays" :key="day" :value="day">第{{ day }}天</option></select></label>
+              <label class="route-line-toggle" style="margin-left:18px"><input v-model="fixedMasterIncludeReturn" type="checkbox" />带末趟返初始点（地图与统计）</label>
               <div class="route-display-toggle">
                 <span>地图展示</span>
                 <button :class="{ active: fixedMasterMapMode === 'DIRECT' }" @click="fixedMasterMapMode = 'DIRECT'">点位直线</button>
@@ -1146,53 +1212,53 @@
               <p v-else class="muted">当前只生成一次全点模板；没有按日排班，不推断哪些天收运，也不生成每日跳点路线。</p>
               <p>主路线来源：{{ fixedMaster.sourceLabel }}<template v-if="fixedMasterDay !== 0">；当天{{ fixedMasterDayData?.disabled ? '已停排' : fixedMasterDayData?.status || '未排班' }}</template>。</p>
               <p v-if="fixedMasterDayData?.result">完整模板 {{ fixedMasterDayData.result.routeCount }} 趟；全点模板时间窗冲突 {{ fixedMasterTimeWindowStats.violationCount }} 个<template v-if="fixedMasterDay !== 0">；当天应收 {{ fixedMasterDayData.indices.length }} 点；当天时间窗冲突 {{ timeWindowStatsForResult(fixedMasterDayData.result).violationCount }} 个；当天应收但模板未分配 {{ fixedMasterDayData.result.dueUnassignedCount || 0 }} 点</template>。</p>
+              <p v-if="fixedMasterDayData?.result && fixedMasterIncludeReturn && fixedMasterReturnTrip">收运趟 {{ formatDistance(fixedMasterRouteTotals.distance) }} + 独立返场趟 {{ formatDistance(fixedMasterReturnTrip.distance) }} = {{ formatDistance(fixedMasterRouteTotals.distance + fixedMasterReturnTrip.distance) }}；耗时合计 {{ formatDuration(fixedMasterRouteTotals.durationMinutes + fixedMasterReturnTrip.durationMinutes) }}。返场不计收运趟数与点位时间窗。</p>
               <p v-if="fixedMasterDayData?.error" style="color:red">{{ fixedMasterDayData.error }}</p>
+              <div class="route-display-toggle"><span>趟次地图</span><button type="button" :class="{ active: fixedMasterOverview }" @click="fixedMasterOverview = true">全部趟数总览</button><button type="button" :class="{ active: !fixedMasterOverview }" @click="fixedMasterOverview = false">单趟详情</button></div>
               <div style="max-height:420px;overflow:auto"><table style="width:100%"><thead><tr><th>主序号</th><th>点位</th><th>当天执行</th><th>到达</th></tr></thead><tbody>
                 <tr v-for="(point, index) in fixedMaster.points" :key="index" :style="{ color: fixedMasterToken(point)?.violation ? 'red' : !fixedMasterDayData?.indices.includes(point.masterIndex) || fixedMasterDayData?.disabled ? '#999' : '' }">
                   <td>{{ point.templateToken }}</td><td>{{ point.facilityName }}</td><td>{{ fixedMasterDayData?.disabled ? '停排' : !fixedMasterDayData?.indices.includes(point.masterIndex) ? '按频次今日不收' : fixedMasterToken(point)?.token || '应收未分配' }}</td><td>{{ fixedMasterToken(point)?.arrival || '—' }}</td>
                 </tr>
               </tbody></table></div>
-              <article v-for="route in fixedMasterDayData?.result?.routes || []" :key="route.routeNo" class="multi-route-card" :class="{ active: fixedMasterRouteNo === route.routeNo }" @click="fixedMasterRouteNo = route.routeNo">
+              <article v-for="route in fixedMasterDayData?.result?.routes || []" :key="route.routeNo" class="multi-route-card" :class="{ active: !fixedMasterOverview && !fixedMasterShowReturn && fixedMasterRouteNo === route.routeNo }" @click="fixedMasterRouteNo = route.routeNo; fixedMasterShowReturn = false; fixedMasterOverview = false">
                 <strong>完整模板第{{ route.tripNo }}趟</strong>
                 <div v-if="fixedMasterDay !== 0">保留全部点位道路：{{ formatDistance(route.retainedRoadDistance) }} · 当天耗时 {{ formatDuration(route.retainedRoadTotalDurationMinutes) }}</div>
                 <div>{{ fixedMasterDay === 0 ? '全点收运' : '跳点后道路' }}：{{ formatDistance(route.displayDistance) }} · {{ fixedMasterDay === 0 ? '模板耗时' : '当天耗时' }} {{ formatDuration(route.displayTotalDurationMinutes) }}</div>
                 <div class="sequence route-point-sequence"><span v-for="point in fixedMasterVisiblePoints(route)" :key="point.order" :style="point.scheduleSkipped ? { background: '#fff', color: '#777', border: '1px solid #aaa' } : {}" :title="point.scheduleSkipped ? '今日不收，完整道路仍经过该点' : ''">{{ point.facilityName }}{{ point.scheduleSkipped ? '（不收）' : '' }}</span></div>
               </article>
-              <RouteMapPanel v-if="fixedMasterSelectedRoute" :key="'fixed-master-'+fixedMasterSelectedRoute.routeNo" :original-points="[]" :optimized-points="fixedMasterMapPoints" :optimized-segments="fixedMasterMapSegments" :show-original="false" :optimized-label="fixedMasterDay === 0 || fixedMasterMapIncludeSkipped ? '完整模板连线' : '当日收运点连线'" />
+              <article v-if="fixedMasterIncludeReturn && fixedMasterReturnTrip" class="multi-route-card" :class="{ active: !fixedMasterOverview && fixedMasterShowReturn }" @click="fixedMasterShowReturn = true; fixedMasterOverview = false">
+                <strong>最后返场趟 · 处理厂 → 初始点（不收运）</strong>
+                <div>道路：{{ formatDistance(fixedMasterReturnTrip.distance) }} · 行驶 {{ formatDuration(fixedMasterReturnTrip.durationMinutes) }}</div>
+                <div class="sequence route-point-sequence"><span v-for="point in fixedMasterReturnTrip.points" :key="point.order">{{ point.facilityName }}</span></div>
+              </article>
+              <RouteMapPanel v-if="fixedMasterOverview && fixedMasterOverviewLayers.length" :key="'fixed-overview-'+fixedMasterDay" :original-points="[]" :optimized-points="fixedMasterOverviewPoints" :route-layers="fixedMasterOverviewLayers" :show-original="false" optimized-label="全部趟数总览" />
+              <RouteMapPanel v-else-if="fixedMasterDisplayedRoute" :key="'fixed-master-'+fixedMasterDay+'-'+(fixedMasterShowReturn && fixedMasterIncludeReturn ? 'return' : fixedMasterDisplayedRoute.routeNo)" :original-points="[]" :optimized-points="fixedMasterMapPoints" :optimized-segments="fixedMasterMapSegments" :highlight-segments="fixedMasterShowReturn && fixedMasterMapMode === 'ROAD' ? fixedMasterReturnTrip?.roadSegments || [] : []" :show-original="false" :optimized-label="fixedMasterShowReturn && fixedMasterIncludeReturn ? '末趟返场道路' : fixedMasterDay === 0 || fixedMasterMapIncludeSkipped ? '完整模板连线' : '当日收运点连线'" />
             </template>
           </section>
-          <section v-if="selectedSplitRoute && currentView === 'position-assignment'" class="panel" style="padding:16px">
-            <h2>全点单趟＋按载重中途卸料</h2>
-            <p>先忽略载重生成一条完整点位顺序；无需先生成按日排班。若已有排班，每天跳过不收点；再按额定载重 × 目标装载率，在下一点装不下时从当前点开往处理厂卸料，然后从处理厂开往下一点。不拆分点位收运。</p>
+          <section v-if="selectedSplitRoute && planningView === 'SINGLE'" class="panel" style="padding:16px">
+            <div class="panel-head"><h2>规划结果 · 全点单趟动态卸料</h2><div class="panel-actions"><button type="button" :disabled="!singleTripFresh || singleTripRunning || fixedMasterRunning || assignmentBatchRunning || assignmentTripReorderRunning || loading" @click="exportSingleTrip">导出方案</button></div></div>
+            <p>先忽略载重生成一条完整点位顺序；无需先生成按日排班。若已有排班，每天跳过不收点；再按额定载重 × 目标装载率，在下一点装不下时从当前点开往处理厂卸料，然后从处理厂开往下一点。不拆分点位收运。末次到处理厂后返回初始点可独立开关。</p>
             <p v-if="singleTripMessage">{{ singleTripMessage }}</p>
+            <p v-else-if="!singleTripFresh" class="muted">尚未生成全点单趟方案，请点击上方对应策略的生成按钮。</p>
             <p v-if="singleTripPlan && !singleTripFresh" style="color:#c46b00">点位、排班或参数已变化，请重新生成单趟方案。</p>
             <template v-if="singleTripFresh">
               <label>查看 <select v-model.number="singleTripDay"><option :value="0">完整模板（所有点都收）</option><option v-for="day in assignmentScheduleCycleDays" :key="day" :value="day">第{{ day }}天</option></select></label>
               <label class="route-line-toggle" style="margin-left:18px"><input v-model="singleTripIncludeDetours" type="checkbox" />带中途往返处理厂（地图与统计）</label>
+              <label class="route-line-toggle" style="margin-left:18px"><input v-model="singleTripIncludeReturn" type="checkbox" />带最终处理厂返初始点（地图与统计）</label>
+              <p class="muted">导出完整模板和已计算的每一天；里程、耗时及新增路段按上方两个开关的当前状态写入，同步保留分项明细。</p>
               <p v-if="singleTripSelected?.disabled">第{{ singleTripDay }}天已停排，无收运路线。</p>
               <p v-if="singleTripSelected?.error" style="color:red">第{{ singleTripDay }}天道路计算失败：{{ singleTripSelected.error }}</p>
               <template v-else-if="singleTripSelected?.route && !singleTripSelected.disabled">
                 <p>{{ singleTripDay === 0 ? '完整模板点位' : '当天收运点' }} {{ singleTripSelected.route.pointCount }} 个<template v-if="singleTripIncludeDetours">；中途卸料 {{ singleTripSelected.detours.breaks.length }} 次；目标装载量 {{ singleTripSelected.detours.thresholdKg.toFixed(1) }} kg</template>。</p>
-                <p v-if="singleTripIncludeDetours">里程：{{ formatDistance(singleTripSelected.detours.baseDistance) }} + {{ formatDistance(singleTripSelected.detours.extraDistance) }} = {{ formatDistance(singleTripSelected.detours.totalDistance) }}；耗时：{{ formatDuration(singleTripSelected.detours.totalDurationMinutes) }}（基础 {{ formatDuration(singleTripSelected.detours.baseDurationMinutes) }}，增量 {{ formatDuration(singleTripSelected.detours.extraDurationMinutes) }}）。紫色为中途卸料新增道路；增量已扣除被替换的原路段。</p>
-                <p v-else>原始单趟里程：{{ formatDistance(singleTripSelected.detours.baseDistance) }}；原始耗时：{{ formatDuration(singleTripSelected.detours.baseDurationMinutes) }}。中途卸料路线和增量已从地图、统计中隐藏。</p>
-                <RouteMapPanel :key="'single-trip-'+singleTripDay" :original-points="[]" :optimized-points="singleTripSelected.route.points" :optimized-segments="singleTripIncludeDetours ? singleTripSelected.detours.expandedSegments : singleTripSelected.route.roadSegments" :highlight-segments="singleTripIncludeDetours ? singleTripSelected.detours.detourSegments : []" :show-original="false" optimized-label="单趟收运路线" />
+                <p>里程：基础 {{ formatDistance(singleTripDisplay.baseDistance) }} + 中途卸料增量 {{ formatDistance(singleTripDisplay.detourDistance) }} + 最终返场 {{ formatDistance(singleTripDisplay.returnDistance) }} = {{ formatDistance(singleTripDisplay.totalDistance) }}；耗时：基础 {{ formatDuration(singleTripDisplay.baseDurationMinutes) }} + 中途卸料增量 {{ formatDuration(singleTripDisplay.detourDurationMinutes) }} + 最终返场 {{ formatDuration(singleTripDisplay.returnDurationMinutes) }} = {{ formatDuration(singleTripDisplay.totalDurationMinutes) }}。紫色为已开启的新增道路；中途卸料增量已扣除被替换的原路段。</p>
+                <RouteMapPanel :key="'single-trip-'+singleTripDay" :original-points="[]" :optimized-points="singleTripSelected.route.points" :optimized-segments="singleTripDisplay.segments" :highlight-segments="singleTripDisplay.highlightSegments" :show-original="false" optimized-label="单趟收运路线" />
               </template>
             </template>
           </section>
-            </div>
-          </section>
 
-          <section v-if="selectedSplitRoute" class="panel split-panel multi-layout">
+          <section v-if="selectedSplitRoute && planningView === 'ASSIGNMENT'" class="panel assignment-planning-result">
             <div>
-              <div class="panel-head compact"><h2>原路线点位</h2><div class="assignment-point-actions"><span class="muted">已选 {{ assignmentSelectedPoints.length }} / {{ splitPlanPoints.length }}</span><button type="button" class="secondary" :disabled="loading || assignmentSelectionLocked" @click="selectAllAssignmentPoints">全选</button><button type="button" class="secondary" :disabled="loading || assignmentSelectionLocked" @click="invertAssignmentPoints">反选</button></div></div>
-              <p class="muted">处置场／处理厂按点位类型自动排除出收运候选，仍可作为终点和卸料场站；原始路线记录不变。</p>
-              <p v-if="assignmentFrequencyError" class="assignment-frequency-note">点位频次读取失败：{{ assignmentFrequencyError }}</p>
-              <ol class="point-list split-point-list assignment-point-list">
-                <li v-for="(point, index) in splitPlanPoints" :key="`${point.facilityId}-${index}`"><label class="assignment-point-option"><input type="checkbox" :checked="assignmentSelectedPointIndices.has(index)" :disabled="loading || assignmentSelectionLocked" @change="toggleAssignmentPoint(index)" /><span>{{ point.facilityName || point.facilityId }} <em class="assignment-frequency" :title="assignmentFrequencyTitle(point)">频次 {{ assignmentFrequencyLabel(point) }}</em><em v-if="assignmentPointPhase(index)?.period > 1" class="assignment-phase">第{{ assignmentPointPhase(index).phase + 1 }}组</em><small>{{ point.facilityTypeName || '-' }} · {{ formatWeight(point.estimatedWeightKg) }}<template v-if="point.containerInfo"> · 桶 {{ point.containerInfo }}</template></small></span></label></li>
-              </ol>
-            </div>
-            <div>
-              <div class="panel-head compact"><h2>拆分结果<small v-if="assignmentActiveVersion"> · 当前{{ assignmentActiveVersion.name }}</small></h2><div class="panel-actions"><button type="button" class="secondary" :disabled="!!assignmentBatchTripReorderDisabledReason" :title="assignmentBatchTripReorderDisabledReason" @click="tryReorderAllAssignmentTrips">{{ assignmentTripReorderRunning ? '正在批量调整…' : '尝试调整全部方案趟序' }}</button><button @click="openSaveSplitCurrentRoute" :disabled="!selectedMultiRoute || loading || assignmentTripReorderRunning">另存当前路线</button><button @click="openSaveSplitGroup" :disabled="!multiOptimization || loading || assignmentTripReorderRunning">{{ splitFromSavedRoute ? '保存为新版本' : '另存当前方案整组' }}</button><button @click="exportAssignmentVersions" :disabled="assignmentBatchRunning || assignmentTripReorderRunning || loading || fixedMasterRunning || (!assignmentVersions.some(version => version.result) && !fixedMasterFresh)">导出全部方案</button></div></div>
+              <div class="panel-head compact"><h2>规划结果 · 按排班逐套规划<small v-if="assignmentActiveVersion"> · 当前{{ assignmentActiveVersion.name }}</small></h2><div class="panel-actions"><button type="button" class="secondary" :disabled="!!assignmentBatchTripReorderDisabledReason" :title="assignmentBatchTripReorderDisabledReason" @click="tryReorderAllAssignmentTrips">{{ assignmentTripReorderRunning ? '正在批量调整…' : '尝试调整全部方案趟序' }}</button><button @click="openSaveSplitCurrentRoute" :disabled="!selectedMultiRoute || assignmentShowReturn || loading || assignmentTripReorderRunning">另存当前路线</button><button @click="openSaveSplitGroup" :disabled="!multiOptimization || loading || assignmentTripReorderRunning">{{ splitFromSavedRoute ? '保存为新版本' : '另存当前方案整组' }}</button><button @click="exportAssignmentVersions" :disabled="assignmentBatchRunning || assignmentTripReorderRunning || loading || fixedMasterRunning || (!assignmentVersions.some(version => version.result) && !fixedMasterFresh)">导出全部方案</button></div></div>
               <p v-if="assignmentActiveVersion?.applicableDays?.length" class="assignment-applicable-dates">{{ assignmentActiveVersion.name }}适用：{{ assignmentApplicableDaysLabel(assignmentActiveVersion) }}<template v-if="assignmentActiveVersion.applicableDays.length > 1">。修改这套点位会影响所有适用天数。</template></p>
               <div v-if="assignmentVersions.some(version => version.status !== 'IDLE')" class="assignment-result-summary"><button v-for="version in assignmentVersions" :key="'result-'+version.id" type="button" class="assignment-result-version" :class="{ active: assignmentActiveVersionId === version.id }" :aria-pressed="assignmentActiveVersionId === version.id" :disabled="assignmentBatchRunning || assignmentTripReorderRunning" @click="selectAssignmentVersion(version.id)"><strong>{{ version.name }}<template v-if="version.applicableDays?.length > 1"> · 适用{{ version.applicableDays.length }}天</template><template v-else-if="version.cycleDay"> · 第{{ version.cycleDay }}天</template></strong><span>{{ assignmentVersionStatusLabel(version) }}</span><small v-if="version.error">{{ version.error }}</small><small v-else-if="version.status === 'RUNNING'">{{ version.message }}<template v-if="version.percent"> · {{ version.percent }}%</template></small><small v-else-if="version.result">{{ version.result.routeCount || 0 }} 趟 · 已分配 {{ version.result.assignedPointCount || 0 }} 点</small></button></div>
               <p v-if="assignmentVersions.some(version => version.result)" class="assignment-save-scope">点击上方方案切换结果；“当前路线”和“当前方案整组”仅保存所选方案，“导出全部方案”包含本次所有方案及其状态。</p>
@@ -1200,6 +1266,10 @@
                 <strong>{{ multiOptimization.status }}</strong>
                 <p>{{ multiOptimization.message }}</p>
                 <div class="optimization-metrics"><span>拆分路线 {{ multiOptimization.routeCount || 0 }}</span><span>已分配 {{ multiOptimization.assignedPointCount || 0 }}</span><span>未分配 {{ multiOptimization.unassignedPointCount || 0 }}</span><span>已分配量 {{ formatWeight(multiOptimization.assignedWeightKg) }}</span></div>
+                <label class="route-line-toggle"><input v-model="assignmentIncludeReturn" type="checkbox" />带末趟返初始点（地图与统计）</label>
+                <p v-if="assignmentIncludeReturn && assignmentActiveVersion?.returnTripPending" class="muted">正在计算最后处理厂返回初始点的道路…</p>
+                <p v-if="assignmentIncludeReturn && assignmentActiveVersion?.returnTripError" style="color:#c46b00">返场道路未生成：{{ assignmentActiveVersion.returnTripError }}</p>
+                <p v-if="assignmentIncludeReturn && assignmentActiveReturnTrip">收运趟 {{ formatDistance(assignmentCollectionTotals.distance) }} + 独立返场趟 {{ formatDistance(assignmentActiveReturnTrip.distance) }} = {{ formatDistance(assignmentCollectionTotals.distance + assignmentActiveReturnTrip.distance) }}；耗时合计 {{ formatDuration(assignmentCollectionTotals.durationMinutes + assignmentActiveReturnTrip.durationMinutes) }}。返场不计收运趟数与点位时间窗。</p>
                 <div class="assignment-trip-reorder-bar">
                   <button type="button" class="secondary" :disabled="assignmentTripReorderRunning || assignmentBatchRunning || !multiOptimization?.routes?.length" @click="openManualRouteTest('ASSIGNMENT')">手动调整测试</button>
                   <button type="button" class="secondary" :disabled="assignmentTripReorderRunning || assignmentBatchRunning || !multiOptimization?.routes?.length || assignmentTimeWindowStats.violationCount === 0" @click="openTimeWindowRepair">时间窗修正路线</button>
@@ -1208,10 +1278,16 @@
                   <span :class="{ success: assignmentTimeWindowStats.violationCount === 0, warning: assignmentTimeWindowStats.violationCount > 0 }">{{ assignmentTimeWindowStats.violationCount === 0 ? '当前方案时间窗均已通过' : `当前有 ${assignmentTimeWindowStats.violationCount} 个点位时间窗冲突` }}</span>
                   <small v-if="assignmentTripReorderMessage">{{ assignmentTripReorderMessage }}</small>
                 </div>
+                <div class="route-display-toggle"><span>趟次地图</span><button type="button" :class="{ active: assignmentOverview }" @click="assignmentOverview = true">全部趟数总览</button><button type="button" :class="{ active: !assignmentOverview }" @click="assignmentOverview = false">单趟详情</button></div>
+                <div v-if="assignmentOverview" class="route-display-toggle"><span>地图展示</span><button type="button" :class="{ active: assignmentOverviewMapMode === 'DIRECT' }" @click="assignmentOverviewMapMode = 'DIRECT'">点位直线</button><button type="button" :class="{ active: assignmentOverviewMapMode === 'ROAD' }" @click="assignmentOverviewMapMode = 'ROAD'">道路折线</button></div>
+                <p v-if="assignmentOverview && assignmentOverviewMapMode === 'ROAD' && assignmentActiveVersion?.overviewRoadLoading" class="muted">正在加载道路折线：{{ assignmentActiveVersion.overviewRoadLoaded || 0 }}/{{ multiOptimization.routes.length }} 趟…</p>
+                <p v-if="assignmentOverview && assignmentOverviewMapMode === 'ROAD' && assignmentActiveVersion?.overviewRoadError" class="warning">道路折线未能完整加载：{{ assignmentActiveVersion.overviewRoadError }} <button type="button" class="secondary" @click="loadAssignmentOverviewRoads(true)">重试</button></p>
+                <p v-if="assignmentOverview && assignmentOverviewMapMode === 'DIRECT'" class="muted">总览按趟着色，当前按点位直线连线；切换“道路折线”可查看实际道路走向。</p>
                 <div class="multi-routes split-routes-result">
-                  <article v-for="route in multiOptimization.routes" :key="route.routeNo" class="multi-route-card" :class="{ active: selectedMultiRouteNo === route.routeNo }" @click="selectedMultiRouteNo = route.routeNo"><div><strong>第 {{ route.routeNo }} 趟 · {{ route.vehicleName || '默认车辆' }} 第{{ route.tripNo || route.routeNo }}趟</strong><small>{{ route.pointCount }} 点 · {{ formatWeight(route.estimatedWeightKg) }} · {{ formatDistance(routeDisplayDistance(route)) }} · 合计 {{ formatDuration(routeDisplayTotalDuration(route)) }}</small></div><div class="sequence route-point-sequence"><span v-for="point in route.points" :key="`${route.routeNo}-${point.order}-${point.facilityId}`">{{ point.facilityName || point.facilityId }}</span></div></article>
+                  <article v-for="route in multiOptimization.routes" :key="route.routeNo" class="multi-route-card" :class="{ active: !assignmentOverview && !assignmentShowReturn && selectedMultiRouteNo === route.routeNo }" @click="selectedMultiRouteNo = route.routeNo; assignmentShowReturn = false; assignmentOverview = false"><div><strong>第 {{ route.routeNo }} 趟 · {{ route.vehicleName || '默认车辆' }} 第{{ route.tripNo || route.routeNo }}趟</strong><small>{{ route.pointCount }} 点 · {{ formatWeight(route.estimatedWeightKg) }} · {{ formatDistance(routeDisplayDistance(route)) }} · 合计 {{ formatDuration(routeDisplayTotalDuration(route)) }}</small></div><div class="sequence route-point-sequence"><span v-for="point in route.points" :key="`${route.routeNo}-${point.order}-${point.facilityId}`">{{ point.facilityName || point.facilityId }}</span></div></article>
+                  <article v-if="assignmentIncludeReturn && assignmentActiveReturnTrip" class="multi-route-card" :class="{ active: !assignmentOverview && assignmentShowReturn }" @click="assignmentShowReturn = true; assignmentOverview = false"><div><strong>最后返场趟 · 处理厂 → 初始点（不收运）</strong><small>0 点 · {{ formatDistance(assignmentActiveReturnTrip.distance) }} · 行驶 {{ formatDuration(assignmentActiveReturnTrip.durationMinutes) }}</small></div><div class="sequence route-point-sequence"><span v-for="point in assignmentActiveReturnTrip.points" :key="point.order">{{ point.facilityName }}</span></div></article>
                 </div>
-                <div v-if="selectedMultiRoute" class="route-display-toolbar">
+                <div v-if="selectedMultiRoute && !assignmentOverview && !assignmentShowReturn" class="route-display-toolbar">
                   <span>地图展示</span>
                   <button :class="{ active: !selectedMultiRouteRoadDisplay }" @click.stop="setSelectedMultiRouteDisplay(false)">点位直线</button>
                   <button :class="{ active: selectedMultiRouteRoadDisplay }" :disabled="routeSegmentLoading" @click.stop="setSelectedMultiRouteDisplay(true)">
@@ -1219,8 +1295,10 @@
                   </button>
                   <small>{{ selectedMultiRouteDisplaySummary }}</small>
                 </div>
-                <RouteMapPanel v-if="selectedMultiRoute" :original-points="[]" :optimized-points="selectedMultiRoute.points || []" :optimized-segments="selectedMultiRouteDisplaySegments" :show-original="false" optimized-label="拆分路线" />
-                <div v-if="selectedMultiRoute" class="route-time-detail">
+                <RouteMapPanel v-if="assignmentOverview && assignmentOverviewLayers.length" :key="'assignment-overview-'+assignmentActiveVersionId+'-'+assignmentOverviewMapMode" :original-points="[]" :optimized-points="assignmentOverviewPoints" :route-layers="assignmentOverviewLayers" :show-original="false" optimized-label="全部趟数总览" />
+                <RouteMapPanel v-else-if="assignmentShowReturn && assignmentIncludeReturn && assignmentActiveReturnTrip" :key="'assignment-return-'+assignmentActiveVersionId" :original-points="[]" :optimized-points="assignmentActiveReturnTrip.points" :optimized-segments="assignmentActiveReturnTrip.roadSegments" :highlight-segments="assignmentActiveReturnTrip.roadSegments" :show-original="false" optimized-label="末趟返场道路" />
+                <RouteMapPanel v-else-if="selectedMultiRoute && !assignmentOverview && !assignmentShowReturn" :original-points="[]" :optimized-points="selectedMultiRoute.points || []" :optimized-segments="selectedMultiRouteDisplaySegments" :show-original="false" optimized-label="拆分路线" />
+                <div v-if="selectedMultiRoute && !assignmentOverview && !assignmentShowReturn" class="route-time-detail">
                   <div class="route-time-summary">
                     <span>行驶 {{ formatDuration(selectedMultiRouteDisplayTravelDuration) }}</span>
                     <span>作业 {{ formatDuration(selectedMultiRoute.operationDurationMinutes) }}（含终点卸料 {{ formatDuration(selectedMultiRoute.terminalUnloadMinutes) }}）</span>
@@ -1245,7 +1323,7 @@
                   </div>
                 </div>
               </div>
-              <div v-else class="empty">点击“生成全部方案”后，可切换查看每套点位的优化结果。</div>
+              <div v-else class="empty">点击上方“生成逐套方案”后，可切换查看每套点位的优化结果。</div>
             </div>
           </section>
         </section>
@@ -2349,7 +2427,13 @@ import ClusterMapPanel from './components/ClusterMapPanel.vue'
 import FlowAnalysisPdfReport from './components/FlowAnalysisPdfReport.vue'
 import { balanceAssignmentPhases } from './assignmentPhases.js'
 import { maskFixedTripTemplate, buildFixedDailyRouteResult } from './fixedTripTemplate.js'
-import { buildSingleTripDetours } from './singleTripDetours.js'
+import { buildSingleTripDetours, composeSingleTripDisplay } from './singleTripDetours.js'
+import { buildSingleTripExport } from './singleTripExport.js'
+import { buildRouteOverviewLayers, hasCompleteRoadGeometry, routeOverviewPoints } from './routeOverview.js'
+import { buildFlowActualMap, buildFlowParkingAccessLayers, flowRoadKey, normalizeFlowRoadSegments, flowPolylineMeters } from './flowActualMap.js'
+import { buildFlowGpsLayers, flowTimeMillis } from './flowGpsLayers.js'
+import { buildFlowPlaybackChoices } from './flowPlaybackChoices.js'
+import { buildFinalReturnTrip } from './finalReturnTrip.js'
 import { applyGarbageDensity } from './garbageDensity.js'
 
 const LOGIN_USERNAME = 'admin'
@@ -2373,11 +2457,188 @@ const flowSelectedVehicleCodes = ref(new Set())
 const flowVehiclePickerOpen = ref(false)
 const flowAnalysisTask = reactive({ taskId: '', status: 'IDLE', phase: 'PREPARE', message: '请选择公司、岗位和执行车辆', percent: 0, totalRecords: 0, loadedEvents: 0, elapsedMs: 0 })
 const flowAnalysisResult = ref(null)
+const flowMapDay = ref('')
+const flowMapCarCode = ref('ALL')
+const flowMapTripIndex = ref('ALL')
+const flowMapSelectedDay = computed(() => (flowAnalysisResult.value?.dailyTrips || []).find(day => String(day.date || '') === flowMapDay.value) || flowAnalysisResult.value?.dailyTrips?.[0] || null)
+const flowMapCars = computed(() => [...new Set((flowMapSelectedDay.value?.trips || []).map(trip => String(trip.carCode || '')).filter(Boolean))])
+const flowGpsCarCode = computed(() => flowMapCarCode.value !== 'ALL' ? flowMapCarCode.value : flowMapCars.value.length === 1 ? flowMapCars.value[0] : '')
+const flowVehicleReport = ref(null)
+const flowGpsTrack = ref(null)
+const flowShowGpsTrack = ref(true)
+const flowHiddenGpsLayerKeys = ref(new Set())
+const flowVehicleQueryLoading = ref(false)
+const flowVehicleQueryError = ref('')
+let flowVehicleQueryId = 0
+let flowVehicleAbortController = null
+async function loadFlowVehicleDay() {
+  if (!flowGpsCarCode.value || !flowMapDay.value) return
+  const queryId = ++flowVehicleQueryId
+  flowVehicleAbortController?.abort()
+  const controller = new AbortController()
+  flowVehicleAbortController = controller
+  flowVehicleReport.value = null
+  flowGpsTrack.value = null
+  flowVehicleQueryError.value = ''
+  flowVehicleQueryLoading.value = true
+  const params = new URLSearchParams({ unitId: flowAnalysisCompanyId.value, routeId: String(flowAnalysisRouteId.value), carCode: flowGpsCarCode.value, day: flowMapDay.value })
+  try {
+    const report = await api(`/api/flow-analysis/vehicle-daily-report?${params}`, { signal: controller.signal })
+    if (queryId !== flowVehicleQueryId) return
+    flowVehicleReport.value = report
+    const track = await api(`/api/flow-analysis/vehicle-gps-track?${params}`, { signal: controller.signal })
+    if (queryId !== flowVehicleQueryId) return
+    flowGpsTrack.value = track
+    flowShowGpsTrack.value = true
+    flowHiddenGpsLayerKeys.value = new Set()
+    if (!track.points?.length) flowVehicleQueryError.value = '该车当天没有可绘制的 GPS 坐标；日报里程已显示。'
+  } catch (error) {
+    if (queryId === flowVehicleQueryId && error?.name !== 'AbortError') flowVehicleQueryError.value = error.message || String(error)
+  } finally {
+    if (queryId === flowVehicleQueryId) flowVehicleQueryLoading.value = false
+  }
+}
+watch([flowMapDay, flowGpsCarCode, flowAnalysisCompanyId, flowAnalysisRouteId, flowAnalysisResult], () => {
+  ++flowVehicleQueryId
+  flowVehicleAbortController?.abort()
+  flowVehicleQueryLoading.value = false
+  flowVehicleReport.value = null
+  flowGpsTrack.value = null
+  flowHiddenGpsLayerKeys.value = new Set()
+  flowVehicleQueryError.value = ''
+})
+const flowMapTripOptions = computed(() => (flowMapSelectedDay.value?.trips || []).map((trip, index) => ({ trip, index })).filter(row => flowMapCarCode.value === 'ALL' || String(row.trip.carCode || '') === flowMapCarCode.value))
+const flowMapTripRows = computed(() => (flowMapSelectedDay.value?.trips || []).map((trip, index) => ({ trip, index })).filter(row =>
+  (flowMapCarCode.value === 'ALL' || String(row.trip.carCode || '') === flowMapCarCode.value) &&
+  (flowMapTripIndex.value === 'ALL' || String(row.index) === flowMapTripIndex.value)))
+const flowActualMap = computed(() => buildFlowActualMap(flowMapTripRows.value, flowShowCollectedOnly.value))
+const flowParkingLots = ref([])
+const flowParkingLoading = ref(false)
+const flowParkingError = ref('')
+const flowReturnParkingId = ref('')
+const flowShowReturnToParking = ref(true)
+const flowSelectedParking = computed(() => flowParkingLots.value.find(point => String(point.facilityId) === flowReturnParkingId.value) || null)
+const flowDayTripRows = computed(() => (flowMapSelectedDay.value?.trips || []).map((trip, index) => ({ trip, index })))
+const flowGpsAllLayers = computed(() => buildFlowGpsLayers(flowGpsTrack.value?.points || [],
+  flowDayTripRows.value.filter(row => String(row.trip.carCode || '') === flowGpsTrack.value?.carCode)))
+const flowGpsEligibleLayers = computed(() => flowMapTripIndex.value === 'ALL' ? flowGpsAllLayers.value
+  : flowGpsAllLayers.value.filter(layer => layer.kind === 'trip' && String(layer.tripIndex) === flowMapTripIndex.value))
+const flowGpsVisibleLayers = computed(() => flowShowGpsTrack.value
+  ? flowGpsEligibleLayers.value.filter(layer => !flowHiddenGpsLayerKeys.value.has(layer.key)) : [])
+function toggleFlowGpsLayer(key) {
+  const hidden = new Set(flowHiddenGpsLayerKeys.value)
+  if (hidden.has(key)) hidden.delete(key)
+  else hidden.add(key)
+  flowHiddenGpsLayerKeys.value = hidden
+}
+const flowParkingAccessLayers = computed(() => flowShowReturnToParking.value
+  ? buildFlowParkingAccessLayers(flowDayTripRows.value, flowMapTripRows.value, flowSelectedParking.value) : [])
+const flowBaseAndParkingLayers = computed(() => [...flowActualMap.value.layers, ...flowParkingAccessLayers.value])
+const flowMapMarkers = computed(() => {
+  const markers = [...flowActualMap.value.markers]
+  if (flowParkingAccessLayers.value.length && flowSelectedParking.value) markers.push({
+    ...flowSelectedParking.value, flowMapMarker: true, flowCollectionCount: 0, flowThroughCount: 0,
+    flowVisitLabel: '车场', flowVisitTitle: '所选停车场，出场及返场路段为道路推算，并非实际行驶轨迹',
+    routeColor: '#8b5cf6'
+  })
+  if (flowGpsVisibleLayers.value.length) {
+    const points = flowGpsVisibleLayers.value.flatMap(layer => layer.points)
+    const tripLabel = flowMapTripIndex.value === 'ALL' ? '' : `第${Number(flowMapTripIndex.value) + 1}趟`
+    const first = points[0]
+    const last = points[points.length - 1]
+    const samePlace = Math.abs(Number(first.longitude) - Number(last.longitude)) < 0.00002 && Math.abs(Number(first.latitude) - Number(last.latitude)) < 0.00002
+    const ends = samePlace ? [[first, 'GPS起/终']] : [[first, 'GPS起'], [last, 'GPS终']]
+    for (const [point, label] of ends) markers.push({
+      ...point, facilityId: `gps-${label}`, facilityName: `${flowGpsTrack.value.carCode} ${tripLabel}${label}`,
+      flowMapMarker: true, flowCollectionCount: 0, flowThroughCount: 0,
+      flowVisitLabel: label, flowVisitTitle: `${label} · ${point.equipmentTime ? new Date(flowTimeMillis(point.equipmentTime)).toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai', hour12: false }) : '时间未知'}`,
+      routeColor: '#e11d48'
+    })
+  }
+  return markers
+})
+watch(flowAnalysisResult, result => {
+  flowMapDay.value = String(result?.dailyTrips?.[0]?.date || '')
+  flowMapCarCode.value = 'ALL'
+  flowMapTripIndex.value = 'ALL'
+})
 const flowPlanPoints = ref([])
 const flowRouteComparison = ref(null)
 const flowCandidateRoutes = ref([])
 const flowSelectedCandidateRoute = ref(null)
 const flowShowCollectedOnly = ref(false)
+const flowMapMode = ref('DIRECT')
+const flowRoadCache = ref(new Map())
+const flowRoadLoading = ref(false)
+const flowRoadError = ref('')
+const flowRoadLoaded = ref(0)
+let flowRoadRequestId = 0
+let flowRoadAbortController = null
+const flowDisplayedLayers = computed(() => {
+  if (flowMapMode.value === 'DIRECT') return [...flowBaseAndParkingLayers.value, ...flowGpsVisibleLayers.value]
+  const cache = flowRoadCache.value
+  const layers = flowBaseAndParkingLayers.value
+  if (layers.some(layer => layer.points.length >= 2 && !cache.has(flowRoadKey(layer.points)))) return flowGpsVisibleLayers.value
+  return [...layers.map(layer => ({ ...layer, segments: layer.points.length >= 2 ? cache.get(flowRoadKey(layer.points)) : [] })), ...flowGpsVisibleLayers.value]
+})
+const flowPlaybackChoices = computed(() => buildFlowPlaybackChoices(flowDisplayedLayers.value,
+  flowGpsVisibleLayers.value, flowGpsCarCode.value, flowMapMode.value))
+const flowDisplayedPoints = computed(() => routeOverviewPoints(flowDisplayedLayers.value))
+const flowRoadBaseDistanceMeters = computed(() => flowMapMode.value === 'ROAD' && flowBaseAndParkingLayers.value.length && flowDisplayedLayers.value.length > flowGpsVisibleLayers.value.length
+  ? flowPolylineMeters(flowDisplayedLayers.value.filter(layer => !layer.departureFromParking && !layer.returnToParking && !layer.gpsActual)) : null)
+const flowRoadDepartureDistanceMeters = computed(() => flowMapMode.value === 'ROAD' && flowDisplayedLayers.value.length
+  ? flowPolylineMeters(flowDisplayedLayers.value.filter(layer => layer.departureFromParking)) : null)
+const flowRoadReturnDistanceMeters = computed(() => flowMapMode.value === 'ROAD' && flowDisplayedLayers.value.length
+  ? flowPolylineMeters(flowDisplayedLayers.value.filter(layer => layer.returnToParking)) : null)
+const flowRoadDistanceMeters = computed(() => flowRoadBaseDistanceMeters.value == null ? null
+  : flowRoadDepartureDistanceMeters.value + flowRoadBaseDistanceMeters.value + flowRoadReturnDistanceMeters.value)
+function setFlowMapMode(mode) {
+  flowMapMode.value = mode
+  flowRoadError.value = ''
+  if (mode === 'ROAD') loadFlowMapRoads()
+  else {
+    flowRoadRequestId += 1
+    flowRoadAbortController?.abort()
+    flowRoadLoading.value = false
+  }
+}
+async function loadFlowMapRoads(retry = false) {
+  const requestId = ++flowRoadRequestId
+  flowRoadAbortController?.abort()
+  const controller = new AbortController()
+  flowRoadAbortController = controller
+  const layers = flowBaseAndParkingLayers.value
+  if (retry) {
+    const next = new Map(flowRoadCache.value)
+    layers.forEach(layer => next.delete(flowRoadKey(layer.points)))
+    flowRoadCache.value = next
+  }
+  flowRoadError.value = ''
+  flowRoadLoaded.value = 0
+  flowRoadLoading.value = layers.some(layer => layer.points.length >= 2 && !flowRoadCache.value.has(flowRoadKey(layer.points)))
+  try {
+    for (const layer of layers) {
+      if (layer.points.length < 2 || flowRoadCache.value.has(flowRoadKey(layer.points))) { flowRoadLoaded.value += 1; continue }
+      const response = await api('/api/optimize/route-segments', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, signal: controller.signal,
+        body: JSON.stringify({ points: layer.points, displayRoadPath: true })
+      })
+      if (requestId !== flowRoadRequestId) return
+      const segments = normalizeFlowRoadSegments(layer.points, response.segments)
+      const next = new Map(flowRoadCache.value)
+      next.set(flowRoadKey(layer.points), segments)
+      flowRoadCache.value = next
+      flowRoadLoaded.value += 1
+    }
+  } catch (error) {
+    if (requestId === flowRoadRequestId && error.name !== 'AbortError') flowRoadError.value = error.message || String(error)
+  } finally {
+    if (requestId === flowRoadRequestId) flowRoadLoading.value = false
+  }
+}
+watch([flowMapDay, flowMapCarCode, flowMapTripIndex, flowShowCollectedOnly, flowAnalysisResult, flowShowReturnToParking, flowReturnParkingId], () => {
+  if (flowMapMode.value === 'ROAD') loadFlowMapRoads()
+})
 const flowTripsCollapsed = ref(false)
 const flowExpandedDays = ref(new Set())
 const flowAnalysisLoading = ref(false)
@@ -2708,6 +2969,7 @@ const planPoints = ref([])
 const splitPlanPoints = ref([])
 const assignmentVersions = ref([])
 const fixedMaster = ref(null)
+const planningView = ref('ASSIGNMENT')
 const fixedMasterRouteNo = ref(null)
 const fixedMasterRunning = ref(false)
 const fixedMasterMessage = ref('')
@@ -2717,6 +2979,10 @@ const singleTripRunning = ref(false)
 const singleTripMessage = ref('')
 const singleTripDay = ref(1)
 const singleTripIncludeDetours = ref(true)
+const singleTripIncludeReturn = ref(true)
+const fixedMasterIncludeReturn = ref(true)
+const fixedMasterShowReturn = ref(false)
+const fixedMasterOverview = ref(true)
 const fixedMasterFingerprint = computed(() => JSON.stringify({
   route: selectedSplitRoute.value?.id,
   points: splitPlanPoints.value,
@@ -2734,6 +3000,11 @@ const singleTripSelected = computed(() => {
   if (singleTripDay.value === 0) return singleTripPlan.value.complete
   return singleTripPlan.value.days.find(day => day.day === singleTripDay.value) || null
 })
+const singleTripDisplay = computed(() => {
+  const selected = singleTripSelected.value
+  if (!selected?.route || !selected.detours) return null
+  return composeSingleTripDisplay(selected.route, selected.detours, singleTripIncludeDetours.value, singleTripIncludeReturn.value)
+})
 const fixedMasterDays = computed(() => !fixedMasterFresh.value ? [] : fixedMaster.value.days.map(day => {
   const schemes = assignmentVersions.value.filter(version => (version.applicableDays || []).includes(day.day))
   const disabled = schemes.length > 0 && schemes.every(version => version.scheduleDisabled)
@@ -2741,10 +3012,17 @@ const fixedMasterDays = computed(() => !fixedMasterFresh.value ? [] : fixedMaste
 }))
 const fixedMasterDayData = computed(() => {
   if (!fixedMasterFresh.value) return null
-  if (fixedMasterDay.value === 0) return { indices: splitPlanPoints.value.map((_, index) => index), status: '完整全点收运模板', result: maskFixedTripTemplate(fixedMaster.value.template, new Set(splitPlanPoints.value.map(point => String(point.facilityId)))) }
+  if (fixedMasterDay.value === 0) return { indices: splitPlanPoints.value.map((_, index) => index), status: '完整全点收运模板', result: maskFixedTripTemplate(fixedMaster.value.template, new Set(splitPlanPoints.value.map(point => String(point.facilityId)))), returnTrip: fixedMaster.value.returnTrip }
   return fixedMasterDays.value.find(day => day.day === fixedMasterDay.value) || null
 })
 const fixedMasterSelectedRoute = computed(() => fixedMasterDayData.value?.result?.routes.find(route => route.routeNo === fixedMasterRouteNo.value) || null)
+const fixedMasterReturnTrip = computed(() => fixedMasterDayData.value?.disabled ? null : fixedMasterDayData.value?.returnTrip || null)
+const fixedMasterDisplayedRoute = computed(() => fixedMasterShowReturn.value && fixedMasterIncludeReturn.value && fixedMasterReturnTrip.value
+  ? fixedMasterReturnTrip.value : fixedMasterSelectedRoute.value)
+const fixedMasterRouteTotals = computed(() => (fixedMasterDayData.value?.result?.routes || []).reduce((total, route) => ({
+  distance: total.distance + Number(route.displayDistance || 0),
+  durationMinutes: total.durationMinutes + Number(route.displayTotalDurationMinutes || 0)
+}), { distance: 0, durationMinutes: 0 }))
 const fixedMasterTimeWindowStats = computed(() => timeWindowStatsForResult(fixedMasterFresh.value ? fixedMaster.value.template : null))
 const fixedMasterCycleTimeWindowStats = computed(() => {
   if (!fixedMasterFresh.value) return { violationCount: 0, message: '' }
@@ -2884,14 +3162,19 @@ async function applySmallWindowPlan() {
   smallWindowDialog.running = true; smallWindowDialog.applying = true; fixedMasterRunning.value = true
   try {
     const template = deepClone(smallWindowDialog.response.result)
-    const days = await calculateFixedMasterDays(template, smallWindowDialog.days, smallWindowDialog.options)
+    const resolveRoad = createFixedRoadResolver(smallWindowDialog.options)
+    const returnTrip = await buildFinalReturnTrip(template.routes, resolveRoad)
+    const days = await calculateFixedMasterDays(template, smallWindowDialog.days, smallWindowDialog.options, resolveRoad)
     if (smallWindowDialog.fingerprint !== fixedMasterFingerprint.value) throw new Error('刷新每日结果期间配置变化，原模板保留')
     if (timeWindowStatsForResult(template).violationCount || days.some(day => timeWindowStatsForResult(day.result).violationCount)) throw new Error('道路刷新后时间窗校验不通过，请重新联合规划；原模板保留')
     const indices = new Map(splitPlanPoints.value.map((point, index) => [String(point.facilityId), index]))
     const points = template.routes.flatMap(route => route.points.filter(point => point.role === 'MIDDLE').map((point, index) => ({ ...point, masterIndex: indices.get(String(point.facilityId)), templateToken: `${String(route.tripNo).padStart(2, '0')}-${String(index + 1).padStart(3, '0')}` })))
     const old = fixedMaster.value?.template
-    fixedMaster.value = { fingerprint: smallWindowDialog.fingerprint, template, points, days, sourceLabel: '少量时间窗联合规划；固定无时间窗点基础顺序下的最佳插入', timeWindowOriginalResult: old ? deepClone(old) : null }
+    fixedMaster.value = { fingerprint: smallWindowDialog.fingerprint, template, points, days, returnTrip, sourceLabel: '少量时间窗联合规划；固定无时间窗点基础顺序下的最佳插入', timeWindowOriginalResult: old ? deepClone(old) : null }
     fixedMasterRouteNo.value = template.routes[0]?.routeNo || null
+    fixedMasterIncludeReturn.value = true
+    fixedMasterShowReturn.value = false
+    fixedMasterOverview.value = true
     fixedMasterDay.value = 0
     fixedMasterMessage.value = smallWindowDialog.response.message
     smallWindowDialog.visible = false
@@ -2944,11 +3227,16 @@ async function generateFixedMaster() {
       const due = new Set(originals.filter((_, index) => indices.includes(index)).map(point => String(point.facilityId)))
       days.push({ day, indices, status: applicable.length ? '按跳点后道路计算' : '未排班', due })
     }
-    const calculatedDays = await calculateFixedMasterDays(template, days, options)
+    const resolveRoad = createFixedRoadResolver(options)
+    const returnTrip = await buildFinalReturnTrip(template.routes, resolveRoad)
+    const calculatedDays = await calculateFixedMasterDays(template, days, options, resolveRoad)
     if (fingerprint !== fixedMasterFingerprint.value) throw new Error('计算期间配置变化，结果已弃用')
-    fixedMaster.value = { fingerprint, template, points: masterPoints, days: calculatedDays, sourceLabel: calculatedDays.length ? '独立全点多趟模板；每日按跳点后道路计算距离、耗时与到达时间' : '独立全点多趟模板；尚无按日排班' }
+    fixedMaster.value = { fingerprint, template, points: masterPoints, days: calculatedDays, returnTrip, sourceLabel: calculatedDays.length ? '独立全点多趟模板；每日按跳点后道路计算距离、耗时与到达时间' : '独立全点多趟模板；尚无按日排班' }
     fixedMasterDay.value = calculatedDays.length ? 1 : 0
     fixedMasterRouteNo.value = template.routes?.[0]?.routeNo || null
+    fixedMasterIncludeReturn.value = true
+    fixedMasterShowReturn.value = false
+    fixedMasterOverview.value = true
     fixedMasterMessage.value = calculatedDays.length
       ? `全点方案已生成${template.routeCount || 0}趟，未分配${template.unassignedPointCount || 0}点。每日跳点道路和到达时间已计算，日期切换复用结果。`
       : `全点多趟模板已生成${template.routeCount || 0}趟，未分配${template.unassignedPointCount || 0}点；尚无按日排班，仅展示完整模板。`
@@ -3020,6 +3308,7 @@ async function generateSingleTripPlan() {
     singleTripPlan.value = { fingerprint, complete, days }
     singleTripDay.value = days.length ? 1 : 0
     singleTripIncludeDetours.value = true
+    singleTripIncludeReturn.value = true
     singleTripMessage.value = days.length
       ? `单趟方案已覆盖全部${template.assignedPointCount}个点位；${days.length}天道路已计算，可切换查看。`
       : `单趟完整模板已覆盖全部${template.assignedPointCount}个点位；尚无按日排班，仅展示完整模板及中途卸料模拟。`
@@ -3042,13 +3331,14 @@ function createFixedRoadResolver(options) {
     return cache.get(key)
   }
 }
-async function calculateFixedMasterDays(template, days, options) {
-  const resolveRoad = createFixedRoadResolver(options)
+async function calculateFixedMasterDays(template, days, options, resolveRoad = createFixedRoadResolver(options)) {
   const calculated = []
   for (const day of days) {
     fixedMasterMessage.value = `正在计算第${day.day}天跳点后道路与到达时间…`
     const due = day.due || new Set(splitPlanPoints.value.filter((_, index) => day.indices.includes(index)).map(point => String(point.facilityId)))
-    calculated.push({ day: day.day, indices: day.indices, status: day.status, result: await buildFixedDailyRouteResult(template, due, resolveRoad) })
+    const result = await buildFixedDailyRouteResult(template, due, resolveRoad)
+    const returnTrip = await buildFinalReturnTrip(result.routes, resolveRoad)
+    calculated.push({ day: day.day, indices: day.indices, status: day.status, result, returnTrip })
   }
   return calculated
 }
@@ -3075,12 +3365,95 @@ const timeRepairOriginal = ref(null)
 const timeRepairPreview = ref(null)
 const timeRepairError = ref('')
 const assignmentTripReorderMessage = ref('')
+const assignmentIncludeReturn = ref(true)
+const assignmentShowReturn = ref(false)
+const assignmentOverview = ref(true)
+const assignmentOverviewMapMode = ref('ROAD')
 let assignmentVehicleRequestId = 0
 let assignmentVersionSerial = 0
 let assignmentBatchRunId = 0
 let assignmentBatchStopRequested = false
 let assignmentBatchAbortController = null
 const assignmentActiveVersion = computed(() => assignmentVersions.value.find(version => version.id === assignmentActiveVersionId.value) || null)
+const assignmentActiveReturnTrip = computed(() => assignmentActiveVersion.value?.returnTrip || null)
+const assignmentCollectionTotals = computed(() => (multiOptimization.value?.routes || []).reduce((total, route) => ({
+  distance: total.distance + routeDisplayDistance(route),
+  durationMinutes: total.durationMinutes + routeDisplayTotalDuration(route)
+}), { distance: 0, durationMinutes: 0 }))
+const assignmentOverviewLayers = computed(() => {
+  const routes = multiOptimization.value?.routes || []
+  const version = assignmentActiveVersion.value
+  const roadMode = assignmentOverviewMapMode.value === 'ROAD'
+  if (roadMode && (version?.overviewRoadResult !== multiOptimization.value || version?.overviewRoadSegments?.length !== routes.length)) return []
+  const returnTrip = assignmentIncludeReturn.value ? assignmentActiveReturnTrip.value : null
+  return buildRouteOverviewLayers(
+    routes,
+    route => route.points || [],
+    (route, index) => roadMode ? version.overviewRoadSegments[index] : buildDirectRouteSegments(route.points || []),
+    returnTrip && !roadMode ? { ...returnTrip, roadSegments: buildDirectRouteSegments(returnTrip.points || []) } : returnTrip
+  )
+})
+const assignmentOverviewPoints = computed(() => routeOverviewPoints(assignmentOverviewLayers.value))
+async function loadAssignmentOverviewRoads(retry = false) {
+  const version = assignmentActiveVersion.value
+  const result = multiOptimization.value
+  const routes = result?.routes || []
+  if (!version || version.result !== result || !routes.length || version.overviewRoadLoading) return
+  if (!retry && version.overviewRoadResult === result && version.overviewRoadSegments?.length === routes.length) return
+  version.overviewRoadResult = result
+  version.overviewRoadSegments = []
+  version.overviewRoadLoaded = 0
+  version.overviewRoadError = ''
+  version.overviewRoadLoading = true
+  try {
+    for (const route of routes) {
+      const points = route.points || []
+      let segments = route.roadSegments
+      if (!hasCompleteRoadGeometry(points, segments)) {
+        const road = await api('/api/optimize/route-segments', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ points, displayRoadPath: true })
+        })
+        segments = road.segments || []
+      }
+      if (version.result !== result) return
+      if (!hasCompleteRoadGeometry(points, segments)) throw new Error(`第${route.routeNo}趟道路数据不完整，未用直线替代`)
+      version.overviewRoadSegments = [...version.overviewRoadSegments, segments]
+      version.overviewRoadLoaded += 1
+    }
+  } catch (err) {
+    if (version.result === result) version.overviewRoadError = err.message || String(err)
+  } finally {
+    version.overviewRoadLoading = false
+    if (version.result !== result && assignmentActiveVersion.value === version && assignmentOverview.value && assignmentOverviewMapMode.value === 'ROAD') loadAssignmentOverviewRoads()
+  }
+}
+const assignmentReturnSources = new WeakMap()
+watch(() => assignmentVersions.value.map(version => version.result), () => {
+  const resolveRoad = createFixedRoadResolver({ ...optimizeOptions })
+  for (const version of assignmentVersions.value) {
+    const result = version.result
+    if (assignmentReturnSources.get(version) === result) continue
+    assignmentReturnSources.set(version, result)
+    if (version.id === assignmentActiveVersionId.value) assignmentShowReturn.value = false
+    version.returnTrip = null
+    version.returnTripError = ''
+    version.returnTripPending = Boolean(result?.routes?.length)
+    if (!version.returnTripPending) continue
+    buildFinalReturnTrip(result.routes, resolveRoad).then(returnTrip => {
+      if (version.result !== result) return
+      version.returnTrip = returnTrip
+      version.returnTripPending = false
+    }).catch(error => {
+      if (version.result !== result) return
+      version.returnTripError = error.message || String(error)
+      version.returnTripPending = false
+    })
+  }
+})
+watch(fixedMasterIncludeReturn, enabled => { if (!enabled) fixedMasterShowReturn.value = false })
+watch(assignmentIncludeReturn, enabled => { if (!enabled) assignmentShowReturn.value = false })
 const assignmentSelectedPointIndices = computed(() => assignmentActiveVersion.value?.selectedIndices || new Set())
 const assignmentSelectedVehicle = computed(() => assignmentVehicles.value.find(vehicle => String(vehicle.carCode) === assignmentVehicleCode.value) || null)
 const assignmentSelectedVehicleHint = computed(() => {
@@ -3168,6 +3541,9 @@ const originalRouteDisplayMode = ref('DIRECT')
 const originalRouteRoadSegments = ref([])
 const feedbackFacilityIds = ref(new Set())
 const multiOptimization = ref(null)
+watch(() => [assignmentActiveVersion.value?.result, multiOptimization.value, assignmentOverview.value, assignmentOverviewMapMode.value], () => {
+  if (assignmentOverview.value && assignmentOverviewMapMode.value === 'ROAD') loadAssignmentOverviewRoads()
+})
 const routeMapStatus = ref(null)
 const routeProgressTimer = ref(null)
 const routeProgressPollFailures = ref(0)
@@ -3710,7 +4086,7 @@ const assignmentBatchTripReorderDisabledReason = computed(() => {
   if (assignmentTripReorderRunning.value) return '正在批量调整方案趟序'
   if (assignmentBatchRunning.value || loading.value) return '请等待当前计算完成'
   const completed = assignmentVersions.value.filter(version => version.result?.routes?.length)
-  if (!completed.length) return '请先生成全部方案'
+  if (!completed.length) return '请先生成逐套方案'
   const summaries = completed.map(version => timeWindowStatsForResult(version.result))
   if (summaries.every(summary => summary.violationCount === 0)) return '全部方案时间窗均已通过'
   if (!summaries.some(summary => summary.violationCount > 0 && summary.reorderable)) return '存在时间窗冲突，但没有可调整的多趟路线'
@@ -3890,13 +4266,30 @@ function savedRouteSpeedKmh(route) {
 const fixedMasterMapMode = ref('ROAD')
 const fixedMasterMapIncludeSkipped = ref(false)
 function fixedMasterVisiblePoints(route) {
+  if (route?.returnToStart) return route.points || []
   if (fixedMasterDay.value === 0 || fixedMasterMapIncludeSkipped.value) return route?.fullTemplatePoints || route?.points || []
   return (route?.points || []).filter(point => !point.scheduleSkipped)
 }
-const fixedMasterMapPoints = computed(() => fixedMasterVisiblePoints(fixedMasterSelectedRoute.value))
+const fixedMasterMapPoints = computed(() => fixedMasterVisiblePoints(fixedMasterDisplayedRoute.value))
+const fixedMasterOverviewLayers = computed(() => buildRouteOverviewLayers(
+  fixedMasterDayData.value?.result?.routes || [],
+  fixedMasterVisiblePoints,
+  route => fixedMasterMapMode.value === 'DIRECT'
+    ? buildDirectRouteSegments(fixedMasterVisiblePoints(route))
+    : fixedMasterDay.value !== 0 && fixedMasterMapIncludeSkipped.value
+      ? route.fullTemplateSegments || route.roadSegments || []
+      : route.roadSegments || [],
+  fixedMasterIncludeReturn.value && fixedMasterReturnTrip.value
+    ? { ...fixedMasterReturnTrip.value, roadSegments: fixedMasterMapMode.value === 'DIRECT'
+      ? buildDirectRouteSegments(fixedMasterReturnTrip.value.points)
+      : fixedMasterReturnTrip.value.roadSegments }
+    : null
+))
+const fixedMasterOverviewPoints = computed(() => routeOverviewPoints(fixedMasterOverviewLayers.value))
 const fixedMasterMapSegments = computed(() => {
   if (fixedMasterMapMode.value === 'DIRECT') return buildDirectRouteSegments(fixedMasterMapPoints.value)
-  const route = fixedMasterSelectedRoute.value
+  const route = fixedMasterDisplayedRoute.value
+  if (route?.returnToStart) return route.roadSegments || []
   if (fixedMasterDay.value !== 0 && fixedMasterMapIncludeSkipped.value) return route?.fullTemplateSegments || route?.roadSegments || []
   return route?.roadSegments || []
 })
@@ -4031,6 +4424,8 @@ function selectAssignmentVersion(id) {
   assignmentActiveVersionId.value = id
   multiOptimization.value = version.result
   selectedMultiRouteNo.value = version.result?.routes?.[0]?.routeNo || null
+  assignmentShowReturn.value = false
+  assignmentOverview.value = true
   multiRouteDisplayModes.value = {}
   assignmentTripReorderMessage.value = ''
 }
@@ -5264,13 +5659,17 @@ async function updateFixedMasterTemplate(result, owner) {
   const indices = new Map(splitPlanPoints.value.map((point, index) => [String(point.facilityId), index]))
   const points = template.routes.flatMap(route => route.points.filter(point => point.role === 'MIDDLE').map((point, index) => ({ ...point, masterIndex: indices.get(String(point.facilityId)), templateToken: `${String(route.tripNo).padStart(2, '0')}-${String(index + 1).padStart(3, '0')}` })))
   for (const point of template.unassignedPoints || []) points.push({ ...point, masterIndex: indices.get(String(point.facilityId)), templateToken: '未分配' })
-  const days = await calculateFixedMasterDays(template, owner.days, { ...optimizeOptions })
+  const resolveRoad = createFixedRoadResolver({ ...optimizeOptions })
+  const returnTrip = await buildFinalReturnTrip(template.routes, resolveRoad)
+  const days = await calculateFixedMasterDays(template, owner.days, { ...optimizeOptions }, resolveRoad)
   if (owner !== fixedMaster.value || !fixedMasterFresh.value) throw new Error('每日道路计算期间模板或参数变化，未应用结果')
   // Replace only after all road requests and stale-state checks have succeeded.
   owner.template = template
   owner.points = points
   owner.days = days
+  owner.returnTrip = returnTrip
   fixedMasterRouteNo.value = template.routes?.[0]?.routeNo || null
+  fixedMasterShowReturn.value = false
 }
 
 async function tryReorderFixedMasterTrips() {
@@ -5507,6 +5906,9 @@ async function tryReorderAllAssignmentTrips() {
 
 async function generateAssignmentVersions() {
   assignmentTripReorderMessage.value = ''
+  assignmentIncludeReturn.value = true
+  assignmentShowReturn.value = false
+  assignmentOverview.value = true
   if (!selectedSplitRoute.value || !selectedSplitCompany.value || assignmentBatchRunning.value) return
   if (!assignmentVersions.value.length || assignmentVersions.value.some(version => version.selectedIndices.size < 3)) return
   const versions = assignmentVersions.value.map(version => ({
@@ -6688,6 +7090,49 @@ function fixedMasterExportSchemes(metadata) {
     selectedIndices: day.indices, status: day.status, result: assignmentExportResult(day.result, metadata) }))
 }
 
+function singleTripWorkbookRequest(metadata) {
+  const includeDetours = singleTripIncludeDetours.value
+  const includeReturn = singleTripIncludeReturn.value
+  const unloadMinutes = Number(optimizeOptions.terminalUnloadMinutes || 0)
+  const exportEntry = (route, detours) => {
+    const entry = buildSingleTripExport(route, detours, includeDetours, includeReturn, unloadMinutes)
+    const exportedResult = {
+      status: 'DONE', message: '全点单趟顺序；按当前导出开关计入中途卸料和最终返场',
+      routeCount: 1, assignedPointCount: route.pointCount, unassignedPointCount: 0,
+      assignedWeightKg: route.estimatedWeightKg, unassignedWeightKg: 0,
+      ratedCapacityKg: route.ratedCapacityKg || optimizeOptions.ratedCapacityKg,
+      targetLoadWeightKg: detours.thresholdKg, targetLoadRate: optimizeOptions.targetLoadRate,
+      planningStrategy: 'SINGLE_UNCAPPED', distanceMode: 'ROAD', routes: [entry.route], unassignedPoints: []
+    }
+    return { result: assignmentExportResult(exportedResult, metadata), breakdown: entry.breakdown }
+  }
+  const complete = singleTripPlan.value.complete
+  const full = exportEntry(complete.route, complete.detours)
+  const fullName = '全点单趟完整模板（所有点都收）'
+  const dailySchemes = singleTripPlan.value.days.map(day => {
+    const applicable = assignmentVersions.value.filter(version => (version.applicableDays || []).includes(day.day))
+    const selectedIndices = [...new Set(applicable.flatMap(version => [...version.selectedIndices]))]
+    const name = `第${day.day}天（单趟跳点后道路）`
+    if (day.disabled) return { name, applicableDays: [day.day], selectedIndices, scheduleDisabled: true, status: '停排', result: null }
+    const exported = exportEntry(day.route, day.detours)
+    return { name, applicableDays: [day.day], selectedIndices, scheduleDisabled: false, status: 'DONE', ...exported }
+  })
+  const masterPoints = complete.route.points.filter(point => point.role === 'MIDDLE').map((point, index) => ({
+    ...point, masterIndex: splitPlanPoints.value.findIndex(candidate => String(candidate.facilityId) === String(point.facilityId)),
+    templateToken: `01-${String(index + 1).padStart(3, '0')}`
+  }))
+  return {
+    company: selectedSplitCompany.value, sourceRoute: selectedSplitRoute.value, generatedAt: new Date().toISOString(),
+    scheduleStartDate: toDateInput(new Date()), cycleDays: assignmentScheduleCycleDays.value,
+    points: splitPlanPoints.value.map((point, index) => ({ index, facilityId: point.facilityId, facilityName: point.facilityName || point.facilityId, originalOrder: point.originalOrder || index + 1 })),
+    schemes: [{ name: fullName, applicableDays: [], selectedIndices: splitPlanPoints.value.map((_, index) => index), status: 'DONE', result: full.result }],
+    scheduleSchemes: dailySchemes, fixedDailySchemes: dailySchemes,
+    fixedMaster: { sourceLabel: '全点单趟顺序；每日跳点并重新计算中途卸料', points: masterPoints, schemes: dailySchemes },
+    singleTripDetails: { includeDetours, includeReturn, schemes: [{ name: fullName, applicableDays: [], breakdown: full.breakdown },
+      ...dailySchemes.filter(scheme => scheme.breakdown).map(scheme => ({ name: scheme.name, applicableDays: scheme.applicableDays, breakdown: scheme.breakdown }))] }
+  }
+}
+
 function assignmentWorkbookRequest(metadata, fixedOnly = false) {
   const dailySchemes = assignmentVersions.value.map(version => ({
     name: version.name, cycleDay: version.cycleDay, applicableDays: version.applicableDays || [], scheduleDisabled: !!version.scheduleDisabled,
@@ -6719,6 +7164,19 @@ async function exportFixedMaster() {
     if (!response.ok) throw new Error(`${response.status} ${response.statusText}`)
     const routeName = sanitizeFilename(selectedSplitRoute.value?.routeName || '路线')
     downloadBlob(await response.blob(), `${routeName}-独立全点多趟方案-${toDateInput(new Date())}.xlsx`)
+  })
+}
+
+async function exportSingleTrip() {
+  if (!singleTripFresh.value || singleTripRunning.value || fixedMasterRunning.value || assignmentBatchRunning.value || assignmentTripReorderRunning.value || loading.value) return
+  const request = singleTripWorkbookRequest(assignmentPointMetadata(splitPlanPoints.value))
+  await withLoading(async () => {
+    const response = await fetch('/api/optimize/assignment-export', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(request)
+    })
+    if (!response.ok) throw new Error(`${response.status} ${response.statusText}`)
+    const routeName = sanitizeFilename(selectedSplitRoute.value?.routeName || '路线')
+    downloadBlob(await response.blob(), `${routeName}-独立全点单趟方案-${toDateInput(new Date())}.xlsx`)
   })
 }
 
@@ -7046,6 +7504,10 @@ const flowVehicleSelectionLabel = computed(() => {
 function clearFlowAnalysisCompany() {
   flowAnalysisCompanyId.value = ''
   flowAnalysisCompanyKeyword.value = ''
+  flowParkingLots.value = []
+  flowReturnParkingId.value = ''
+  flowParkingError.value = ''
+  flowParkingLoading.value = false
   flowAnalysisJobs.value = []
   flowAnalysisRouteId.value = ''
   flowAnalysisVehicles.value = []
@@ -7058,7 +7520,24 @@ function clearFlowAnalysisCompany() {
 async function selectFlowAnalysisCompany(company) {
   flowAnalysisCompanyId.value = String(company.id)
   flowAnalysisCompanyKeyword.value = company.depName || String(company.id)
-  await loadFlowJobs()
+  flowParkingLots.value = []
+  flowReturnParkingId.value = ''
+  flowParkingError.value = ''
+  await Promise.all([loadFlowJobs(), loadFlowParkingLots(String(company.id))])
+}
+
+async function loadFlowParkingLots(companyId) {
+  flowParkingLoading.value = true
+  try {
+    const anchors = await api(`/api/companies/${companyId}/route-anchors`)
+    if (flowAnalysisCompanyId.value !== companyId) return
+    const lots = (anchors?.parkingLots || []).filter(point => Number.isFinite(Number(point.longitude)) && Number.isFinite(Number(point.latitude)))
+    flowParkingLots.value = lots
+  } catch (error) {
+    if (flowAnalysisCompanyId.value === companyId) flowParkingError.value = error.message || String(error)
+  } finally {
+    if (flowAnalysisCompanyId.value === companyId) flowParkingLoading.value = false
+  }
 }
 
 function applyFlowAnalysisTask(task) {
