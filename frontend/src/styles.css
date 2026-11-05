@@ -1801,6 +1801,9 @@ tbody tr.active {
 }
 
 .route-point-legend span { display: inline-flex; align-items: center; gap: 5px; }
+.route-point-legend .legend-focusable { cursor: pointer; border-radius: 4px; padding: 2px 4px; transition: opacity 120ms ease, background-color 120ms ease; }
+.route-point-legend .legend-focusable:hover, .route-point-legend .legend-focused { background: #dbeafe; color: #174a78; font-weight: 700; }
+.route-point-legend .legend-dimmed { opacity: 0.45; }
 .route-point-legend i { width: 11px; height: 11px; border: 2px solid #fff; border-radius: 50%; box-shadow: 0 0 0 1px #a7b5c2; }
 .route-point-legend i.normal { background: #16a34a; }
 .route-point-legend i.multi { background: #8b5fc6; }

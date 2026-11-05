@@ -32,8 +32,8 @@
       <span><i class="shared"></i>共享</span>
       <span><i class="low"></i>低频</span>
     </div>
-    <div v-if="overviewLayers.length" class="route-point-legend" aria-label="趟次颜色图例">
-      <span v-for="layer in overviewLayers" :key="layer.key"><i :style="layer.gpsActual ? { background: 'transparent', borderTop: `3px dashed ${layer.color}` } : { background: layer.color }"></i>{{ layer.label }}</span>
+    <div v-if="overviewLayers.length" class="route-point-legend" aria-label="趟次颜色图例" @mouseleave="clearLegendFocus">
+      <span v-for="layer in overviewLayers" :key="layer.key" :class="{ 'legend-focusable': props.focusLegendOnHover, 'legend-focused': focusedLayerKey === String(layer.key), 'legend-dimmed': focusedLayerKey !== null && focusedLayerKey !== String(layer.key) }" :tabindex="props.focusLegendOnHover ? 0 : undefined" @mouseenter="focusLegendLayer(layer)" @focus="focusLegendLayer(layer)" @blur="clearLegendFocus"><i :style="layer.gpsActual ? { background: 'transparent', borderTop: `3px dashed ${layer.color}` } : { background: layer.color }"></i>{{ layer.label }}</span>
     </div>
 
     <p v-if="pendingAllPoints.length" :style="{ color: props.pendingColor }">● 待插入时间窗点（{{ pendingAllPoints.length }}个，不参与连线）</p>
@@ -101,7 +101,7 @@
     <div v-if="!baiduReady && routePlot" class="route-plot fallback-plot">
       <div ref="fallbackMapEl" class="plot-card wide">
         <div class="plot-title">坐标预览</div>
-        <svg viewBox="0 0 100 100" role="img" aria-label="路线坐标预览叠加对比">
+        <svg :viewBox="fallbackFocusViewBox" role="img" aria-label="路线坐标预览叠加对比">
           <polyline
             v-if="showOriginalLine && routePlot.compare.originalLine"
             :points="routePlot.compare.originalLine"
@@ -113,8 +113,8 @@
             class="plot-line optimized"
             :style="{ stroke: props.optimizedColor }"
           />
-          <polyline v-for="layer in fallbackOverviewLayers" v-if="showOptimizedLine" :key="`overview-${layer.key}`" :points="layer.line" class="plot-line optimized" :style="{ stroke: layer.color, strokeDasharray: layer.gpsActual ? '8 5' : undefined }" />
-          <polyline v-for="(line, index) in fallbackHighlightLines" :key="`highlight-${index}`" :points="line" class="plot-line optimized" style="stroke:#8b5cf6;stroke-width:1.5" />
+          <polyline v-for="layer in fallbackOverviewLayers" v-if="showOptimizedLine" :key="`overview-${layer.key}`" :points="layer.line" class="plot-line optimized" :style="{ stroke: layer.color, strokeDasharray: layer.gpsActual ? '8 5' : undefined, strokeWidth: focusedLayerKey === String(layer.key) ? 2.3 : undefined, opacity: focusedLayerKey === null || focusedLayerKey === String(layer.key) ? 1 : 0.14 }" />
+          <polyline v-for="(line, index) in fallbackHighlightLines" v-if="focusedLayerKey === null" :key="`highlight-${index}`" :points="line" class="plot-line optimized" style="stroke:#8b5cf6;stroke-width:1.5" />
           <text v-if="fallbackPlaybackPoint && hasCustomPlaybackChoices" :x="fallbackPlaybackPoint.x" :y="fallbackPlaybackPoint.y" text-anchor="middle" dominant-baseline="central" font-size="6">🚚</text>
           <circle
             v-else-if="fallbackPlaybackPoint"
@@ -154,10 +154,10 @@
         </div>
         <div v-if="showOptimizedLine" class="plot-card">
           <div class="plot-title">{{ optimizedLabel }}顺序</div>
-          <svg viewBox="0 0 100 100" role="img" aria-label="优化后路线坐标预览">
+          <svg :viewBox="fallbackFocusViewBox" role="img" aria-label="优化后路线坐标预览">
             <polyline v-if="!overviewLayers.length" :points="routePlot.optimized.line" class="plot-line optimized" :style="{ stroke: props.optimizedColor }" />
-            <polyline v-for="layer in fallbackOverviewLayers" v-if="showOptimizedLine" :key="`overview-detail-${layer.key}`" :points="layer.line" class="plot-line optimized" :style="{ stroke: layer.color, strokeDasharray: layer.gpsActual ? '8 5' : undefined }" />
-            <polyline v-for="(line, index) in fallbackHighlightLines" :key="`optimized-highlight-${index}`" :points="line" class="plot-line optimized" style="stroke:#8b5cf6;stroke-width:1.5" />
+            <polyline v-for="layer in fallbackOverviewLayers" v-if="showOptimizedLine" :key="`overview-detail-${layer.key}`" :points="layer.line" class="plot-line optimized" :style="{ stroke: layer.color, strokeDasharray: layer.gpsActual ? '8 5' : undefined, strokeWidth: focusedLayerKey === String(layer.key) ? 2.3 : undefined, opacity: focusedLayerKey === null || focusedLayerKey === String(layer.key) ? 1 : 0.14 }" />
+            <polyline v-for="(line, index) in fallbackHighlightLines" v-if="focusedLayerKey === null" :key="`optimized-highlight-${index}`" :points="line" class="plot-line optimized" style="stroke:#8b5cf6;stroke-width:1.5" />
             <g v-for="point in routePlot.optimized.points" :key="point.key">
               <circle :cx="point.x" :cy="point.y" r="2.2" class="plot-point-optimized" :style="fallbackMarkerStyle(point, point.routeColor || props.markerColor)">
                 <title>{{ pointTitle(point) }}</title>
@@ -202,6 +202,7 @@ const props = defineProps({
     default: () => []
   },
   routeLayers: { type: Array, default: () => [] },
+  focusLegendOnHover: { type: Boolean, default: false },
   playbackChoices: { type: Array, default: () => [] },
   optimizedMarkerPoints: { type: Array, default: null },
   showPlayback: { type: Boolean, default: true },
@@ -243,6 +244,8 @@ const labelsVisible = ref(true)
 const showOriginalLine = ref(props.showOriginal)
 const showOptimizedLine = ref(true)
 const expanded = ref(false)
+const focusedLayerKey = ref(null)
+let savedLegendViewport = null
 const playbackRoute = ref('optimized')
 const playbackSpeed = ref(props.playbackChoices.length ? 0.1 : 0.5)
 const playbackRunning = ref(false)
@@ -268,6 +271,16 @@ const overviewLayers = computed(() => props.routeLayers.map((layer, index) => {
     gpsActual: Boolean(layer.gpsActual),
     geometry: pathCoordinatesFromSegments(segments, points) }
 }))
+const focusedLayer = computed(() => overviewLayers.value.find(layer => String(layer.key) === focusedLayerKey.value) || null)
+const fallbackFocusViewBox = computed(() => {
+  if (!focusedLayer.value?.geometry?.length || !routePlot.value) return '0 0 100 100'
+  const bounds = boundsFor([...originalAllPoints.value, ...optimizedAllPoints.value, ...pendingAllPoints.value])
+  const points = focusedLayer.value.geometry.map(point => projectPoint(point, bounds))
+  const xs = points.map(point => point.x), ys = points.map(point => point.y)
+  const minX = Math.min(...xs), maxX = Math.max(...xs), minY = Math.min(...ys), maxY = Math.max(...ys)
+  const padding = 6
+  return `${minX - padding} ${minY - padding} ${Math.max(16, maxX - minX + padding * 2)} ${Math.max(16, maxY - minY + padding * 2)}`
+})
 const fallbackOverviewLayers = computed(() => {
   if (!routePlot.value) return []
   const bounds = boundsFor([...originalAllPoints.value, ...optimizedAllPoints.value, ...pendingAllPoints.value])
@@ -281,6 +294,7 @@ const optimizedGeometryPoints = computed(() => pathCoordinatesFromSegments(props
 const optimizedFacilityIdSet = computed(() => new Set((props.optimizedFacilityIds || []).map((id) => String(id))))
 const markerPoints = computed(() => {
   const optimizedActive = showOptimizedLine.value && optimizedAllPoints.value.length && (playbackRoute.value === 'optimized' || !showOriginalLine.value)
+  if (optimizedActive && props.focusLegendOnHover && focusedLayer.value) return focusedLayer.value.points
   return optimizedActive ? optimizedMarkerAllPoints.value : originalAllPoints.value
 })
 const extentPoints = computed(() => uniquePoints([...markerPoints.value, ...originalGeometryPoints.value, ...optimizedGeometryPoints.value, ...overviewLayers.value.flatMap(layer => layer.geometry), ...pendingAllPoints.value]))
@@ -319,6 +333,21 @@ const playbackLabel = computed(() => {
   const total = Math.round(playbackTotalDistance.value)
   return '已播放 ' + distance + ' / ' + total + ' m'
 })
+
+function focusLegendLayer(layer) {
+  if (!props.focusLegendOnHover || focusedLayerKey.value === String(layer.key)) return
+  if (!savedLegendViewport && mapInstance) savedLegendViewport = { center: mapInstance.getCenter(), zoom: mapInstance.getZoom() }
+  focusedLayerKey.value = String(layer.key)
+  if (mapInstance && window.BMap && layer.geometry.length >= 2) {
+    mapInstance.setViewport(layer.geometry.map(point => new window.BMap.Point(point.longitude, point.latitude)), { margins: [55, 55, 55, 55] })
+  }
+}
+function clearLegendFocus() {
+  if (!props.focusLegendOnHover || focusedLayerKey.value === null) return
+  focusedLayerKey.value = null
+  if (mapInstance && savedLegendViewport) mapInstance.centerAndZoom(savedLegendViewport.center, savedLegendViewport.zoom)
+  savedLegendViewport = null
+}
 
 function uniquePoints(points) {
   const seen = new Set()
@@ -392,9 +421,9 @@ function drawCapturedRouteOverlays(canvas, target) {
     drawProjectedRoute(context, originalGeometryPoints.value, project, { color: '#d84f4f', width: 4, opacity: 0.8, dashed: true })
   }
   if (showOptimizedLine.value) {
-    if (overviewLayers.value.length) overviewLayers.value.forEach(layer => drawProjectedRoute(context, layer.geometry, project, { color: layer.color, width: layer.gpsActual ? 3 : 5, opacity: 0.9, dashed: layer.gpsActual }))
+    if (overviewLayers.value.length) overviewLayers.value.forEach(layer => drawProjectedRoute(context, layer.geometry, project, { color: layer.color, width: focusedLayerKey.value === String(layer.key) ? 7 : layer.gpsActual ? 3 : 5, opacity: focusedLayerKey.value === null || focusedLayerKey.value === String(layer.key) ? 0.9 : 0.14, dashed: layer.gpsActual }))
     else drawProjectedRoute(context, optimizedGeometryPoints.value, project, { color: props.optimizedColor, width: 5, opacity: 0.9 })
-    props.highlightSegments.forEach(segment => {
+    if (focusedLayerKey.value === null) props.highlightSegments.forEach(segment => {
       drawProjectedRoute(context, normalizeRoutePoints(segment.path || []), project, { color: '#8b5cf6', width: 7, opacity: 0.95 })
     })
   }
@@ -480,6 +509,7 @@ watch(
   { deep: true }
 )
 watch(() => props.playbackChoices, () => { if (hasCustomPlaybackChoices.value) resetPlayback() }, { deep: true })
+watch(focusedLayerKey, () => { if (baiduReady.value) renderMap() })
 
 async function renderMap() {
   await nextTick()
@@ -526,9 +556,9 @@ function drawBaiduMap(BMap) {
     drawPolyline(BMap, originalGeometryPoints.value, '#d84f4f', 4, 0.8, 'dashed')
   }
   if (showOptimizedLine.value) {
-    if (overviewLayers.value.length) overviewLayers.value.forEach(layer => drawPolyline(BMap, layer.geometry, layer.color, layer.gpsActual ? 3 : 5, 0.9, layer.gpsActual ? 'dashed' : 'solid'))
+    if (overviewLayers.value.length) overviewLayers.value.forEach(layer => drawPolyline(BMap, layer.geometry, layer.color, focusedLayerKey.value === String(layer.key) ? 7 : layer.gpsActual ? 3 : 5, focusedLayerKey.value === null || focusedLayerKey.value === String(layer.key) ? 0.9 : 0.14, layer.gpsActual ? 'dashed' : 'solid'))
     else drawPolyline(BMap, optimizedGeometryPoints.value, props.optimizedColor, 5, 0.9, 'solid')
-    props.highlightSegments.forEach(segment => drawPolyline(BMap, normalizeRoutePoints(segment.path || []), '#8b5cf6', 7, 0.95, 'solid'))
+    if (focusedLayerKey.value === null) props.highlightSegments.forEach(segment => drawPolyline(BMap, normalizeRoutePoints(segment.path || []), '#8b5cf6', 7, 0.95, 'solid'))
   }
   const optimizedMode = showOptimizedLine.value && optimizedAllPoints.value.length && (playbackRoute.value === 'optimized' || !showOriginalLine.value)
   pendingAllPoints.value.forEach((point, index) => {
@@ -563,6 +593,7 @@ function drawBaiduMap(BMap) {
   })
   drawPlaybackMarker(BMap)
   fitMapViewportOnce(BMap)
+  if (focusedLayer.value?.geometry?.length >= 2) mapInstance.setViewport(focusedLayer.value.geometry.map(point => new BMap.Point(point.longitude, point.latitude)), { margins: [55, 55, 55, 55] })
   if (props.viewLink && !unlinkView) unlinkView = props.viewLink.register(mapInstance, (lng, lat) => new BMap.Point(lng, lat))
 }
 
