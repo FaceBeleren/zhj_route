@@ -1269,7 +1269,7 @@
                     <div>{{ leg.points.map(point => point.facilityName || point.facilityId).join(' → ') }}</div>
                   </button>
                 </div>
-                <RouteMapPanel v-if="singleTripOverview" :key="'single-overview-'+singleTripDay" :original-points="[]" :optimized-points="singleTripSelected.route.points" :route-layers="singleTripOverviewLayers" :highlight-segments="singleTripIncludeDetours ? singleTripSelected.detours.detourSegments : []" :show-original="false" optimized-label="全部收运行程" />
+                <RouteMapPanel v-if="singleTripOverview" :key="'single-overview-'+singleTripDay" :original-points="[]" :optimized-points="singleTripSelected.route.points" :route-layers="singleTripOverviewLayers" :playback-choices="singleTripOverviewPlaybackChoices" :highlight-segments="singleTripIncludeDetours ? singleTripSelected.detours.detourSegments : []" :show-original="false" optimized-label="全部收运行程" />
                 <RouteMapPanel v-else-if="singleTripSelectedLeg" :key="'single-leg-'+singleTripDay+'-'+singleTripSelectedLeg.no" :original-points="[]" :optimized-points="singleTripSelectedLeg.points" :optimized-segments="singleTripSelectedLeg.segments" :show-original="false" :optimized-label="singleTripSelectedLeg.returnOnly ? '最终返场' : `第${singleTripSelectedLeg.no}段收运`" />
                 <div v-if="!singleTripOverview && singleTripSelectedLeg && !singleTripSelectedLeg.returnOnly" style="max-height:320px;overflow:auto"><table style="width:100%"><thead><tr><th>顺序</th><th>点位</th><th>到达</th><th>收完／离开</th><th>时间窗</th></tr></thead><tbody><tr v-for="(point,index) in singleTripSelectedLeg.points" :key="`${singleTripDay}-${singleTripSelectedLeg.no}-${index}`" :style="{ color: point.timeWindowViolation ? 'red' : '' }"><td>{{ index + 1 }}</td><td>{{ point.facilityName || point.facilityId }}</td><td>{{ point.arrivalTime || '—' }}</td><td>{{ point.departureTime || '—' }}</td><td>{{ point.role === 'MIDDLE' ? (point.timeWindowViolation ? '超窗' : '通过') : '场站' }}</td></tr></tbody></table></div>
               </template>
@@ -3044,6 +3044,8 @@ const singleTripLegs = computed(() => {
 })
 const singleTripSelectedLeg = computed(() => singleTripLegs.value.find(leg => leg.no === singleTripLegNo.value) || singleTripLegs.value[0])
 const singleTripOverviewLayers = computed(() => singleTripLegs.value.map((leg, index) => ({ key: leg.no, label: leg.returnOnly ? '最终返场' : `第${leg.no}段`, color: leg.returnOnly ? '#8b5cf6' : ['#1976d2', '#f97316', '#10b981', '#d946ef', '#eab308'][index % 5], points: leg.points, segments: leg.segments })))
+const singleTripOverviewPlaybackChoices = computed(() => [{ key: 'optimized', label: '全部行程',
+  paths: singleTripLegs.value.flatMap(leg => leg.segments.map(segment => segment.path || []).filter(path => path.length >= 2)) }])
 const singleTripDisplay = computed(() => {
   const selected = singleTripSelected.value
   if (!selected?.route || !selected.detours) return null
