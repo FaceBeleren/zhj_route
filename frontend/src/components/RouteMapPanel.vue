@@ -32,8 +32,8 @@
       <span><i class="shared"></i>共享</span>
       <span><i class="low"></i>低频</span>
     </div>
-    <div v-if="overviewLayers.length" class="route-point-legend" aria-label="趟次颜色图例" @mouseleave="clearLegendFocus">
-      <span v-for="layer in overviewLayers" :key="layer.key" :class="{ 'legend-focusable': props.focusLegendOnHover, 'legend-focused': focusedLayerKey === String(layer.key), 'legend-dimmed': focusedLayerKey !== null && focusedLayerKey !== String(layer.key) }" :tabindex="props.focusLegendOnHover ? 0 : undefined" @mouseenter="focusLegendLayer(layer)" @focus="focusLegendLayer(layer)" @blur="clearLegendFocus"><i :style="layer.gpsActual ? { background: 'transparent', borderTop: `3px dashed ${layer.color}` } : { background: layer.color }"></i>{{ layer.label }}</span>
+    <div v-if="overviewLayers.length" class="route-point-legend" aria-label="趟次颜色图例">
+      <span v-for="layer in overviewLayers" :key="layer.key" :class="{ 'legend-focusable': props.focusLegendOnClick, 'legend-focused': focusedLayerKey === String(layer.key), 'legend-dimmed': focusedLayerKey !== null && focusedLayerKey !== String(layer.key) }" :role="props.focusLegendOnClick ? 'button' : undefined" :aria-pressed="props.focusLegendOnClick ? focusedLayerKey === String(layer.key) : undefined" :tabindex="props.focusLegendOnClick ? 0 : undefined" :title="props.focusLegendOnClick ? '点击聚焦；再次点击恢复总览' : undefined" @click="toggleLegendFocus(layer)" @keydown.enter.prevent="toggleLegendFocus(layer)" @keydown.space.prevent="toggleLegendFocus(layer)"><i :style="layer.gpsActual ? { background: 'transparent', borderTop: `3px dashed ${layer.color}` } : { background: layer.color }"></i>{{ layer.label }}</span>
     </div>
 
     <p v-if="pendingAllPoints.length" :style="{ color: props.pendingColor }">● 待插入时间窗点（{{ pendingAllPoints.length }}个，不参与连线）</p>
@@ -209,7 +209,7 @@ const props = defineProps({
   routeLayers: { type: Array, default: () => [] },
   viewportPoints: { type: Array, default: () => [] },
   displayChoices: { type: Array, default: () => [] },
-  focusLegendOnHover: { type: Boolean, default: false },
+  focusLegendOnClick: { type: Boolean, default: false },
   playbackChoices: { type: Array, default: () => [] },
   optimizedMarkerPoints: { type: Array, default: null },
   showPlayback: { type: Boolean, default: true },
@@ -303,7 +303,7 @@ const optimizedGeometryPoints = computed(() => pathCoordinatesFromSegments(props
 const optimizedFacilityIdSet = computed(() => new Set((props.optimizedFacilityIds || []).map((id) => String(id))))
 const markerPoints = computed(() => {
   const optimizedActive = showOptimizedLine.value && optimizedAllPoints.value.length && (playbackRoute.value === 'optimized' || !showOriginalLine.value)
-  if (optimizedActive && props.focusLegendOnHover && focusedLayer.value) {
+  if (optimizedActive && props.focusLegendOnClick && focusedLayer.value) {
     return focusedLayer.value.gpsActual
       ? optimizedMarkerAllPoints.value.filter(point => point.flowCollectionCount > 0 || String(point.facilityId || "").startsWith("gps-"))
       : focusedLayer.value.points
@@ -347,8 +347,12 @@ const playbackLabel = computed(() => {
   return '已播放 ' + distance + ' / ' + total + ' m'
 })
 
-function focusLegendLayer(layer) {
-  if (!props.focusLegendOnHover || focusedLayerKey.value === String(layer.key)) return
+function toggleLegendFocus(layer) {
+  if (!props.focusLegendOnClick) return
+  if (focusedLayerKey.value === String(layer.key)) {
+    clearLegendFocus()
+    return
+  }
   if (!savedLegendViewport && mapInstance) savedLegendViewport = { center: mapInstance.getCenter(), zoom: mapInstance.getZoom() }
   focusedLayerKey.value = String(layer.key)
   if (mapInstance && window.BMap && layer.geometry.length >= 2) {
@@ -356,7 +360,7 @@ function focusLegendLayer(layer) {
   }
 }
 function clearLegendFocus() {
-  if (!props.focusLegendOnHover || focusedLayerKey.value === null) return
+  if (!props.focusLegendOnClick || focusedLayerKey.value === null) return
   focusedLayerKey.value = null
   if (mapInstance && savedLegendViewport) mapInstance.centerAndZoom(savedLegendViewport.center, savedLegendViewport.zoom)
   savedLegendViewport = null
@@ -606,7 +610,6 @@ function drawBaiduMap(BMap) {
   })
   drawPlaybackMarker(BMap)
   fitMapViewportOnce(BMap)
-  if (focusedLayer.value?.geometry?.length >= 2) mapInstance.setViewport(focusedLayer.value.geometry.map(point => new BMap.Point(point.longitude, point.latitude)), { margins: [55, 55, 55, 55] })
   if (props.viewLink && !unlinkView) unlinkView = props.viewLink.register(mapInstance, (lng, lat) => new BMap.Point(lng, lat))
 }
 
