@@ -305,7 +305,7 @@ const markerPoints = computed(() => {
   const optimizedActive = showOptimizedLine.value && optimizedAllPoints.value.length && (playbackRoute.value === 'optimized' || !showOriginalLine.value)
   if (optimizedActive && props.focusLegendOnHover && focusedLayer.value) {
     return focusedLayer.value.gpsActual
-      ? optimizedMarkerAllPoints.value.filter(point => String(point.facilityId || "").startsWith("gps-"))
+      ? optimizedMarkerAllPoints.value.filter(point => point.flowCollectionCount > 0 || String(point.facilityId || "").startsWith("gps-"))
       : focusedLayer.value.points
   }
   return optimizedActive ? optimizedMarkerAllPoints.value : originalAllPoints.value

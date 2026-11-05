@@ -168,7 +168,7 @@
             <div v-if="flowGpsTrack?.points?.length" class="flow-gps-layer-choices" aria-label="GPS 趟次图层"><label v-for="layer in flowGpsEligibleLayers" :key="layer.key" :class="{ muted: flowHiddenGpsLayerKeys.has(layer.key) }"><input type="checkbox" :checked="!flowHiddenGpsLayerKeys.has(layer.key)" @change="toggleFlowGpsLayer(layer.key)" /><i :style="{ borderColor: layer.color }"></i>{{ layer.label }}（{{ layer.points.length }}点）</label></div>
             <p v-if="!flowGpsCarCode" class="muted">请先选择一辆车，才能查询它当天的日报与 GPS 轨迹或播放路线。</p>
             <p v-if="flowVehicleQueryError" class="flow-warning">车辆运行数据查询失败：{{ flowVehicleQueryError }}</p>
-            <p v-if="flowGpsTrack?.points?.length" class="muted">GPS 图层按流水事件时间划分，不是按车辆到场 GPS 精确判定；灰色图层是流水时间无法归属的片段。选择某一趟时，只显示该趟对应的 GPS 图层。</p>
+            <p v-if="flowGpsTrack?.points?.length" class="muted">GPS 图层按流水事件时间划分，不是按车辆到场 GPS 精确判定；仅展示 GPS 时的收运点仍来自流水记录。灰色图层是流水时间无法归属的片段。选择某一趟时，只显示该趟对应的 GPS 图层。</p>
             <p class="muted">小车可切换播放当前车辆、趟次的流水路线或所选 GPS 轨迹；播放路线与地图线层显示独立，分段之间不绘制虚构连线，进度距离不等同车辆日报里程。</p>
             <p v-if="flowParkingError" class="flow-warning">停车场候选加载失败：{{ flowParkingError }}</p>
             <p v-else-if="flowParkingLoading" class="muted">正在加载停车场候选…</p>
@@ -2560,7 +2560,11 @@ const flowParkingAccessLayers = computed(() => flowShowReturnToParking.value
   ? buildFlowParkingAccessLayers(flowDayTripRows.value, flowMapTripRows.value, flowSelectedParking.value) : [])
 const flowBaseAndParkingLayers = computed(() => [...flowActualMap.value.layers, ...flowParkingAccessLayers.value])
 const flowMapMarkers = computed(() => {
-  const markers = flowShowRouteLayer.value ? [...flowActualMap.value.markers] : []
+  const markers = flowShowRouteLayer.value
+    ? [...flowActualMap.value.markers]
+    : flowShowGpsLayer.value && flowGpsVisibleLayers.value.length
+      ? flowActualMap.value.markers.filter(point => point.flowCollectionCount > 0)
+      : []
   if (flowShowRouteLayer.value && flowParkingAccessLayers.value.length && flowSelectedParking.value) markers.push({
     ...flowSelectedParking.value, flowMapMarker: true, flowCollectionCount: 0, flowThroughCount: 0,
     flowVisitLabel: '车场', flowVisitTitle: '所选停车场，出场及返场路段为道路推算，并非实际行驶轨迹',
