@@ -3702,3 +3702,6 @@ tbody tr.active {
 .assignment-trip-reorder-bar small {
   color: #536b86;
 }
+
+.flow-one-day-compare { display: grid; gap: 8px; padding: 12px; border: 1px solid #b9d5ef; border-radius: 8px; background: #f7fbff; }
+.flow-one-day-compare p { margin: 0; }

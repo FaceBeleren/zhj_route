@@ -33,7 +33,7 @@
       <span><i class="low"></i>低频</span>
     </div>
     <div v-if="overviewLayers.length" class="route-point-legend" aria-label="趟次颜色图例">
-      <span v-for="layer in overviewLayers" :key="layer.key" :class="{ 'legend-focusable': props.focusLegendOnClick, 'legend-focused': focusedLayerKey === String(layer.key), 'legend-dimmed': focusedLayerKey !== null && focusedLayerKey !== String(layer.key) }" :role="props.focusLegendOnClick ? 'button' : undefined" :aria-pressed="props.focusLegendOnClick ? focusedLayerKey === String(layer.key) : undefined" :tabindex="props.focusLegendOnClick ? 0 : undefined" :title="props.focusLegendOnClick ? '点击聚焦；再次点击恢复总览' : undefined" @click="toggleLegendFocus(layer)" @keydown.enter.prevent="toggleLegendFocus(layer)" @keydown.space.prevent="toggleLegendFocus(layer)"><i :style="layer.gpsActual ? { background: 'transparent', borderTop: `3px dashed ${layer.color}` } : { background: layer.color }"></i>{{ layer.label }}</span>
+      <span v-for="layer in overviewLayers" :key="layer.key" :class="{ 'legend-focusable': props.focusLegendOnClick, 'legend-focused': focusedLayerKey === String(layer.key), 'legend-dimmed': focusedLayerKey !== null && focusedLayerKey !== String(layer.key) }" :role="props.focusLegendOnClick ? 'button' : undefined" :aria-pressed="props.focusLegendOnClick ? focusedLayerKey === String(layer.key) : undefined" :tabindex="props.focusLegendOnClick ? 0 : undefined" :title="props.focusLegendOnClick ? '点击聚焦；再次点击恢复总览' : undefined" @click="toggleLegendFocus(layer)" @keydown.enter.prevent="toggleLegendFocus(layer)" @keydown.space.prevent="toggleLegendFocus(layer)"><i :style="layer.gpsActual || layer.templateReference ? { background: 'transparent', borderTop: `3px dashed ${layer.color}` } : { background: layer.color }"></i>{{ layer.label }}</span>
     </div>
 
     <p v-if="pendingAllPoints.length" :style="{ color: props.pendingColor }">● 待插入时间窗点（{{ pendingAllPoints.length }}个，不参与连线）</p>
@@ -118,7 +118,7 @@
             class="plot-line optimized"
             :style="{ stroke: props.optimizedColor }"
           />
-          <polyline v-for="layer in fallbackOverviewLayers" v-if="showOptimizedLine" :key="`overview-${layer.key}`" :points="layer.line" class="plot-line optimized" :style="{ stroke: layer.color, strokeDasharray: layer.gpsActual ? '8 5' : undefined, strokeWidth: focusedLayerKey === String(layer.key) ? 2.3 : undefined, opacity: focusedLayerKey === null || focusedLayerKey === String(layer.key) ? 1 : 0.14 }" />
+          <polyline v-for="layer in fallbackOverviewLayers" v-if="showOptimizedLine" :key="`overview-${layer.key}`" :points="layer.line" class="plot-line optimized" :style="{ stroke: layer.color, strokeDasharray: layer.gpsActual || layer.templateReference ? '8 5' : undefined, strokeWidth: focusedLayerKey === String(layer.key) ? 2.3 : undefined, opacity: focusedLayerKey === null || focusedLayerKey === String(layer.key) ? 1 : 0.14 }" />
           <polyline v-for="(line, index) in fallbackHighlightLines" v-if="focusedLayerKey === null" :key="`highlight-${index}`" :points="line" class="plot-line optimized" style="stroke:#8b5cf6;stroke-width:1.5" />
           <text v-if="fallbackPlaybackPoint && hasCustomPlaybackChoices" :x="fallbackPlaybackPoint.x" :y="fallbackPlaybackPoint.y" text-anchor="middle" dominant-baseline="central" font-size="6">🚚</text>
           <circle
@@ -161,7 +161,7 @@
           <div class="plot-title">{{ optimizedLabel }}顺序</div>
           <svg :viewBox="fallbackFocusViewBox" role="img" aria-label="优化后路线坐标预览">
             <polyline v-if="!overviewLayers.length" :points="routePlot.optimized.line" class="plot-line optimized" :style="{ stroke: props.optimizedColor }" />
-            <polyline v-for="layer in fallbackOverviewLayers" v-if="showOptimizedLine" :key="`overview-detail-${layer.key}`" :points="layer.line" class="plot-line optimized" :style="{ stroke: layer.color, strokeDasharray: layer.gpsActual ? '8 5' : undefined, strokeWidth: focusedLayerKey === String(layer.key) ? 2.3 : undefined, opacity: focusedLayerKey === null || focusedLayerKey === String(layer.key) ? 1 : 0.14 }" />
+            <polyline v-for="layer in fallbackOverviewLayers" v-if="showOptimizedLine" :key="`overview-detail-${layer.key}`" :points="layer.line" class="plot-line optimized" :style="{ stroke: layer.color, strokeDasharray: layer.gpsActual || layer.templateReference ? '8 5' : undefined, strokeWidth: focusedLayerKey === String(layer.key) ? 2.3 : undefined, opacity: focusedLayerKey === null || focusedLayerKey === String(layer.key) ? 1 : 0.14 }" />
             <polyline v-for="(line, index) in fallbackHighlightLines" v-if="focusedLayerKey === null" :key="`optimized-highlight-${index}`" :points="line" class="plot-line optimized" style="stroke:#8b5cf6;stroke-width:1.5" />
             <g v-for="point in routePlot.optimized.points" :key="point.key">
               <circle :cx="point.x" :cy="point.y" r="2.2" class="plot-point-optimized" :style="fallbackMarkerStyle(point, point.routeColor || props.markerColor)">
@@ -277,7 +277,7 @@ const overviewLayers = computed(() => props.routeLayers.map((layer, index) => {
   const points = normalizeRoutePoints(layer.points || [])
   const segments = layer.segments || []
   return { key: layer.key ?? index, label: layer.label || `第${index + 1}趟`, color: layer.color || '#1f6fca', points, segments,
-    gpsActual: Boolean(layer.gpsActual),
+    gpsActual: Boolean(layer.gpsActual), templateReference: Boolean(layer.templateReference),
     geometry: pathCoordinatesFromSegments(segments, points) }
 }))
 const focusedLayer = computed(() => overviewLayers.value.find(layer => String(layer.key) === focusedLayerKey.value) || null)
@@ -438,7 +438,7 @@ function drawCapturedRouteOverlays(canvas, target) {
     drawProjectedRoute(context, originalGeometryPoints.value, project, { color: '#d84f4f', width: 4, opacity: 0.8, dashed: true })
   }
   if (showOptimizedLine.value) {
-    if (overviewLayers.value.length) overviewLayers.value.forEach(layer => drawProjectedRoute(context, layer.geometry, project, { color: layer.color, width: focusedLayerKey.value === String(layer.key) ? 7 : layer.gpsActual ? 3 : 5, opacity: focusedLayerKey.value === null || focusedLayerKey.value === String(layer.key) ? 0.9 : 0.14, dashed: layer.gpsActual }))
+    if (overviewLayers.value.length) overviewLayers.value.forEach(layer => drawProjectedRoute(context, layer.geometry, project, { color: layer.color, width: focusedLayerKey.value === String(layer.key) ? 7 : layer.gpsActual || layer.templateReference ? 3 : 5, opacity: focusedLayerKey.value === null || focusedLayerKey.value === String(layer.key) ? 0.9 : 0.14, dashed: layer.gpsActual || layer.templateReference }))
     else drawProjectedRoute(context, optimizedGeometryPoints.value, project, { color: props.optimizedColor, width: 5, opacity: 0.9 })
     if (focusedLayerKey.value === null) props.highlightSegments.forEach(segment => {
       drawProjectedRoute(context, normalizeRoutePoints(segment.path || []), project, { color: '#8b5cf6', width: 7, opacity: 0.95 })
@@ -573,7 +573,7 @@ function drawBaiduMap(BMap) {
     drawPolyline(BMap, originalGeometryPoints.value, '#d84f4f', 4, 0.8, 'dashed')
   }
   if (showOptimizedLine.value) {
-    if (overviewLayers.value.length) overviewLayers.value.forEach(layer => drawPolyline(BMap, layer.geometry, layer.color, focusedLayerKey.value === String(layer.key) ? 7 : layer.gpsActual ? 3 : 5, focusedLayerKey.value === null || focusedLayerKey.value === String(layer.key) ? 0.9 : 0.14, layer.gpsActual ? 'dashed' : 'solid'))
+    if (overviewLayers.value.length) overviewLayers.value.forEach(layer => drawPolyline(BMap, layer.geometry, layer.color, focusedLayerKey.value === String(layer.key) ? 7 : layer.gpsActual || layer.templateReference ? 3 : 5, focusedLayerKey.value === null || focusedLayerKey.value === String(layer.key) ? 0.9 : 0.14, layer.gpsActual || layer.templateReference ? 'dashed' : 'solid'))
     else drawPolyline(BMap, optimizedGeometryPoints.value, props.optimizedColor, 5, 0.9, 'solid')
     if (focusedLayerKey.value === null) props.highlightSegments.forEach(segment => drawPolyline(BMap, normalizeRoutePoints(segment.path || []), '#8b5cf6', 7, 0.95, 'solid'))
   }

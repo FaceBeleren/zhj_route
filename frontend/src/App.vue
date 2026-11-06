@@ -181,6 +181,19 @@
                 <small>只勾选部分图层时，两者的时间范围不同。</small>
               </div>
             </div>
+            <div v-if="flowComparisonTemplate" class="flow-one-day-compare">
+              <strong>单日规划顺序对照 · {{ flowComparisonTemplate.label }}</strong>
+              <p class="muted">模板 {{ flowComparisonTemplate.points.length }} 点；地图灰色虚线仅连示规划点位顺序，不代表道路。选择上方日期和一辆车；当天未收的模板点只标记为未收，不判为漏收，处理厂和卸料趟界不参与顺序比较。</p>
+              <p v-if="flowComparisonTemplate.unitId && String(flowComparisonTemplate.unitId) !== String(flowAnalysisCompanyId)" class="flow-warning">模板与当前岗位不属于同一公司，请切换到对应公司后再比较。</p>
+              <template v-else-if="flowGpsCarCode && flowComparisonDay">
+                <div class="flow-actual-distance-grid">
+                  <div><span>当天顺序拟合度</span><strong>{{ flowComparisonDay.sharedCount < 3 ? '证据不足' : (flowComparisonDay.orderRate * 100).toFixed(1) + '%' }}</strong><small>共同收运 {{ flowComparisonDay.sharedCount }} 点 · 符合顺序 {{ flowComparisonDay.correctPairs }}/{{ flowComparisonDay.pairCount }} 对 · LCS {{ flowComparisonDay.lcsLength }}/{{ flowComparisonDay.sharedCount }}</small></div>
+                  <div><span>当天所选 GPS 图层里程</span><strong>{{ flowGpsMileage ? (flowGpsMileage.totalMeters / 1000).toFixed(2) + ' km' : '请查询轨迹并选择图层' }}</strong><small>按下方勾选的 GPS 图层逐段测距；首趟前及末趟后默认不计入。</small></div>
+                </div>
+                <p class="muted">模板内当天未收 {{ flowComparisonDay.notCollected.length }} 点；模板外收运 {{ flowComparisonDay.extra.length }} 点。{{ flowComparisonDay.sharedCount < 3 ? '共同点不足 3 个，不据此判断是否按顺序执行。' : '' }}</p>
+              </template>
+              <p v-else class="muted">请选择一辆车后查看当天拟合情况。</p>
+            </div>
             <p v-if="!flowGpsCarCode" class="muted">请先选择一辆车，才能查询它当天的日报与 GPS 轨迹或播放路线。</p>
             <p v-if="flowVehicleQueryError" class="flow-warning">车辆运行数据查询失败：{{ flowVehicleQueryError }}</p>
             <p v-if="flowGpsTrack?.points?.length" class="muted">GPS 图层按流水事件时间划分，不是按车辆到场 GPS 精确判定；仅展示 GPS 时的收运点仍来自流水记录。灰色图层是流水时间无法归属的片段。选择某一趟时，只显示该趟对应的 GPS 图层。</p>
@@ -1226,6 +1239,7 @@
               <p v-if="assignmentScheduleExportReady" class="muted">每日到达时间、时间窗校验和导出统一按跳点后道路计算。“保留全部点位”仅对照模板连线，不改变每日计算结果。两种道路耗时均扣除当日不收点的作业时间。</p>
               <p v-else class="muted">当前只生成一次全点模板；没有按日排班，不推断哪些天收运，也不生成每日跳点路线。</p>
               <p>主路线来源：{{ fixedMaster.sourceLabel }}<template v-if="fixedMasterDay !== 0">；当天{{ fixedMasterDayData?.disabled ? '已停排' : fixedMasterDayData?.status || '未排班' }}</template>。</p>
+              <button type="button" class="secondary" :disabled="!fixedMasterDayData?.result?.routes?.length" @click="captureFlowComparisonTemplate(`全点多趟 · ${fixedMasterDay === 0 ? '完整模板' : `第${fixedMasterDay}天`}`, fixedMasterDayData.result.routes)">以当前日期顺序对照一天流水</button>
               <p v-if="fixedMasterDayData?.result">完整模板 {{ fixedMasterDayData.result.routeCount }} 趟；全点模板时间窗冲突 {{ fixedMasterTimeWindowStats.violationCount }} 个<template v-if="fixedMasterDay !== 0">；当天应收 {{ fixedMasterDayData.indices.length }} 点；当天时间窗冲突 {{ timeWindowStatsForResult(fixedMasterDayData.result).violationCount }} 个；当天应收但模板未分配 {{ fixedMasterDayData.result.dueUnassignedCount || 0 }} 点</template>。</p>
               <p v-if="fixedMasterDayData?.result && fixedMasterIncludeReturn && fixedMasterReturnTrip">收运趟 {{ formatDistance(fixedMasterRouteTotals.distance) }} + 独立返场趟 {{ formatDistance(fixedMasterReturnTrip.distance) }} = {{ formatDistance(fixedMasterRouteTotals.distance + fixedMasterReturnTrip.distance) }}；耗时合计 {{ formatDuration(fixedMasterRouteTotals.durationMinutes + fixedMasterReturnTrip.durationMinutes) }}。返场不计收运趟数与点位时间窗。</p>
               <p v-if="fixedMasterDayData?.error" style="color:red">{{ fixedMasterDayData.error }}</p>
@@ -1274,6 +1288,7 @@
               <p v-if="singleTripSelected?.disabled">第{{ singleTripDay }}天已停排，无收运路线。</p>
               <p v-if="singleTripSelected?.error" style="color:red">第{{ singleTripDay }}天道路计算失败：{{ singleTripSelected.error }}</p>
               <template v-else-if="singleTripSelected?.route && !singleTripSelected.disabled">
+                <button type="button" class="secondary" @click="captureFlowComparisonTemplate(`全点单趟 · ${singleTripDay === 0 ? '完整模板' : `第${singleTripDay}天`}`, [singleTripSelected.route])">以当前日期顺序对照一天流水</button>
                 <p>{{ singleTripDay === 0 ? '完整模板点位' : '当天收运点' }} {{ singleTripSelected.route.pointCount }} 个<template v-if="singleTripIncludeDetours">；中途卸料 {{ singleTripSelected.detours.breaks.length }} 次；目标装载量 {{ singleTripSelected.detours.thresholdKg.toFixed(1) }} kg</template>。</p>
                 <p>里程：基础 {{ formatDistance(singleTripDisplay.baseDistance) }} + 中途卸料增量 {{ formatDistance(singleTripDisplay.detourDistance) }} + 最终返场 {{ formatDistance(singleTripDisplay.returnDistance) }} = {{ formatDistance(singleTripDisplay.totalDistance) }}；耗时：基础 {{ formatDuration(singleTripDisplay.baseDurationMinutes) }} + 中途卸料增量 {{ formatDuration(singleTripDisplay.detourDurationMinutes) }} + 最终返场 {{ formatDuration(singleTripDisplay.returnDurationMinutes) }} = {{ formatDuration(singleTripDisplay.totalDurationMinutes) }}。紫色为已开启的新增道路；中途卸料增量已扣除被替换的原路段。</p>
                 <p>按当前估重分段：{{ singleTripSelectedTimeline.legs.length }} 段；当前展示场景时间窗冲突 {{ singleTripPlannedTimeline.violationCount }} 处。时间窗按到达与收完校验；关闭中途卸料开关时，地图与行程时间不计卸料，修正校验仍按开启状态计算。</p>
@@ -1294,6 +1309,7 @@
           <section v-if="selectedSplitRoute && planningView === 'ASSIGNMENT'" class="panel assignment-planning-result">
             <div>
               <div class="panel-head compact"><h2>规划结果 · 按排班逐套规划<small v-if="assignmentActiveVersion"> · 当前{{ assignmentActiveVersion.name }}</small></h2><div class="panel-actions"><button type="button" class="secondary" :disabled="!!assignmentBatchTripReorderDisabledReason" :title="assignmentBatchTripReorderDisabledReason" @click="tryReorderAllAssignmentTrips">{{ assignmentTripReorderRunning ? '正在批量调整…' : '尝试调整全部方案趟序' }}</button><button @click="openSaveSplitCurrentRoute" :disabled="!selectedMultiRoute || assignmentShowReturn || loading || assignmentTripReorderRunning">另存当前路线</button><button @click="openSaveSplitGroup" :disabled="!multiOptimization || loading || assignmentTripReorderRunning">{{ splitFromSavedRoute ? '保存为新版本' : '另存当前方案整组' }}</button><button @click="exportAssignmentVersions" :disabled="assignmentBatchRunning || assignmentTripReorderRunning || loading || fixedMasterRunning || (!assignmentVersions.some(version => version.result) && !fixedMasterFresh)">导出全部方案</button></div></div>
+              <button type="button" class="secondary" :disabled="!multiOptimization?.routes?.length" @click="captureFlowComparisonTemplate(`按排班逐套规划 · ${assignmentActiveVersion?.name || '当前方案'}`, multiOptimization.routes)">以当前方案顺序对照一天流水</button>
               <p v-if="assignmentActiveVersion?.applicableDays?.length" class="assignment-applicable-dates">{{ assignmentActiveVersion.name }}适用：{{ assignmentApplicableDaysLabel(assignmentActiveVersion) }}<template v-if="assignmentActiveVersion.applicableDays.length > 1">。修改这套点位会影响所有适用天数。</template></p>
               <div v-if="assignmentVersions.some(version => version.status !== 'IDLE')" class="assignment-result-summary"><button v-for="version in assignmentVersions" :key="'result-'+version.id" type="button" class="assignment-result-version" :class="{ active: assignmentActiveVersionId === version.id }" :aria-pressed="assignmentActiveVersionId === version.id" :disabled="assignmentBatchRunning || assignmentTripReorderRunning" @click="selectAssignmentVersion(version.id)"><strong>{{ version.name }}<template v-if="version.applicableDays?.length > 1"> · 适用{{ version.applicableDays.length }}天</template><template v-else-if="version.cycleDay"> · 第{{ version.cycleDay }}天</template></strong><span>{{ assignmentVersionStatusLabel(version) }}</span><small v-if="version.error">{{ version.error }}</small><small v-else-if="version.status === 'RUNNING'">{{ version.message }}<template v-if="version.percent"> · {{ version.percent }}%</template></small><small v-else-if="version.result">{{ version.result.routeCount || 0 }} 趟 · 已分配 {{ version.result.assignedPointCount || 0 }} 点</small></button></div>
               <p v-if="assignmentVersions.some(version => version.result)" class="assignment-save-scope">点击上方方案切换结果；“当前路线”和“当前方案整组”仅保存所选方案，“导出全部方案”包含本次所有方案及其状态。</p>
@@ -2499,6 +2515,51 @@ const flowMapTripIndex = ref('ALL')
 const flowMapSelectedDay = computed(() => (flowAnalysisResult.value?.dailyTrips || []).find(day => String(day.date || '') === flowMapDay.value) || flowAnalysisResult.value?.dailyTrips?.[0] || null)
 const flowMapCars = computed(() => [...new Set((flowMapSelectedDay.value?.trips || []).map(trip => String(trip.carCode || '')).filter(Boolean))])
 const flowGpsCarCode = computed(() => flowMapCarCode.value !== 'ALL' ? flowMapCarCode.value : flowMapCars.value.length === 1 ? flowMapCars.value[0] : '')
+const flowComparisonTemplate = ref(null)
+function captureFlowComparisonTemplate(label, routes) {
+  const seen = new Set()
+  const points = (routes || []).flatMap(route => route.points || []).filter(point => point.role === 'MIDDLE' && point.facilityId != null).filter(point => {
+    const id = String(point.facilityId)
+    if (seen.has(id)) return false
+    seen.add(id)
+    return true
+  }).map(point => ({ facilityId: String(point.facilityId), facilityName: point.facilityName || String(point.facilityId), longitude: point.longitude, latitude: point.latitude }))
+  if (!points.length) return
+  flowComparisonTemplate.value = { label, unitId: selectedSplitCompany.value?.id, points }
+  currentView.value = 'flow-analysis'
+}
+function flowLcsLength(plan, actual) {
+  const dp = Array(actual.length + 1).fill(0)
+  for (const id of plan) {
+    let diagonal = 0
+    for (let i = 1; i <= actual.length; i++) {
+      const previous = dp[i]
+      dp[i] = id === actual[i - 1] ? diagonal + 1 : Math.max(dp[i], dp[i - 1])
+      diagonal = previous
+    }
+  }
+  return dp[actual.length]
+}
+const flowComparisonDay = computed(() => {
+  if (!flowComparisonTemplate.value || !flowGpsCarCode.value || !flowMapSelectedDay.value) return null
+  const plan = flowComparisonTemplate.value.points.map(point => point.facilityId)
+  const planSet = new Set(plan)
+  const seen = new Set()
+  const actual = (flowMapSelectedDay.value.trips || []).filter(trip => String(trip.carCode || '') === flowGpsCarCode.value)
+    .flatMap(trip => trip.points || []).filter(point => Number(point.matchType) === 0 && point.facilityId != null)
+    .map(point => String(point.facilityId)).filter(id => { if (seen.has(id)) return false; seen.add(id); return true })
+  const shared = actual.filter(id => planSet.has(id))
+  const sharedSet = new Set(shared)
+  const planShared = plan.filter(id => sharedSet.has(id))
+  const position = new Map(planShared.map((id, index) => [id, index]))
+  let correctPairs = 0
+  for (let i = 0; i < shared.length; i++) for (let j = i + 1; j < shared.length; j++) {
+    if (position.get(shared[i]) < position.get(shared[j])) correctPairs++
+  }
+  const pairCount = shared.length * (shared.length - 1) / 2
+  return { sharedCount: shared.length, correctPairs, pairCount, orderRate: pairCount ? correctPairs / pairCount : null,
+    lcsLength: flowLcsLength(planShared, shared), notCollected: plan.filter(id => !seen.has(id)), extra: actual.filter(id => !planSet.has(id)) }
+})
 const flowVehicleReport = ref(null)
 const flowGpsTrack = ref(null)
 const flowShowRouteLayer = ref(true)
@@ -2531,7 +2592,13 @@ async function loadFlowVehicleDay() {
     const track = await api(`/api/flow-analysis/vehicle-gps-track?${params}`, { signal: controller.signal })
     if (queryId !== flowVehicleQueryId) return
     flowGpsTrack.value = track
-    flowHiddenGpsLayerKeys.value = new Set()
+    const comparisonLayers = flowComparisonTemplate.value
+      ? buildFlowGpsLayers(track.points || [], flowDayTripRows.value.filter(row => String(row.trip.carCode || '') === track.carCode)) : []
+    flowHiddenGpsLayerKeys.value = new Set(comparisonLayers.filter(layer => !['trip', 'between'].includes(layer.kind)).map(layer => layer.key))
+    if (flowComparisonTemplate.value && track.points?.length) {
+      await nextTick()
+      if (queryId === flowVehicleQueryId && flowGpsVisibleLayers.value.length) calculateFlowGpsMileage()
+    }
     if (!track.points?.length) flowVehicleQueryError.value = '该车当天没有可绘制的 GPS 坐标；日报里程已显示。'
   } catch (error) {
     if (queryId === flowVehicleQueryId && error?.name !== 'AbortError') flowVehicleQueryError.value = error.message || String(error)
@@ -2640,7 +2707,15 @@ const flowResolvedLayers = computed(() => {
   if (layers.some(layer => layer.points.length >= 2 && !cache.has(flowRoadKey(layer.points)))) return flowGpsVisibleLayers.value
   return [...layers.map(layer => ({ ...layer, segments: layer.points.length >= 2 ? cache.get(flowRoadKey(layer.points)) : [] })), ...flowGpsVisibleLayers.value]
 })
-const flowDisplayedLayers = computed(() => flowResolvedLayers.value.filter(layer => layer.gpsActual ? flowShowGpsLayer.value : flowShowRouteLayer.value))
+const flowComparisonMapLayer = computed(() => {
+  if (!flowComparisonTemplate.value || (flowComparisonTemplate.value.unitId && String(flowComparisonTemplate.value.unitId) !== String(flowAnalysisCompanyId.value || ''))) return null
+  const points = flowComparisonTemplate.value.points.filter(point => point.longitude != null && point.latitude != null && Number.isFinite(Number(point.longitude)) && Number.isFinite(Number(point.latitude)))
+  return points.length >= 2 ? { key: 'comparison-template', label: '规划顺序参考', color: '#64748b', points, segments: [], templateReference: true } : null
+})
+const flowDisplayedLayers = computed(() => [
+  ...flowResolvedLayers.value.filter(layer => layer.gpsActual ? flowShowGpsLayer.value : flowShowRouteLayer.value),
+  ...(flowComparisonMapLayer.value ? [flowComparisonMapLayer.value] : [])
+])
 const flowPlaybackChoices = computed(() => buildFlowPlaybackChoices(flowResolvedLayers.value,
   flowGpsVisibleLayers.value, flowGpsCarCode.value, flowMapMode.value))
 const flowDisplayedPoints = computed(() => routeOverviewPoints(flowDisplayedLayers.value))
