@@ -42,7 +42,7 @@
       <button :class="{ active: currentView === 'score' }" @click="currentView = 'score'">
         路线评分
       </button>
-      <button :class="{ active: currentView === 'flow-analysis' }" @click="currentView = 'flow-analysis'">
+      <button :class="{ active: currentView === 'flow-analysis' && !flowCompareMode }" @click="leaveFlowExecutionCompare('flow-analysis')">
         岗位全流程分析
       </button>
       <button :class="{ active: currentView === 'workbench' }" @click="currentView = 'workbench'">
@@ -51,7 +51,7 @@
       <button :class="{ active: currentView === 'split' }" @click="currentView = 'split'">
         路线拆分
       </button>
-      <button :class="{ active: currentView === 'position-assignment' }" @click="currentView = 'position-assignment'">
+      <button :class="{ active: currentView === 'position-assignment' || (currentView === 'flow-analysis' && flowCompareMode) }" @click="leaveFlowExecutionCompare('position-assignment')">
         岗位分配
       </button>
       <button :class="{ active: currentView === 'cluster' }" @click="currentView = 'cluster'">
@@ -99,42 +99,44 @@
 
     <template v-if="currentView === 'flow-analysis'">
       <section class="flow-analysis-shell">
+        <div v-if="flowCompareMode" class="panel" style="padding:16px"><button type="button" class="secondary" @click="leaveFlowExecutionCompare('position-assignment')">返回岗位分配</button><h2>岗位分配 / 执行对照</h2><p>规划来源：{{ flowComparisonTemplate?.label }} · {{ flowComparisonTemplate?.points.length || 0 }} 个收运点。选实际日期和车辆，按该车全天全部趟次的收运顺序对照。</p><p v-if="flowCompareMessage" class="flow-warning">{{ flowCompareMessage }}</p></div>
         <section class="panel flow-analysis-filter-panel">
           <div class="panel-head">
-            <div><h2>岗位全流程分析</h2><span class="muted">当前岗位路线、道路优化、历史流水与候选多趟一次完成</span></div>
+            <div><h2>{{ flowCompareMode ? '查询当天执行流水' : '岗位全流程分析' }}</h2><span class="muted">{{ flowCompareMode ? '只查询所选日期的实际流水；规划模板顺序不受实际卸料趟界影响' : '当前岗位路线、道路优化、历史流水与候选多趟一次完成' }}</span></div>
             <div class="panel-actions">
-              <button @click="startFlowFullProcess" :disabled="flowPipelineRunning || !flowConditionsReady">开始岗位全流程分析</button>
-              <button class="secondary" @click="exportFlowAnalysisPdf" :disabled="!flowPdfReady || flowPdfExporting">{{ flowPdfExporting ? '正在生成PDF...' : '导出岗位分析PDF' }}</button>
+              <button @click="flowCompareMode ? startFlowExecutionCompare() : startFlowFullProcess()" :disabled="flowPipelineRunning || !flowConditionsReady">{{ flowCompareMode ? '查询并对照当天流水' : '开始岗位全流程分析' }}</button>
+              <button v-if="!flowCompareMode" class="secondary" @click="exportFlowAnalysisPdf" :disabled="!flowPdfReady || flowPdfExporting">{{ flowPdfExporting ? '正在生成PDF...' : '导出岗位分析PDF' }}</button>
               <button v-if="flowPipelineRunning" class="danger" @click="cancelFlowAnalysis">停止</button>
             </div>
           </div>
           <div class="flow-analysis-filters">
             <label class="flow-company-picker">项目公司<div class="flow-company-input-row"><input v-model="flowAnalysisCompanyKeyword" :disabled="!!flowAnalysisCompany || flowPipelineRunning" placeholder="输入公司名称或编号模糊查找" /><button v-if="flowAnalysisCompany" type="button" class="flow-clear-company" title="清除已选公司" aria-label="清除已选公司" :disabled="flowPipelineRunning" @click="clearFlowAnalysisCompany">×</button></div><span v-if="flowAnalysisCompany" class="flow-selected-company">已选：{{ flowAnalysisCompany.depName || flowAnalysisCompany.id }}</span><span v-if="flowAnalysisCompanyKeyword && !flowAnalysisCompany" class="flow-company-results"><button v-for="company in filteredFlowAnalysisCompanies" :key="'flow-company-'+company.id" type="button" @click="selectFlowAnalysisCompany(company)">{{ company.depName || company.id }}</button><em v-if="!filteredFlowAnalysisCompanies.length">没有匹配公司</em></span></label>
             <label>岗位<select v-model="flowAnalysisRouteId" :disabled="flowPipelineRunning" @change="handleFlowJobChange"><option value="">请选择岗位</option><option v-for="job in flowAnalysisJobs" :key="'flow-job-'+job.id" :value="String(job.id)">{{ job.routeName || '未命名岗位' }}<template v-if="job.frequencyName"> · {{ job.frequencyName }}</template></option></select></label>
-            <label>开始日期<input v-model="flowAnalysisFilters.startDate" type="date" :disabled="flowPipelineRunning" @change="handleFlowDateChange" /></label>
-            <label>结束日期<input v-model="flowAnalysisFilters.endDate" type="date" :disabled="flowPipelineRunning" @change="handleFlowDateChange" /></label>
+            <label v-if="flowCompareMode">实际执行日期<input v-model="flowCompareDate" type="date" :disabled="flowPipelineRunning" @change="handleFlowCompareDateChange" /></label>
+            <template v-else><label>开始日期<input v-model="flowAnalysisFilters.startDate" type="date" :disabled="flowPipelineRunning" @change="handleFlowDateChange" /></label>
+            <label>结束日期<input v-model="flowAnalysisFilters.endDate" type="date" :disabled="flowPipelineRunning" @change="handleFlowDateChange" /></label></template>
             <label class="flow-vehicle-picker">执行车辆
               <div class="flow-multi-select">
                 <button type="button" class="flow-multi-select-trigger" :disabled="flowPipelineRunning || !flowAnalysisRouteId || !flowAnalysisVehicles.length" @click="flowVehiclePickerOpen = !flowVehiclePickerOpen">{{ flowVehicleSelectionLabel }} <span aria-hidden="true">⌄</span></button>
                 <div v-if="flowVehiclePickerOpen" class="flow-multi-select-menu">
-                  <div class="flow-multi-select-actions"><button type="button" @click.stop="selectAllFlowVehicles">全选</button><button type="button" @click.stop="clearFlowVehicles">清空</button></div>
+                  <div class="flow-multi-select-actions"><button v-if="!flowCompareMode" type="button" @click.stop="selectAllFlowVehicles">全选</button><button type="button" @click.stop="clearFlowVehicles">清空</button></div>
                   <label v-for="vehicle in flowAnalysisVehicles" :key="'flow-car-'+vehicle.carCode" class="flow-vehicle-option"><input type="checkbox" :checked="flowSelectedVehicleCodes.has(String(vehicle.carCode))" @change="toggleFlowVehicle(vehicle.carCode)" /><span>{{ vehicle.carCode }}</span><small>{{ vehicle.recordCount }} 条流水 · {{ vehicle.activeDays }} 天</small></label>
                 </div>
               </div>
               <small v-if="flowAnalysisRouteId && !flowAnalysisLoading && !flowAnalysisVehicles.length" class="flow-filter-hint">该岗位在当前日期内没有出车流水</small>
             </label>
           </div>
-          <p class="muted">默认统计最近30天；车辆默认全选。候选支持率固定为30%，共享支持率固定为60%，本页仅预览，不保存路线报告。</p>
+          <p class="muted">{{ flowCompareMode ? '车辆默认带入规划车牌；实际日期由你选择。若当日换车，可手动改选。趟次默认全选，停车场仅在点位 ID 匹配时预选。' : '默认统计最近30天；车辆默认全选。候选支持率固定为30%，共享支持率固定为60%，本页仅预览，不保存路线报告。' }}</p>
         </section>
 
         <section class="panel flow-progress-panel" :class="'status-' + flowPipeline.code.toLowerCase()">
           <div class="planning-progress-head"><div><h2>{{ flowPipeline.label }}</h2><p>{{ flowPipeline.message }}</p></div><strong>{{ flowPipeline.percent }}%</strong></div>
           <div class="planning-progress-bar"><span :style="{ width: flowPipeline.percent + '%' }"></span></div>
-          <div class="flow-process-steps"><span v-for="step in flowProcessSteps" :key="step.code" :class="flowProcessStepClass(step)">{{ step.label }}</span></div>
+          <div v-if="!flowCompareMode" class="flow-process-steps"><span v-for="step in flowProcessSteps" :key="step.code" :class="flowProcessStepClass(step)">{{ step.label }}</span></div>
           <div class="od-cache-stats"><span>流水 {{ flowAnalysisTask.totalRecords || 0 }}</span><span>事件 {{ flowAnalysisTask.loadedEvents || 0 }}</span><span v-if="flowPipeline.candidateTotal">候选路线 {{ flowPipeline.candidateCompleted }}/{{ flowPipeline.candidateTotal }}</span><span v-if="flowAnalysisTask.elapsedMs">流水耗时 {{ formatOdCacheElapsed(flowAnalysisTask.elapsedMs) }}</span></div>
         </section>
 
-        <template v-if="flowRouteComparison">
+        <template v-if="flowRouteComparison && !flowCompareMode">
           <section class="panel flow-route-comparison-panel">
             <div class="panel-head"><div><h2>当前岗位路线与优化路线</h2><span class="muted">两条路线均使用百度道路 OD；橙色为当前路线，蓝色为优化路线</span></div><span class="flow-generated-status">{{ flowJobName }}</span></div>
             <div class="flow-route-compare-grid">
@@ -146,7 +148,7 @@
         </template>
 
         <template v-if="flowAnalysisResult">
-          <section class="flow-summary-grid">
+          <section v-if="!flowCompareMode" class="flow-summary-grid">
             <div class="summary-strip"><div><span>实际作业天数</span><strong>{{ flowAnalysisResult.activeDays }}</strong></div><div><span>实际趟次数</span><strong>{{ flowAnalysisResult.tripCount }}</strong></div><div><span>完整趟次</span><strong>{{ flowAnalysisResult.completeTripCount }}</strong></div><div><span>日均趟次</span><strong>{{ flowAnalysisResult.avgTripsPerActiveDay }}</strong></div><div><span>候选趟数</span><strong>{{ flowGeneratedTripCount }}</strong></div></div>
             <div v-if="flowAnalysisResult.vehicleSummary?.length" class="flow-vehicle-summary"><span v-for="vehicle in flowAnalysisResult.vehicleSummary" :key="'flow-result-car-'+vehicle.carCode">车辆 {{ vehicle.carCode }} · 流水 {{ vehicle.recordCount }} 条 · 趟次 {{ vehicle.tripCount }} · 作业日 {{ vehicle.activeDays }} 天</span></div>
             <div v-if="flowAnalysisResult.tripCountMismatchRecords" class="flow-warning">有 {{ flowAnalysisResult.tripCountMismatchRecords }} 条流水记录的预计趟数与实际切分趟数不一致，请结合时间轴核对场站事件。</div>
@@ -181,10 +183,10 @@
                 <small>只勾选部分图层时，两者的时间范围不同。</small>
               </div>
             </div>
-            <div v-if="flowComparisonTemplate" class="flow-one-day-compare">
+            <div v-if="flowCompareMode && flowComparisonTemplate" class="flow-one-day-compare">
               <strong>单日规划顺序对照 · {{ flowComparisonTemplate.label }}</strong>
               <p class="muted">模板 {{ flowComparisonTemplate.points.length }} 点；地图灰色虚线仅连示规划点位顺序，不代表道路。选择上方日期和一辆车；当天未收的模板点只标记为未收，不判为漏收，处理厂和卸料趟界不参与顺序比较。</p>
-              <p v-if="flowComparisonTemplate.unitId && String(flowComparisonTemplate.unitId) !== String(flowAnalysisCompanyId)" class="flow-warning">模板与当前岗位不属于同一公司，请切换到对应公司后再比较。</p>
+              <p v-if="flowComparisonMismatch" class="flow-warning">{{ flowComparisonMismatch }}</p>
               <template v-else-if="flowGpsCarCode && flowComparisonDay">
                 <div class="flow-actual-distance-grid">
                   <div><span>当天顺序拟合度</span><strong>{{ flowComparisonDay.sharedCount < 3 ? '证据不足' : (flowComparisonDay.orderRate * 100).toFixed(1) + '%' }}</strong><small>共同收运 {{ flowComparisonDay.sharedCount }} 点 · 符合顺序 {{ flowComparisonDay.correctPairs }}/{{ flowComparisonDay.pairCount }} 对 · LCS {{ flowComparisonDay.lcsLength }}/{{ flowComparisonDay.sharedCount }}</small></div>
@@ -192,7 +194,7 @@
                 </div>
                 <p class="muted">模板内当天未收 {{ flowComparisonDay.notCollected.length }} 点；模板外收运 {{ flowComparisonDay.extra.length }} 点。{{ flowComparisonDay.sharedCount < 3 ? '共同点不足 3 个，不据此判断是否按顺序执行。' : '' }}</p>
               </template>
-              <p v-else class="muted">请选择一辆车后查看当天拟合情况。</p>
+              <p v-else-if="!flowComparisonMismatch" class="muted">请选择一辆车后查看当天拟合情况。</p>
             </div>
             <p v-if="!flowGpsCarCode" class="muted">请先选择一辆车，才能查询它当天的日报与 GPS 轨迹或播放路线。</p>
             <p v-if="flowVehicleQueryError" class="flow-warning">车辆运行数据查询失败：{{ flowVehicleQueryError }}</p>
@@ -210,8 +212,9 @@
             <div v-else-if="flowRoadLoading" class="empty">正在计算所选趟次的道路折线…</div>
             <div v-else-if="!flowRoadError" class="empty">当前筛选的趟次没有可绘制的有效坐标。</div>
           </section>
+          <div v-if="flowCompareMode && !flowAnalysisResult.dailyTrips?.length" class="panel empty">所选日期与车辆没有可对照的作业流水；请更换日期或核对执行车辆。</div>
 
-          <section class="flow-analysis-results">
+          <section v-if="!flowCompareMode" class="flow-analysis-results">
             <section class="panel flow-daily-panel">
               <div class="panel-head"><div><h2>每日实际趟次</h2><span class="muted">历史顺序仅在这里展示，不参与候选分堆判断</span></div><div class="flow-daily-actions"><button type="button" class="flow-collapse-button" @click="toggleFlowTrips">{{ flowTripsCollapsed ? '展开实际趟次' : '收起实际趟次' }}</button><label class="flow-filter-toggle" :class="{ active: flowShowCollectedOnly }"><input v-model="flowShowCollectedOnly" type="checkbox" /><span class="flow-filter-check" aria-hidden="true">✓</span><span class="flow-filter-copy"><strong>只展示收运点位</strong><small>隐藏纯途经点</small></span></label></div></div>
               <div v-if="!flowTripsCollapsed" class="flow-days-content"><div v-for="day in flowAnalysisResult.dailyTrips" :key="'flow-day-'+day.date" class="flow-day"><div class="flow-day-head"><h3>{{ day.date }} <small>{{ day.tripCount }} 趟</small></h3><button type="button" class="flow-day-toggle" :class="{ expanded: flowExpandedDays.has(day.date) }" :aria-expanded="flowExpandedDays.has(day.date)" @click="toggleFlowDay(day.date)"><span aria-hidden="true">⌄</span>{{ flowExpandedDays.has(day.date) ? '收起趟次' : '展开趟次' }}</button></div><div v-if="day.pointStats?.length" class="flow-day-point-stats"><template v-for="point in day.pointStats" :key="'flow-day-point-'+day.date+'-'+point.facilityId"><span v-if="!flowShowCollectedOnly || Number(point.collectedCount || 0) > 0" :class="flowDailyPointClass(point)">{{ point.facilityName || point.facilityId }} · {{ point.finalMatchLabel }} · 收运 {{ point.collectedCount || 0 }}次 · 途经 {{ point.throughCount || 0 }}次</span></template></div><div v-if="flowExpandedDays.has(day.date)" class="flow-day-trips"><div v-for="(trip, index) in day.trips" :key="'flow-trip-'+trip.recordId+'-'+index" class="flow-trip"><div><strong>{{ trip.date || day.date || '日期未知' }} · 第 {{ index + 1 }} 趟<small v-if="trip.carCode"> · 车辆 {{ trip.carCode }}</small></strong><span>{{ trip.complete ? '已到场' : '未记录终点' }} · {{ trip.pointCount }} 个事件 · 已收 {{ trip.collectedPointCount || 0 }} · 途经 {{ trip.throughPointCount || 0 }}</span></div><div class="flow-sequence"><span v-if="trip.start">{{ trip.start.facilityName }}</span><template v-for="point in trip.points" :key="'flow-point-'+trip.recordId+'-'+point.eventId"><span v-if="!flowShowCollectedOnly || Number(point.matchType) === 0" :class="flowTripPointClass(point, day)" :title="flowPointDisplayLabel(point, day)">{{ point.facilityName || point.facilityId }} <small>{{ flowPointDisplayLabel(point, day) }}{{ flowPointOccurrenceLabel(point) }}</small></span></template><b v-if="trip.end">→ {{ trip.end.facilityName }}</b></div></div></div></div></div>
@@ -225,7 +228,7 @@
             </section>
           </section>
 
-          <section v-if="flowAnalysisResult.groups?.length" class="panel flow-raw-groups-panel">
+          <section v-if="!flowCompareMode && flowAnalysisResult.groups?.length" class="panel flow-raw-groups-panel">
             <div class="panel-head">
               <div><h2>历史岗位分堆</h2><span class="muted">先按历史流水归纳原始分堆，再由下方候选多趟路线进行聚合</span></div>
               <span class="flow-generated-status">{{ flowAnalysisResult.groups.length }} 堆</span>
@@ -245,7 +248,7 @@
             </div>
           </section>
 
-          <section class="panel flow-candidate-panel">
+          <section v-if="!flowCompareMode" class="panel flow-candidate-panel">
             <div class="panel-head"><div><h2>候选多趟道路路线</h2><span class="muted">日均趟数四舍五入；出现率按收运和途经统计，30%候选、60%共享，整体低于30%但实际收运的点位纳入白框，多次收运独立标记</span></div><span class="flow-generated-status">{{ flowCandidateRoutes.length }} 趟</span></div>
             <div v-if="flowCandidateDistanceSummary.count" class="flow-candidate-total-comparison">
               <span><small>分堆原序总距离</small><strong>{{ formatDistance(flowCandidateDistanceSummary.originalDistance) }}</strong></span>
@@ -272,11 +275,11 @@
             <div v-if="flowConfiguredExcludedPoints.length" class="flow-configured-excluded"><div class="flow-configured-excluded-head"><div><strong>低频或岗位点位未进入候选</strong><span class="muted">未收运、仅途经或岗位配置但统计期未出现的点位</span></div><span class="flow-generated-status">{{ flowConfiguredExcludedPoints.length }} 个点位</span></div><div class="flow-configured-excluded-list"><span v-for="point in flowConfiguredExcludedPoints" :key="'flow-configured-excluded-'+point.facilityId" :class="['flow-configured-point', 'status-'+point.status]"><strong>{{ point.facilityName || point.facilityId }}</strong><small>{{ point.statusLabel }} · 收运 {{ point.collectedCount }} 次 · 途经 {{ point.throughCount }} 次</small></span></div></div>
           </section>
 
-          <RouteMapPanel v-if="flowSelectedCandidateRoute?.routingStatus === 'DONE'" :key="'flow-candidate-map-'+flowSelectedCandidateRoute.groupNo+'-'+flowRunVersion" :original-points="flowSelectedCandidateRoute.inputPoints || []" :optimized-points="flowSelectedCandidateRoute.optimizedPoints || []" :original-segments="flowSelectedCandidateRoute.optimization.originalSegments || []" :optimized-segments="flowSelectedCandidateRoute.optimization.segments || []" :show-original="true" :show-point-semantics="true" :original-label="`候选第 ${flowSelectedCandidateRoute.groupNo} 趟分堆原序`" :optimized-label="`候选第 ${flowSelectedCandidateRoute.groupNo} 趟道路优化后`" />
+          <RouteMapPanel v-if="!flowCompareMode && flowSelectedCandidateRoute?.routingStatus === 'DONE'" :key="'flow-candidate-map-'+flowSelectedCandidateRoute.groupNo+'-'+flowRunVersion" :original-points="flowSelectedCandidateRoute.inputPoints || []" :optimized-points="flowSelectedCandidateRoute.optimizedPoints || []" :original-segments="flowSelectedCandidateRoute.optimization.originalSegments || []" :optimized-segments="flowSelectedCandidateRoute.optimization.segments || []" :show-original="true" :show-point-semantics="true" :original-label="`候选第 ${flowSelectedCandidateRoute.groupNo} 趟分堆原序`" :optimized-label="`候选第 ${flowSelectedCandidateRoute.groupNo} 趟道路优化后`" />
 
-          <section class="panel flow-conclusion-panel"><div class="panel-head"><div><h2>分析结论与路线对比汇总</h2><span class="muted">仅依据本次所选岗位、日期和车辆生成</span></div></div><div class="flow-conclusion-metrics"><span v-for="metric in flowConclusion.metrics" :key="metric.label"><small>{{ metric.label }}</small><strong>{{ metric.value }}</strong></span></div><ul><li v-for="line in flowConclusion.lines" :key="line">{{ line }}</li></ul></section>
+          <section v-if="!flowCompareMode" class="panel flow-conclusion-panel"><div class="panel-head"><div><h2>分析结论与路线对比汇总</h2><span class="muted">仅依据本次所选岗位、日期和车辆生成</span></div></div><div class="flow-conclusion-metrics"><span v-for="metric in flowConclusion.metrics" :key="metric.label"><small>{{ metric.label }}</small><strong>{{ metric.value }}</strong></span></div><ul><li v-for="line in flowConclusion.lines" :key="line">{{ line }}</li></ul></section>
 
-          <FlowAnalysisPdfReport ref="flowPdfReportRef" :company-name="flowPdfCompanyName" :job-name="flowJobName" :start-date="flowAnalysisFilters.startDate" :end-date="flowAnalysisFilters.endDate" :generated-at="flowPdfGeneratedAt" :vehicle-codes="[...flowSelectedVehicleCodes]" :current-points="flowPlanPoints" :route-comparison="flowRouteComparison" :analysis="flowAnalysisResult" :period-points="flowPeriodPointRows" :candidate-routes="flowCandidateRoutes" :excluded-points="flowConfiguredExcludedPoints" :conclusion="flowConclusion" />
+          <FlowAnalysisPdfReport v-if="!flowCompareMode" ref="flowPdfReportRef" :company-name="flowPdfCompanyName" :job-name="flowJobName" :start-date="flowAnalysisFilters.startDate" :end-date="flowAnalysisFilters.endDate" :generated-at="flowPdfGeneratedAt" :vehicle-codes="[...flowSelectedVehicleCodes]" :current-points="flowPlanPoints" :route-comparison="flowRouteComparison" :analysis="flowAnalysisResult" :period-points="flowPeriodPointRows" :candidate-routes="flowCandidateRoutes" :excluded-points="flowConfiguredExcludedPoints" :conclusion="flowConclusion" />
         </template>
       </section>
     </template>
@@ -2517,18 +2520,79 @@ const flowMapSelectedDay = computed(() => (flowAnalysisResult.value?.dailyTrips 
 const flowMapCars = computed(() => [...new Set((flowMapSelectedDay.value?.trips || []).map(trip => String(trip.carCode || '')).filter(Boolean))])
 const flowGpsCarCode = computed(() => flowMapCarCode.value !== 'ALL' ? flowMapCarCode.value : flowMapCars.value.length === 1 ? flowMapCars.value[0] : '')
 const flowComparisonTemplate = ref(null)
-function captureFlowComparisonTemplate(label, routes) {
+const flowCompareMode = ref(false)
+const flowCompareDate = ref('')
+const flowCompareMessage = ref('')
+const flowComparePreviousFilters = ref(null)
+function leaveFlowExecutionCompare(view) {
+  if (flowCompareMode.value) {
+    flowCompareMode.value = false
+    flowComparisonTemplate.value = null
+    flowCompareMessage.value = ''
+    if (flowComparePreviousFilters.value) {
+      flowAnalysisFilters.startDate = flowComparePreviousFilters.value.startDate
+      flowAnalysisFilters.endDate = flowComparePreviousFilters.value.endDate
+      flowComparePreviousFilters.value = null
+    }
+    resetFlowAnalysisResult()
+  }
+  currentView.value = view
+}
+const flowComparisonMismatch = computed(() => {
+  const template = flowComparisonTemplate.value
+  if (!template) return ''
+  if (template.unitId && String(template.unitId) !== String(flowAnalysisCompanyId.value || '')) return '规划模板与实际岗位不属于同一公司，请选择对应公司。'
+  if (template.routeId && String(template.routeId) !== String(flowAnalysisRouteId.value || '')) return '规划模板与当前所选岗位不一致，不能输出顺序拟合结论；请选回来源岗位。'
+  return ''
+})
+async function captureFlowComparisonTemplate(label, routes) {
   const seen = new Set()
-  const points = (routes || []).flatMap(route => route.points || []).filter(point => point.role === 'MIDDLE' && point.facilityId != null).filter(point => {
+  const points = (routes || []).flatMap(route => route.points || []).filter(point => point.role === 'MIDDLE' && !point.scheduleSkipped && point.facilityId != null).filter(point => {
     const id = String(point.facilityId)
     if (seen.has(id)) return false
     seen.add(id)
     return true
   }).map(point => ({ facilityId: String(point.facilityId), facilityName: point.facilityName || String(point.facilityId), longitude: point.longitude, latitude: point.latitude }))
   if (!points.length) return
-  flowComparisonTemplate.value = { label, unitId: selectedSplitCompany.value?.id, points }
+  const template = { label, unitId: selectedSplitCompany.value?.id, routeId: selectedSplitRoute.value?.id,
+    vehicleCode: assignmentVehicleCode.value, parkingId: optimizeOptions.startFacilityId, points }
+  if (!flowCompareMode.value) flowComparePreviousFilters.value = { startDate: flowAnalysisFilters.startDate, endDate: flowAnalysisFilters.endDate }
+  flowComparisonTemplate.value = template
+  flowCompareMode.value = true
+  flowCompareMessage.value = ''
+  flowCompareDate.value = filters.endDate || toDateInput(new Date())
+  flowAnalysisFilters.startDate = flowCompareDate.value
+  flowAnalysisFilters.endDate = flowCompareDate.value
   currentView.value = 'flow-analysis'
+  if (!selectedSplitCompany.value?.id) return
+  await selectFlowAnalysisCompany(selectedSplitCompany.value)
+  if (flowComparisonTemplate.value !== template) return
+  if (flowAnalysisJobs.value.some(job => String(job.id) === String(template.routeId))) {
+    flowAnalysisRouteId.value = String(template.routeId)
+    await handleFlowJobChange()
+  } else {
+    flowCompareMessage.value = '当前公司岗位列表未找到来源岗位，请确认路线来源。'
+  }
+  if (flowParkingLots.value.some(point => String(point.facilityId) === String(template.parkingId))) {
+    flowReturnParkingId.value = String(template.parkingId)
+  }
+  if (template.vehicleCode && flowAnalysisVehicles.value.some(vehicle => String(vehicle.carCode) === String(template.vehicleCode))) {
+    flowSelectedVehicleCodes.value = new Set([String(template.vehicleCode)])
+  } else if (template.vehicleCode && flowAnalysisRouteId.value) {
+    flowSelectedVehicleCodes.value = new Set()
+    flowCompareMessage.value = `所选日期未查到规划车辆 ${template.vehicleCode} 的岗位流水；可换日期或手动选实际执行车辆。`
+  }
 }
+async function handleFlowCompareDateChange() {
+  flowAnalysisFilters.startDate = flowCompareDate.value
+  flowAnalysisFilters.endDate = flowCompareDate.value
+  flowCompareMessage.value = ''
+  await loadFlowVehicles()
+  if (flowComparisonTemplate.value?.vehicleCode && !flowSelectedVehicleCodes.value.size) {
+    flowCompareMessage.value = `所选日期未查到规划车辆 ${flowComparisonTemplate.value.vehicleCode} 的岗位流水；可换日期或手动选实际执行车辆。`
+  }
+}
+
 function flowLcsLength(plan, actual) {
   const dp = Array(actual.length + 1).fill(0)
   for (const id of plan) {
@@ -2542,7 +2606,7 @@ function flowLcsLength(plan, actual) {
   return dp[actual.length]
 }
 const flowComparisonDay = computed(() => {
-  if (!flowComparisonTemplate.value || !flowGpsCarCode.value || !flowMapSelectedDay.value) return null
+  if (!flowCompareMode.value || !flowComparisonTemplate.value || flowComparisonMismatch.value || !flowGpsCarCode.value || !flowMapSelectedDay.value) return null
   const plan = flowComparisonTemplate.value.points.map(point => point.facilityId)
   const planSet = new Set(plan)
   const seen = new Set()
@@ -2593,10 +2657,10 @@ async function loadFlowVehicleDay() {
     const track = await api(`/api/flow-analysis/vehicle-gps-track?${params}`, { signal: controller.signal })
     if (queryId !== flowVehicleQueryId) return
     flowGpsTrack.value = track
-    const comparisonLayers = flowComparisonTemplate.value
+    const comparisonLayers = flowCompareMode.value && flowComparisonTemplate.value
       ? buildFlowGpsLayers(track.points || [], flowDayTripRows.value.filter(row => String(row.trip.carCode || '') === track.carCode)) : []
     flowHiddenGpsLayerKeys.value = new Set(comparisonLayers.filter(layer => !['trip', 'between'].includes(layer.kind)).map(layer => layer.key))
-    if (flowComparisonTemplate.value && track.points?.length) {
+    if (flowCompareMode.value && flowComparisonTemplate.value && track.points?.length) {
       await nextTick()
       if (queryId === flowVehicleQueryId && flowGpsVisibleLayers.value.length) calculateFlowGpsMileage()
     }
@@ -2686,7 +2750,9 @@ const flowMapMarkers = computed(() => {
 })
 watch(flowAnalysisResult, result => {
   flowMapDay.value = String(result?.dailyTrips?.[0]?.date || '')
-  flowMapCarCode.value = 'ALL'
+  const plannedCar = flowCompareMode.value ? String(flowComparisonTemplate.value?.vehicleCode || '') : ''
+  const actualCars = new Set((result?.dailyTrips?.[0]?.trips || []).map(trip => String(trip.carCode || '')))
+  flowMapCarCode.value = plannedCar && actualCars.has(plannedCar) ? plannedCar : 'ALL'
   flowMapTripIndex.value = 'ALL'
 })
 const flowPlanPoints = ref([])
@@ -2709,7 +2775,7 @@ const flowResolvedLayers = computed(() => {
   return [...layers.map(layer => ({ ...layer, segments: layer.points.length >= 2 ? cache.get(flowRoadKey(layer.points)) : [] })), ...flowGpsVisibleLayers.value]
 })
 const flowComparisonMapLayer = computed(() => {
-  if (!flowComparisonTemplate.value || (flowComparisonTemplate.value.unitId && String(flowComparisonTemplate.value.unitId) !== String(flowAnalysisCompanyId.value || ''))) return null
+  if (!flowCompareMode.value || !flowComparisonTemplate.value || flowComparisonMismatch.value) return null
   const points = flowComparisonTemplate.value.points.filter(point => point.longitude != null && point.latitude != null && Number.isFinite(Number(point.longitude)) && Number.isFinite(Number(point.latitude)))
   return points.length >= 2 ? { key: 'comparison-template', label: '规划顺序参考', color: '#64748b', points, segments: [], templateReference: true } : null
 })
@@ -4004,6 +4070,7 @@ const filters = reactive({
   endDate: toDateInput(today)
 })
 watch([currentView, selectedSplitCompany, selectedSplitRoute, splitFromSavedRoute, () => filters.startDate, () => filters.endDate], () => {
+  if (currentView.value !== 'position-assignment') return
   loadAssignmentPointFrequencies()
   loadAssignmentVehicles()
 })
@@ -4011,6 +4078,7 @@ let assignmentPreviousOptimization = null
 let assignmentPreviousRouteNo = null
 let assignmentPreviousDisplayModes = {}
 watch(currentView, (view, previousView) => {
+  if (view !== 'flow-analysis' && flowCompareMode.value) leaveFlowExecutionCompare(view)
   if (view === 'position-assignment') {
     assignmentPreviousOptimization = multiOptimization.value
     assignmentPreviousRouteNo = selectedMultiRouteNo.value
@@ -4858,21 +4926,24 @@ function applyAssignmentVehicleCapacity() {
 
 async function loadAssignmentVehicles() {
   const requestId = ++assignmentVehicleRequestId
-  assignmentVehicles.value = []
-  assignmentVehicleCode.value = ''
+  if (currentView.value !== 'position-assignment') return
   assignmentVehicleError.value = ''
-  assignmentVehicleLoading.value = false
-  if (currentView.value !== 'position-assignment' || splitFromSavedRoute.value || !selectedSplitCompany.value?.id || !selectedSplitRoute.value?.id) return
+  if (splitFromSavedRoute.value || !selectedSplitCompany.value?.id || !selectedSplitRoute.value?.id) {
+    assignmentVehicles.value = []
+    assignmentVehicleCode.value = ''
+    assignmentVehicleLoading.value = false
+    return
+  }
+  const previousCode = assignmentVehicleCode.value
   const params = new URLSearchParams({ unitId: String(selectedSplitCompany.value.id), routeId: String(selectedSplitRoute.value.id), startDate: filters.startDate, endDate: filters.endDate })
   assignmentVehicleLoading.value = true
   try {
     const rows = await api(`/api/flow-analysis/vehicles?${params}`)
     if (requestId !== assignmentVehicleRequestId) return
     assignmentVehicles.value = rows || []
-    if (assignmentVehicles.value.length) {
-      assignmentVehicleCode.value = String(assignmentVehicles.value[0].carCode)
-      applyAssignmentVehicleCapacity()
-    }
+    const selected = assignmentVehicles.value.find(vehicle => String(vehicle.carCode) === previousCode) || assignmentVehicles.value[0]
+    assignmentVehicleCode.value = selected ? String(selected.carCode) : ''
+    if (selected && (assignmentVehicleCode.value !== previousCode || Number(optimizeOptions.ratedCapacityKg) <= 0)) applyAssignmentVehicleCapacity()
   } catch (err) {
     if (requestId === assignmentVehicleRequestId) assignmentVehicleError.value = err.message || String(err)
   } finally {
@@ -4905,6 +4976,7 @@ function normalizedAssignmentVehicles() {
 }
 async function loadAssignmentPointFrequencies() {
   const requestId = ++assignmentFrequencyRequestId
+  if (currentView.value !== 'position-assignment') return
   assignmentFrequencyByFacility.value = new Map()
   assignmentFrequencyError.value = ''
   assignmentFrequencyLoading.value = false
@@ -7707,7 +7779,10 @@ async function loadFlowVehicles() {
     const vehicles = await api(`/api/flow-analysis/vehicles?${params}`)
     assertCurrentFlowRun(runId)
     flowAnalysisVehicles.value = vehicles || []
-    flowSelectedVehicleCodes.value = new Set(flowAnalysisVehicles.value.map((vehicle) => String(vehicle.carCode)))
+    const plannedCar = String(flowComparisonTemplate.value?.vehicleCode || '')
+    flowSelectedVehicleCodes.value = flowCompareMode.value
+      ? new Set(flowAnalysisVehicles.value.filter(vehicle => String(vehicle.carCode) === plannedCar).map(vehicle => String(vehicle.carCode)))
+      : new Set(flowAnalysisVehicles.value.map((vehicle) => String(vehicle.carCode)))
     resetFlowAnalysisResult({ cancelTask: false })
   } catch (error) {
     if (error?.name !== 'AbortError') setFlowPipeline('FAILED', '失败', error.message || '车辆查询失败', 8)
@@ -7758,7 +7833,10 @@ async function handleFlowJobChange() {
     assertCurrentFlowRun(runId)
     flowPlanPoints.value = points || []
     flowAnalysisVehicles.value = vehicles || []
-    flowSelectedVehicleCodes.value = new Set(flowAnalysisVehicles.value.map(vehicle => String(vehicle.carCode)))
+    const plannedCar = String(flowComparisonTemplate.value?.vehicleCode || '')
+    flowSelectedVehicleCodes.value = flowCompareMode.value
+      ? new Set(flowAnalysisVehicles.value.filter(vehicle => String(vehicle.carCode) === plannedCar).map(vehicle => String(vehicle.carCode)))
+      : new Set(flowAnalysisVehicles.value.map(vehicle => String(vehicle.carCode)))
     resetFlowAnalysisResult({ cancelTask: false })
   } catch (error) {
     if (error?.name !== 'AbortError') setFlowPipeline('FAILED', '失败', error.message || '岗位数据查询失败', 8)
@@ -7775,12 +7853,14 @@ function toggleFlowVehicle(carCode) {
   const next = new Set(flowSelectedVehicleCodes.value)
   const key = String(carCode)
   if (next.has(key)) next.delete(key)
+  else if (flowCompareMode.value) { next.clear(); next.add(key) }
   else next.add(key)
   flowSelectedVehicleCodes.value = next
   resetFlowAnalysisResult()
 }
 
 function selectAllFlowVehicles() {
+  if (flowCompareMode.value) return
   flowSelectedVehicleCodes.value = new Set(flowAnalysisVehicles.value.map((vehicle) => String(vehicle.carCode)))
   resetFlowAnalysisResult()
 }
@@ -7878,6 +7958,32 @@ function flowCandidateInputPoints(group) {
 function enrichFlowCandidatePoints(points, group) {
   const flags = new Map((group.points || []).map(point => [String(point.facilityId), point]))
   return (points || []).map(point => ({ ...point, ...(flags.get(String(point.facilityId)) || {}) }))
+}
+
+async function startFlowExecutionCompare() {
+  if (!flowConditionsReady.value) return
+  const runId = resetFlowAnalysisResult()
+  const controller = new AbortController()
+  flowRunAbortController.value = controller
+  flowVehiclePickerOpen.value = false
+  try {
+    setFlowPipeline('ANALYZING_FLOW', '正在查询', '正在读取该车当天流水并切分实际趟次', 38)
+    flowAnalysisResult.value = await runFlowAnalysisTask(runId, controller.signal)
+    assertCurrentFlowRun(runId)
+    setFlowPipeline('SUCCESS', '完成', '当天流水已加载；可对照规划顺序并查询日报与 GPS', 100)
+    await nextTick()
+    if (runId !== flowRunVersion.value) return
+    flowMapDay.value = flowCompareDate.value
+    const selectedCar = [...flowSelectedVehicleCodes.value][0]
+    if (flowMapCars.value.includes(selectedCar)) flowMapCarCode.value = selectedCar
+    flowMapTripIndex.value = 'ALL'
+    if (flowGpsCarCode.value) await loadFlowVehicleDay()
+  } catch (error) {
+    if (runId !== flowRunVersion.value || error?.name === 'AbortError') return
+    setFlowPipeline('FAILED', '失败', error.message || '当天流水查询失败', Math.max(5, flowPipeline.percent))
+  } finally {
+    if (runId === flowRunVersion.value) flowRunAbortController.value = null
+  }
 }
 
 async function startFlowFullProcess() {
