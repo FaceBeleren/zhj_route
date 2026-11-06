@@ -3715,6 +3715,8 @@ tbody tr.active {
 .flow-compare-sequence li b { color: #64798c; }
 .flow-compare-sequence li span { overflow-wrap: anywhere; }
 .flow-compare-sequence li small { color: #64798c; white-space: nowrap; }
+.flow-compare-sequence li small.flow-plan-point-meta { display: inline-flex; align-items: center; gap: 8px; }
+.flow-plan-point-meta em { font-style: normal; color: #526b83; background: #edf4fb; border-radius: 4px; padding: 2px 5px; }
 .flow-compare-sequence li.moved { background: #eaf4ff; }
 .flow-compare-sequence li.moved b, .flow-compare-sequence li.moved small { color: #165db5; }
 .flow-compare-sequence li.not-collected { color: #8a96a3; background: #f5f7f9; }

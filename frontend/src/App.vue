@@ -195,7 +195,7 @@
                 <p class="muted">模板内当天未收 {{ flowComparisonDay.notCollected.length }} 点；模板外收运 {{ flowComparisonDay.extra.length }} 点。{{ flowComparisonDay.sharedCount < 3 ? '共同点不足 3 个，不据此判断是否按顺序执行。' : '' }}</p>
                 <div class="flow-compare-sequences">
                   <div class="flow-compare-sequence"><h3>规划顺序 <small>{{ flowComparisonDay.planSequence.length }} 点</small></h3>
-                    <ol><li v-for="point in flowComparisonDay.planSequence" :key="`plan-${point.id}`" :class="point.status"><b>{{ point.order }}</b><span>{{ point.name }}</span><small>{{ point.status === 'not-collected' ? '当天未收' : `当天第${point.actualOrder}位` }}</small></li></ol>
+                    <ol><li v-for="point in flowComparisonDay.planSequence" :key="`plan-${point.id}`" :class="point.status"><b>{{ point.order }}</b><span>{{ point.name }}</span><small class="flow-plan-point-meta"><em :title="point.frequencyTitle">频次 {{ point.frequencyLabel }}</em>{{ point.status === 'not-collected' ? '当天未收' : `当天第${point.actualOrder}位` }}</small></li></ol>
                   </div>
                   <div class="flow-compare-sequence"><h3>当天实际收运顺序 <small>{{ flowComparisonDay.actualSequence.length }} 点</small></h3>
                     <ol><li v-for="point in flowComparisonDay.actualSequence" :key="`actual-${point.id}`" :class="point.status" :title="point.actualName !== point.name ? `流水名称：${point.actualName}` : ''"><b>{{ point.order }}</b><span>{{ point.name }}</span><small>{{ point.status === 'extra' ? '模板外' : `规划第${point.planOrder}位` }}</small></li></ol>
@@ -2568,7 +2568,9 @@ async function captureFlowComparisonTemplate(label, routes) {
     if (seen.has(id)) return false
     seen.add(id)
     return true
-  }).map(point => ({ facilityId: String(point.facilityId), facilityName: point.facilityName || String(point.facilityId), longitude: point.longitude, latitude: point.latitude }))
+  }).map(point => ({ facilityId: String(point.facilityId), facilityName: point.facilityName || String(point.facilityId),
+    longitude: point.longitude, latitude: point.latitude,
+    frequencyLabel: assignmentFrequencyLabel(point), frequencyTitle: assignmentFrequencyTitle(point) }))
   if (!points.length) return
   const template = { label, unitId: selectedSplitCompany.value?.id, routeId: selectedSplitRoute.value?.id,
     vehicleCode: assignmentVehicleCode.value, parkingId: optimizeOptions.startFacilityId, points }
@@ -2637,6 +2639,7 @@ const flowComparisonDay = computed(() => {
   const planSequence = flowComparisonTemplate.value.points.map((point, index) => {
     const id = String(point.facilityId)
     return { id, name: point.facilityName || id, order: index + 1, actualOrder: actualPosition.get(id),
+      frequencyLabel: point.frequencyLabel || '未提供', frequencyTitle: point.frequencyTitle || '',
       status: !seen.has(id) ? 'not-collected' : position.get(id) === sharedActualPosition.get(id) ? 'matched' : 'moved' }
   })
   const actualSequence = actualPoints.map((point, index) => {
