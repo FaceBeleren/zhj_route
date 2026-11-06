@@ -157,3 +157,17 @@ export function flowPolylineMeters(layers) {
   }
   return total
 }
+
+/** Classify each road leg by its two flow endpoints, without changing the measured total. */
+export function flowTripDistanceBreakdown(layers) {
+  let journeyMeters = 0
+  let stationMeters = 0
+  for (const layer of layers || []) {
+    (layer.segments || []).forEach((segment, index) => {
+      const meters = flowPolylineMeters([{ segments: [segment] }])
+      if (layer.points[index]?.flowRole === 'POINT' && layer.points[index + 1]?.flowRole === 'POINT') journeyMeters += meters
+      else stationMeters += meters
+    })
+  }
+  return { journeyMeters, stationMeters }
+}

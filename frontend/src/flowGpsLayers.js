@@ -59,3 +59,39 @@ export function buildFlowGpsLayers(points, tripRows) {
     }
   })
 }
+
+/** Split trip GPS at the closest fixes to the first arrival and last departure.
+ * Adjacent slices share one fix, so the sum of their polyline lengths equals the original trip.
+ */
+export function splitFlowGpsTripLayers(layers, tripRows) {
+  const trips = new Map((tripRows || []).map(row => [row.index, row.trip]))
+  const nearestIndex = (points, time) => {
+    let best = 0
+    for (let index = 1; index < points.length; index += 1) {
+      if (Math.abs(flowTimeMillis(points[index].equipmentTime) - time) < Math.abs(flowTimeMillis(points[best].equipmentTime) - time)) best = index
+    }
+    return best
+  }
+  return (layers || []).flatMap(layer => {
+    if (layer.kind !== 'trip' || layer.points.length < 2) return [layer]
+    const visits = trips.get(layer.tripIndex)?.points || []
+    const firstTime = flowTimeMillis(visits[0]?.time)
+    const last = visits[visits.length - 1]
+    const lastTime = flowTimeMillis(last?.leaveTime ?? last?.time)
+    if (firstTime == null || lastTime == null || lastTime < firstTime ||
+      layer.points.some(point => flowTimeMillis(point.equipmentTime) == null)) {
+      return [{ ...layer, label: `${layer.label}（点位时间不足，未细分）` }]
+    }
+    const start = nearestIndex(layer.points, firstTime)
+    const end = Math.max(start, nearestIndex(layer.points, lastTime))
+    const parts = [
+      ['to-first', '出发到首点', layer.points.slice(0, start + 1)],
+      ['work', '首点到末点', layer.points.slice(start, end + 1)],
+      ['to-station', '末点到场站', layer.points.slice(end)]
+    ]
+    return parts.map(([suffix, label, points]) => ({
+      ...layer, key: `${layer.key}-${suffix}`, label: `${layer.label} · ${label}`, points,
+      segments: points.length >= 2 ? [{ pathSource: 'GPS_ACTUAL', path: points }] : []
+    }))
+  })
+}
