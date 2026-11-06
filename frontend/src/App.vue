@@ -193,6 +193,16 @@
                   <div><span>当天所选 GPS 图层里程</span><strong>{{ flowGpsMileage ? (flowGpsMileage.totalMeters / 1000).toFixed(2) + ' km' : '请查询轨迹并选择图层' }}</strong><small>按下方勾选的 GPS 图层逐段测距；首趟前及末趟后默认不计入。</small></div>
                 </div>
                 <p class="muted">模板内当天未收 {{ flowComparisonDay.notCollected.length }} 点；模板外收运 {{ flowComparisonDay.extra.length }} 点。{{ flowComparisonDay.sharedCount < 3 ? '共同点不足 3 个，不据此判断是否按顺序执行。' : '' }}</p>
+                <div class="flow-compare-sequences">
+                  <div class="flow-compare-sequence"><h3>规划顺序 <small>{{ flowComparisonDay.planSequence.length }} 点</small></h3>
+                    <ol><li v-for="point in flowComparisonDay.planSequence" :key="`plan-${point.id}`" :class="point.status"><b>{{ point.order }}</b><span>{{ point.name }}</span><small>{{ point.status === 'not-collected' ? '当天未收' : `当天第${point.actualOrder}位` }}</small></li></ol>
+                  </div>
+                  <div class="flow-compare-sequence"><h3>当天实际收运顺序 <small>{{ flowComparisonDay.actualSequence.length }} 点</small></h3>
+                    <ol><li v-for="point in flowComparisonDay.actualSequence" :key="`actual-${point.id}`" :class="point.status" :title="point.actualName !== point.name ? `流水名称：${point.actualName}` : ''"><b>{{ point.order }}</b><span>{{ point.name }}</span><small>{{ point.status === 'extra' ? '模板外' : `规划第${point.planOrder}位` }}</small></li></ol>
+                    <p v-if="!flowComparisonDay.actualSequence.length" class="muted">当天没有可对照的收运点。</p>
+                  </div>
+                </div>
+                <small class="flow-compare-sequence-note">蓝色表示共同点相对顺序有变化；灰色表示模板内当天未收；橙色表示模板外收运。序号只按首次收运计算，不含途经点与卸料站。</small>
               </template>
               <p v-else-if="!flowComparisonMismatch" class="muted">请选择一辆车后查看当天拟合情况。</p>
             </div>
@@ -2609,10 +2619,12 @@ const flowComparisonDay = computed(() => {
   if (!flowCompareMode.value || !flowComparisonTemplate.value || flowComparisonMismatch.value || !flowGpsCarCode.value || !flowMapSelectedDay.value) return null
   const plan = flowComparisonTemplate.value.points.map(point => point.facilityId)
   const planSet = new Set(plan)
+  const planNames = new Map(flowComparisonTemplate.value.points.map(point => [String(point.facilityId), point.facilityName || String(point.facilityId)]))
   const seen = new Set()
-  const actual = (flowMapSelectedDay.value.trips || []).filter(trip => String(trip.carCode || '') === flowGpsCarCode.value)
+  const actualPoints = (flowMapSelectedDay.value.trips || []).filter(trip => String(trip.carCode || '') === flowGpsCarCode.value)
     .flatMap(trip => trip.points || []).filter(point => Number(point.matchType) === 0 && point.facilityId != null)
-    .map(point => String(point.facilityId)).filter(id => { if (seen.has(id)) return false; seen.add(id); return true })
+    .filter(point => { const id = String(point.facilityId); if (seen.has(id)) return false; seen.add(id); return true })
+  const actual = actualPoints.map(point => String(point.facilityId))
   const shared = actual.filter(id => planSet.has(id))
   const sharedSet = new Set(shared)
   const planShared = plan.filter(id => sharedSet.has(id))
@@ -2622,8 +2634,23 @@ const flowComparisonDay = computed(() => {
     if (position.get(shared[i]) < position.get(shared[j])) correctPairs++
   }
   const pairCount = shared.length * (shared.length - 1) / 2
+  const sharedActualPosition = new Map(shared.map((id, index) => [id, index]))
+  const actualPosition = new Map(actual.map((id, index) => [id, index + 1]))
+  const planPosition = new Map(plan.map((id, index) => [id, index + 1]))
+  const planSequence = flowComparisonTemplate.value.points.map((point, index) => {
+    const id = String(point.facilityId)
+    return { id, name: point.facilityName || id, order: index + 1, actualOrder: actualPosition.get(id),
+      status: !seen.has(id) ? 'not-collected' : position.get(id) === sharedActualPosition.get(id) ? 'matched' : 'moved' }
+  })
+  const actualSequence = actualPoints.map((point, index) => {
+    const id = String(point.facilityId)
+    return { id, name: planNames.get(id) || point.facilityName || id, actualName: point.facilityName || id,
+      order: index + 1, planOrder: planPosition.get(id),
+      status: !planSet.has(id) ? 'extra' : position.get(id) === sharedActualPosition.get(id) ? 'matched' : 'moved' }
+  })
   return { sharedCount: shared.length, correctPairs, pairCount, orderRate: pairCount ? correctPairs / pairCount : null,
-    lcsLength: flowLcsLength(planShared, shared), notCollected: plan.filter(id => !seen.has(id)), extra: actual.filter(id => !planSet.has(id)) }
+    lcsLength: flowLcsLength(planShared, shared), notCollected: plan.filter(id => !seen.has(id)), extra: actual.filter(id => !planSet.has(id)),
+    planSequence, actualSequence }
 })
 const flowVehicleReport = ref(null)
 const flowGpsTrack = ref(null)
