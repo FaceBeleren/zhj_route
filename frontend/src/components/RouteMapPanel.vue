@@ -33,8 +33,9 @@
       <span><i class="low"></i>低频</span>
     </div>
     <div v-if="overviewLayers.length" class="route-point-legend" aria-label="趟次颜色图例">
-      <span v-for="layer in overviewLayers" :key="layer.key" :class="{ 'legend-focusable': props.focusLegendOnClick, 'legend-focused': focusedLayerKey === String(layer.key), 'legend-dimmed': focusedLayerKey !== null && focusedLayerKey !== String(layer.key) }" :role="props.focusLegendOnClick ? 'button' : undefined" :aria-pressed="props.focusLegendOnClick ? focusedLayerKey === String(layer.key) : undefined" :tabindex="props.focusLegendOnClick ? 0 : undefined" :title="props.focusLegendOnClick ? '点击聚焦；再次点击恢复总览' : undefined" @click="toggleLegendFocus(layer)" @keydown.enter.prevent="toggleLegendFocus(layer)" @keydown.space.prevent="toggleLegendFocus(layer)"><i :style="layer.gpsActual || layer.templateReference ? { background: 'transparent', borderTop: `3px dashed ${layer.color}` } : { background: layer.color }"></i>{{ layer.label }}</span>
+      <span v-for="layer in overviewLayers" :key="layer.key" :class="{ 'legend-focusable': props.focusLegendOnClick, 'legend-focused': legendLayerSelected(layer), 'legend-dimmed': !legendLayerVisible(layer) }" :role="props.focusLegendOnClick ? 'button' : undefined" :aria-pressed="props.focusLegendOnClick ? legendLayerSelected(layer) : undefined" :tabindex="props.focusLegendOnClick ? 0 : undefined" :title="props.focusLegendOnClick ? (props.multiSelectLegend ? '点击加入或移除对照图层；未选时显示全部' : '点击聚焦；再次点击恢复总览') : undefined" @click="toggleLegendFocus(layer)" @keydown.enter.prevent="toggleLegendFocus(layer)" @keydown.space.prevent="toggleLegendFocus(layer)"><i :style="layer.gpsActual || layer.templateReference ? { background: 'transparent', borderTop: `3px dashed ${layer.color}` } : { background: layer.color }"></i>{{ layer.label }}</span>
     </div>
+    <small v-if="props.multiSelectLegend && overviewLayers.length" class="muted">点击图例可多选对照图层；再次点击取消，全部取消后显示总览。点位按所选流水趟次展示。</small>
 
     <p v-if="pendingAllPoints.length" :style="{ color: props.pendingColor }">● 待插入时间窗点（{{ pendingAllPoints.length }}个，不参与连线）</p>
     <div v-if="props.showPlayback" class="route-playback-bar" :class="{ 'has-display-choices': props.displayChoices.length }">
@@ -118,8 +119,8 @@
             class="plot-line optimized"
             :style="{ stroke: props.optimizedColor }"
           />
-          <polyline v-for="layer in fallbackOverviewLayers" v-if="showOptimizedLine" :key="`overview-${layer.key}`" :points="layer.line" class="plot-line optimized" :style="{ stroke: layer.color, strokeDasharray: layer.gpsActual || layer.templateReference ? '8 5' : undefined, strokeWidth: focusedLayerKey === String(layer.key) ? 2.3 : undefined, opacity: focusedLayerKey === null || focusedLayerKey === String(layer.key) ? 1 : 0.14 }" />
-          <polyline v-for="(line, index) in fallbackHighlightLines" v-if="focusedLayerKey === null" :key="`highlight-${index}`" :points="line" class="plot-line optimized" style="stroke:#8b5cf6;stroke-width:1.5" />
+          <polyline v-for="layer in fallbackOverviewLayers" v-if="showOptimizedLine" :key="`overview-${layer.key}`" :points="layer.line" class="plot-line optimized" :style="{ stroke: layer.color, strokeDasharray: layer.gpsActual || layer.templateReference ? '8 5' : undefined, strokeWidth: legendLayerSelected(layer) ? 2.3 : undefined, opacity: legendLayerVisible(layer) ? 1 : 0.14 }" />
+          <polyline v-for="(line, index) in fallbackHighlightLines" v-if="!hasLegendSelection" :key="`highlight-${index}`" :points="line" class="plot-line optimized" style="stroke:#8b5cf6;stroke-width:1.5" />
           <text v-if="fallbackPlaybackPoint && hasCustomPlaybackChoices" :x="fallbackPlaybackPoint.x" :y="fallbackPlaybackPoint.y" text-anchor="middle" dominant-baseline="central" font-size="6">🚚</text>
           <circle
             v-else-if="fallbackPlaybackPoint"
@@ -161,8 +162,8 @@
           <div class="plot-title">{{ optimizedLabel }}顺序</div>
           <svg :viewBox="fallbackFocusViewBox" role="img" aria-label="优化后路线坐标预览">
             <polyline v-if="!overviewLayers.length" :points="routePlot.optimized.line" class="plot-line optimized" :style="{ stroke: props.optimizedColor }" />
-            <polyline v-for="layer in fallbackOverviewLayers" v-if="showOptimizedLine" :key="`overview-detail-${layer.key}`" :points="layer.line" class="plot-line optimized" :style="{ stroke: layer.color, strokeDasharray: layer.gpsActual || layer.templateReference ? '8 5' : undefined, strokeWidth: focusedLayerKey === String(layer.key) ? 2.3 : undefined, opacity: focusedLayerKey === null || focusedLayerKey === String(layer.key) ? 1 : 0.14 }" />
-            <polyline v-for="(line, index) in fallbackHighlightLines" v-if="focusedLayerKey === null" :key="`optimized-highlight-${index}`" :points="line" class="plot-line optimized" style="stroke:#8b5cf6;stroke-width:1.5" />
+            <polyline v-for="layer in fallbackOverviewLayers" v-if="showOptimizedLine" :key="`overview-detail-${layer.key}`" :points="layer.line" class="plot-line optimized" :style="{ stroke: layer.color, strokeDasharray: layer.gpsActual || layer.templateReference ? '8 5' : undefined, strokeWidth: legendLayerSelected(layer) ? 2.3 : undefined, opacity: legendLayerVisible(layer) ? 1 : 0.14 }" />
+            <polyline v-for="(line, index) in fallbackHighlightLines" v-if="!hasLegendSelection" :key="`optimized-highlight-${index}`" :points="line" class="plot-line optimized" style="stroke:#8b5cf6;stroke-width:1.5" />
             <g v-for="point in routePlot.optimized.points" :key="point.key">
               <circle :cx="point.x" :cy="point.y" r="2.2" class="plot-point-optimized" :style="fallbackMarkerStyle(point, point.routeColor || props.markerColor)">
                 <title>{{ pointTitle(point) }}</title>
@@ -210,6 +211,8 @@ const props = defineProps({
   viewportPoints: { type: Array, default: () => [] },
   displayChoices: { type: Array, default: () => [] },
   focusLegendOnClick: { type: Boolean, default: false },
+  multiSelectLegend: { type: Boolean, default: false },
+  legendMarkerPoints: { type: Function, default: null },
   playbackChoices: { type: Array, default: () => [] },
   optimizedMarkerPoints: { type: Array, default: null },
   showPlayback: { type: Boolean, default: true },
@@ -254,6 +257,7 @@ const showOriginalLine = ref(props.showOriginal)
 const showOptimizedLine = ref(true)
 const expanded = ref(false)
 const focusedLayerKey = ref(null)
+const selectedLayerKeys = ref(new Set())
 let savedLegendViewport = null
 const playbackRoute = ref('optimized')
 const playbackSpeed = ref(props.playbackChoices.length ? 0.1 : 0.5)
@@ -277,14 +281,19 @@ const overviewLayers = computed(() => props.routeLayers.map((layer, index) => {
   const points = normalizeRoutePoints(layer.points || [])
   const segments = layer.segments || []
   return { key: layer.key ?? index, label: layer.label || `第${index + 1}趟`, color: layer.color || '#1f6fca', points, segments,
-    gpsActual: Boolean(layer.gpsActual), templateReference: Boolean(layer.templateReference),
+    gpsActual: Boolean(layer.gpsActual), templateReference: Boolean(layer.templateReference), tripIndex: layer.tripIndex,
     geometry: pathCoordinatesFromSegments(segments, points) }
 }))
+const selectedLegendLayers = computed(() => overviewLayers.value.filter(layer => selectedLayerKeys.value.has(String(layer.key))))
+const hasLegendSelection = computed(() => props.multiSelectLegend ? selectedLayerKeys.value.size > 0 : focusedLayerKey.value !== null)
+const legendLayerSelected = layer => props.multiSelectLegend ? selectedLayerKeys.value.has(String(layer.key)) : focusedLayerKey.value === String(layer.key)
+const legendLayerVisible = layer => !hasLegendSelection.value || legendLayerSelected(layer)
 const focusedLayer = computed(() => overviewLayers.value.find(layer => String(layer.key) === focusedLayerKey.value) || null)
 const fallbackFocusViewBox = computed(() => {
-  if (!focusedLayer.value?.geometry?.length || !routePlot.value) return '0 0 100 100'
+  const geometry = props.multiSelectLegend ? selectedLegendLayers.value.flatMap(layer => layer.geometry) : focusedLayer.value?.geometry || []
+  if (!geometry.length || !routePlot.value) return '0 0 100 100'
   const bounds = boundsFor([...originalAllPoints.value, ...optimizedAllPoints.value, ...pendingAllPoints.value])
-  const points = focusedLayer.value.geometry.map(point => projectPoint(point, bounds))
+  const points = geometry.map(point => projectPoint(point, bounds))
   const xs = points.map(point => point.x), ys = points.map(point => point.y)
   const minX = Math.min(...xs), maxX = Math.max(...xs), minY = Math.min(...ys), maxY = Math.max(...ys)
   const padding = 6
@@ -303,6 +312,11 @@ const optimizedGeometryPoints = computed(() => pathCoordinatesFromSegments(props
 const optimizedFacilityIdSet = computed(() => new Set((props.optimizedFacilityIds || []).map((id) => String(id))))
 const markerPoints = computed(() => {
   const optimizedActive = showOptimizedLine.value && optimizedAllPoints.value.length && (playbackRoute.value === 'optimized' || !showOriginalLine.value)
+  if (optimizedActive && props.multiSelectLegend && selectedLayerKeys.value.size) {
+    return props.legendMarkerPoints
+      ? normalizeRoutePoints(props.legendMarkerPoints(selectedLegendLayers.value))
+      : uniquePoints(selectedLegendLayers.value.flatMap(layer => layer.points))
+  }
   if (optimizedActive && props.focusLegendOnClick && focusedLayer.value) {
     return focusedLayer.value.gpsActual
       ? optimizedMarkerAllPoints.value.filter(point => point.flowCollectionCount > 0 || String(point.facilityId || "").startsWith("gps-"))
@@ -349,6 +363,21 @@ const playbackLabel = computed(() => {
 
 function toggleLegendFocus(layer) {
   if (!props.focusLegendOnClick) return
+  if (props.multiSelectLegend) {
+    const next = new Set(selectedLayerKeys.value)
+    const key = String(layer.key)
+    if (!next.size && mapInstance) savedLegendViewport = { center: mapInstance.getCenter(), zoom: mapInstance.getZoom() }
+    next.has(key) ? next.delete(key) : next.add(key)
+    selectedLayerKeys.value = next
+    if (mapInstance && window.BMap && next.size) {
+      const geometry = overviewLayers.value.filter(item => next.has(String(item.key))).flatMap(item => item.geometry)
+      if (geometry.length >= 2) mapInstance.setViewport(geometry.map(point => new window.BMap.Point(point.longitude, point.latitude)), { margins: [55, 55, 55, 55] })
+    } else if (mapInstance && savedLegendViewport) {
+      mapInstance.centerAndZoom(savedLegendViewport.center, savedLegendViewport.zoom)
+      savedLegendViewport = null
+    }
+    return
+  }
   if (focusedLayerKey.value === String(layer.key)) {
     clearLegendFocus()
     return
@@ -360,6 +389,7 @@ function toggleLegendFocus(layer) {
   }
 }
 function clearLegendFocus() {
+  if (props.multiSelectLegend) { selectedLayerKeys.value = new Set(); return }
   if (!props.focusLegendOnClick || focusedLayerKey.value === null) return
   focusedLayerKey.value = null
   if (mapInstance && savedLegendViewport) mapInstance.centerAndZoom(savedLegendViewport.center, savedLegendViewport.zoom)
@@ -438,9 +468,9 @@ function drawCapturedRouteOverlays(canvas, target) {
     drawProjectedRoute(context, originalGeometryPoints.value, project, { color: '#d84f4f', width: 4, opacity: 0.8, dashed: true })
   }
   if (showOptimizedLine.value) {
-    if (overviewLayers.value.length) overviewLayers.value.forEach(layer => drawProjectedRoute(context, layer.geometry, project, { color: layer.color, width: focusedLayerKey.value === String(layer.key) ? 7 : layer.gpsActual || layer.templateReference ? 3 : 5, opacity: focusedLayerKey.value === null || focusedLayerKey.value === String(layer.key) ? 0.9 : 0.14, dashed: layer.gpsActual || layer.templateReference }))
+    if (overviewLayers.value.length) overviewLayers.value.forEach(layer => drawProjectedRoute(context, layer.geometry, project, { color: layer.color, width: legendLayerSelected(layer) ? 7 : layer.gpsActual || layer.templateReference ? 3 : 5, opacity: legendLayerVisible(layer) ? 0.9 : 0.14, dashed: layer.gpsActual || layer.templateReference }))
     else drawProjectedRoute(context, optimizedGeometryPoints.value, project, { color: props.optimizedColor, width: 5, opacity: 0.9 })
-    if (focusedLayerKey.value === null) props.highlightSegments.forEach(segment => {
+    if (!hasLegendSelection.value) props.highlightSegments.forEach(segment => {
       drawProjectedRoute(context, normalizeRoutePoints(segment.path || []), project, { color: '#8b5cf6', width: 7, opacity: 0.95 })
     })
   }
@@ -527,6 +557,12 @@ watch(
 )
 watch(() => props.playbackChoices, () => { if (hasCustomPlaybackChoices.value) resetPlayback() }, { deep: true })
 watch(focusedLayerKey, () => { if (baiduReady.value) renderMap() })
+watch(selectedLayerKeys, () => { if (baiduReady.value) renderMap() })
+watch(() => overviewLayers.value.map(layer => String(layer.key)).join('|'), () => {
+  if (!props.multiSelectLegend || !selectedLayerKeys.value.size) return
+  const available = new Set(overviewLayers.value.map(layer => String(layer.key)))
+  selectedLayerKeys.value = new Set([...selectedLayerKeys.value].filter(key => available.has(key)))
+})
 
 async function renderMap() {
   await nextTick()
@@ -573,9 +609,9 @@ function drawBaiduMap(BMap) {
     drawPolyline(BMap, originalGeometryPoints.value, '#d84f4f', 4, 0.8, 'dashed')
   }
   if (showOptimizedLine.value) {
-    if (overviewLayers.value.length) overviewLayers.value.forEach(layer => drawPolyline(BMap, layer.geometry, layer.color, focusedLayerKey.value === String(layer.key) ? 7 : layer.gpsActual || layer.templateReference ? 3 : 5, focusedLayerKey.value === null || focusedLayerKey.value === String(layer.key) ? 0.9 : 0.14, layer.gpsActual || layer.templateReference ? 'dashed' : 'solid'))
+    if (overviewLayers.value.length) overviewLayers.value.forEach(layer => drawPolyline(BMap, layer.geometry, layer.color, legendLayerSelected(layer) ? 7 : layer.gpsActual || layer.templateReference ? 3 : 5, legendLayerVisible(layer) ? 0.9 : 0.14, layer.gpsActual || layer.templateReference ? 'dashed' : 'solid'))
     else drawPolyline(BMap, optimizedGeometryPoints.value, props.optimizedColor, 5, 0.9, 'solid')
-    if (focusedLayerKey.value === null) props.highlightSegments.forEach(segment => drawPolyline(BMap, normalizeRoutePoints(segment.path || []), '#8b5cf6', 7, 0.95, 'solid'))
+    if (!hasLegendSelection.value) props.highlightSegments.forEach(segment => drawPolyline(BMap, normalizeRoutePoints(segment.path || []), '#8b5cf6', 7, 0.95, 'solid'))
   }
   const optimizedMode = showOptimizedLine.value && optimizedAllPoints.value.length && (playbackRoute.value === 'optimized' || !showOriginalLine.value)
   pendingAllPoints.value.forEach((point, index) => {

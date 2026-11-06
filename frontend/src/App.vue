@@ -208,7 +208,7 @@
             <p class="muted">{{ flowMapMode === 'ROAD' ? '道路折线是按流水点位顺序推算的路线，不是车辆实际行驶轨迹；折线测距不代表实际里程。' : '点位直线仅表示流水先后顺序，不代表道路或实际里程。' }} 同一设施重复出现只画一个标记，序号列出当前筛选趟次中的每次位置；多个趟次时跨趟连续编号，悬停可看车辆、趟次和各趟内序号。连线与测距始终保留每次流水事件。{{ flowShowCollectedOnly ? '当前仅隐藏纯途经点的标记，途经事件仍参与连线与测距。' : '当前包含收运与途经点的标记。' }}</p>
             <p v-if="flowActualMap.missingCoordinateCount" class="flow-warning">{{ flowActualMap.missingCoordinateCount }} 个流水事件缺少有效坐标，地图已跳过；相邻可绘点之间的连线仅表示先后顺序。</p>
             <p v-if="flowMapMode === 'ROAD' && flowRoadError" class="flow-warning">道路折线未完成：{{ flowRoadError }}。未用点位直线冒充道路。</p>
-            <RouteMapPanel v-if="flowMapViewportPoints.length" :key="'flow-actual-'+flowRunVersion+'-'+flowMapDay+'-'+flowMapCarCode+'-'+flowMapTripIndex+'-'+flowMapMode" :original-points="[]" :optimized-points="flowDisplayedPoints" :optimized-marker-points="flowMapMarkers" :viewport-points="flowDisplayedLayers.length ? [] : flowMapViewportPoints" :route-layers="flowDisplayedLayers" :focus-legend-on-click="true" :playback-choices="flowPlaybackChoices" :display-choices="flowDisplayChoices" @toggle-display-choice="toggleFlowDisplayChoice" :show-original="false" :show-optimized-toggle="false" :show-playback="true" optimized-label="流水与 GPS 路线" />
+            <RouteMapPanel v-if="flowMapViewportPoints.length" :key="'flow-actual-'+flowRunVersion+'-'+flowMapDay+'-'+flowMapCarCode+'-'+flowMapTripIndex+'-'+flowMapMode" :original-points="[]" :optimized-points="flowDisplayedPoints" :optimized-marker-points="flowMapMarkers" :viewport-points="flowDisplayedLayers.length ? [] : flowMapViewportPoints" :route-layers="flowDisplayedLayers" :focus-legend-on-click="true" :multi-select-legend="true" :legend-marker-points="flowLegendMarkerPoints" :playback-choices="flowPlaybackChoices" :display-choices="flowDisplayChoices" @toggle-display-choice="toggleFlowDisplayChoice" :show-original="false" :show-optimized-toggle="false" :show-playback="true" optimized-label="流水与 GPS 路线" />
             <div v-else-if="flowRoadLoading" class="empty">正在计算所选趟次的道路折线…</div>
             <div v-else-if="!flowRoadError" class="empty">当前筛选的趟次没有可绘制的有效坐标。</div>
           </section>
@@ -2721,6 +2721,32 @@ function toggleFlowGpsLayer(key) {
 const flowParkingAccessLayers = computed(() => flowShowReturnToParking.value
   ? buildFlowParkingAccessLayers(flowDayTripRows.value, flowMapTripRows.value, flowSelectedParking.value) : [])
 const flowBaseAndParkingLayers = computed(() => [...flowActualMap.value.layers, ...flowParkingAccessLayers.value])
+function flowLegendMarkerPoints(layers) {
+  const selectedTrips = new Set()
+  for (const layer of layers) {
+    if (layer.gpsActual && layer.tripIndex != null) selectedTrips.add(Number(layer.tripIndex))
+    else if (!layer.gpsActual && /^\d+$/.test(String(layer.key))) selectedTrips.add(Number(layer.key) - 1)
+  }
+  const rows = flowMapTripRows.value.filter(row => selectedTrips.has(row.index))
+  const markers = rows.length ? buildFlowActualMap(rows, flowShowCollectedOnly.value).markers : []
+  if (!rows.length) markers.push(...layers.filter(layer => layer.templateReference).flatMap(layer => layer.points))
+  if (layers.some(layer => String(layer.key).startsWith('flow-')) && flowSelectedParking.value) markers.push({
+    ...flowSelectedParking.value, flowMapMarker: true, flowCollectionCount: 0, flowThroughCount: 0,
+    flowVisitLabel: '车场', flowVisitTitle: '所选停车场；出场及返场路段是道路推算', routeColor: '#8b5cf6'
+  })
+  for (const layer of layers.filter(item => item.gpsActual && item.points.length)) {
+    const first = layer.points[0]
+    const last = layer.points[layer.points.length - 1]
+    const ends = Math.abs(first.longitude - last.longitude) < 0.00002 && Math.abs(first.latitude - last.latitude) < 0.00002
+      ? [[first, 'GPS起/终']] : [[first, 'GPS起'], [last, 'GPS终']]
+    for (const [point, label] of ends) markers.push({
+      ...point, facilityId: `${layer.key}-${label}`, facilityName: `${layer.label} ${label}`,
+      flowMapMarker: true, flowCollectionCount: 0, flowThroughCount: 0,
+      flowVisitLabel: label, flowVisitTitle: `${layer.label} ${label}`, routeColor: layer.color
+    })
+  }
+  return markers
+}
 const flowMapMarkers = computed(() => {
   const markers = flowShowRouteLayer.value
     ? [...flowActualMap.value.markers]
