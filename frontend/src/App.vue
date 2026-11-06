@@ -185,7 +185,7 @@
             </div>
             <div v-if="flowCompareMode && flowComparisonTemplate" class="flow-one-day-compare">
               <strong>单日规划顺序对照 · {{ flowComparisonTemplate.label }}</strong>
-              <p class="muted">模板 {{ flowComparisonTemplate.points.length }} 点；地图灰色虚线仅连示规划点位顺序，不代表道路。选择上方日期和一辆车；当天未收的模板点只标记为未收，不判为漏收，处理厂和卸料趟界不参与顺序比较。</p>
+              <p class="muted">模板 {{ flowComparisonTemplate.points.length }} 点；地图灰色虚线为规划道路折线，按来源方案分段展示。选择上方日期和一辆车；当天未收的模板点只标记为未收，不判为漏收，处理厂和卸料趟界不参与顺序比较。</p>
               <p v-if="flowComparisonMismatch" class="flow-warning">{{ flowComparisonMismatch }}</p>
               <template v-else-if="flowGpsCarCode && flowComparisonDay">
                 <div class="flow-actual-distance-grid">
@@ -1257,7 +1257,7 @@
               <p v-if="assignmentScheduleExportReady" class="muted">每日到达时间、时间窗校验和导出统一按跳点后道路计算。“保留全部点位”仅对照模板连线，不改变每日计算结果。两种道路耗时均扣除当日不收点的作业时间。</p>
               <p v-else class="muted">当前只生成一次全点模板；没有按日排班，不推断哪些天收运，也不生成每日跳点路线。</p>
               <p>主路线来源：{{ fixedMaster.sourceLabel }}<template v-if="fixedMasterDay !== 0">；当天{{ fixedMasterDayData?.disabled ? '已停排' : fixedMasterDayData?.status || '未排班' }}</template>。</p>
-              <button type="button" class="secondary" :disabled="!fixedMasterDayData?.result?.routes?.length" @click="captureFlowComparisonTemplate(`全点多趟 · ${fixedMasterDay === 0 ? '完整模板' : `第${fixedMasterDay}天`}`, fixedMasterDayData.result.routes)">以当前日期顺序对照一天流水</button>
+              <button type="button" class="secondary" :disabled="flowComparisonCaptureLoading || !fixedMasterDayData?.result?.routes?.length" @click="captureFlowComparisonTemplate(`全点多趟 · ${fixedMasterDay === 0 ? '完整模板' : `第${fixedMasterDay}天`}`, fixedMasterDayData.result.routes, fixedMasterOverviewLayers)">{{ flowComparisonCaptureLoading ? '正在读取规划道路…' : '以当前日期顺序对照一天流水' }}</button><p v-if="flowComparisonCaptureError" class="warning">{{ flowComparisonCaptureError }}</p>
               <p v-if="fixedMasterDayData?.result">完整模板 {{ fixedMasterDayData.result.routeCount }} 趟；全点模板时间窗冲突 {{ fixedMasterTimeWindowStats.violationCount }} 个<template v-if="fixedMasterDay !== 0">；当天应收 {{ fixedMasterDayData.indices.length }} 点；当天时间窗冲突 {{ timeWindowStatsForResult(fixedMasterDayData.result).violationCount }} 个；当天应收但模板未分配 {{ fixedMasterDayData.result.dueUnassignedCount || 0 }} 点</template>。</p>
               <p v-if="fixedMasterDayData?.result && fixedMasterIncludeReturn && fixedMasterReturnTrip">收运趟 {{ formatDistance(fixedMasterRouteTotals.distance) }} + 独立返场趟 {{ formatDistance(fixedMasterReturnTrip.distance) }} = {{ formatDistance(fixedMasterRouteTotals.distance + fixedMasterReturnTrip.distance) }}；耗时合计 {{ formatDuration(fixedMasterRouteTotals.durationMinutes + fixedMasterReturnTrip.durationMinutes) }}。返场不计收运趟数与点位时间窗。</p>
               <p v-if="fixedMasterDayData?.error" style="color:red">{{ fixedMasterDayData.error }}</p>
@@ -1306,7 +1306,7 @@
               <p v-if="singleTripSelected?.disabled">第{{ singleTripDay }}天已停排，无收运路线。</p>
               <p v-if="singleTripSelected?.error" style="color:red">第{{ singleTripDay }}天道路计算失败：{{ singleTripSelected.error }}</p>
               <template v-else-if="singleTripSelected?.route && !singleTripSelected.disabled">
-                <button type="button" class="secondary" @click="captureFlowComparisonTemplate(`全点单趟 · ${singleTripDay === 0 ? '完整模板' : `第${singleTripDay}天`}`, [singleTripSelected.route])">以当前日期顺序对照一天流水</button>
+                <button type="button" class="secondary" @click="captureFlowComparisonTemplate(`全点单趟 · ${singleTripDay === 0 ? '完整模板' : `第${singleTripDay}天`}`, [singleTripSelected.route], singleTripOverviewLayers)" :disabled="flowComparisonCaptureLoading">{{ flowComparisonCaptureLoading ? '正在读取规划道路…' : '以当前日期顺序对照一天流水' }}</button><p v-if="flowComparisonCaptureError" class="warning">{{ flowComparisonCaptureError }}</p>
                 <p>{{ singleTripDay === 0 ? '完整模板点位' : '当天收运点' }} {{ singleTripSelected.route.pointCount }} 个<template v-if="singleTripIncludeDetours">；中途卸料 {{ singleTripSelected.detours.breaks.length }} 次；目标装载量 {{ singleTripSelected.detours.thresholdKg.toFixed(1) }} kg</template>。</p>
                 <p>里程：基础 {{ formatDistance(singleTripDisplay.baseDistance) }} + 中途卸料增量 {{ formatDistance(singleTripDisplay.detourDistance) }} + 最终返场 {{ formatDistance(singleTripDisplay.returnDistance) }} = {{ formatDistance(singleTripDisplay.totalDistance) }}；耗时：基础 {{ formatDuration(singleTripDisplay.baseDurationMinutes) }} + 中途卸料增量 {{ formatDuration(singleTripDisplay.detourDurationMinutes) }} + 最终返场 {{ formatDuration(singleTripDisplay.returnDurationMinutes) }} = {{ formatDuration(singleTripDisplay.totalDurationMinutes) }}。紫色为已开启的新增道路；中途卸料增量已扣除被替换的原路段。</p>
                 <p>按当前估重分段：{{ singleTripSelectedTimeline.legs.length }} 段；当前展示场景时间窗冲突 {{ singleTripPlannedTimeline.violationCount }} 处。时间窗按到达与收完校验；关闭中途卸料开关时，地图与行程时间不计卸料，修正校验仍按开启状态计算。</p>
@@ -1327,7 +1327,7 @@
           <section v-if="selectedSplitRoute && planningView === 'ASSIGNMENT'" class="panel assignment-planning-result">
             <div>
               <div class="panel-head compact"><h2>规划结果 · 按排班逐套规划<small v-if="assignmentActiveVersion"> · 当前{{ assignmentActiveVersion.name }}</small></h2><div class="panel-actions"><button type="button" class="secondary" :disabled="!!assignmentBatchTripReorderDisabledReason" :title="assignmentBatchTripReorderDisabledReason" @click="tryReorderAllAssignmentTrips">{{ assignmentTripReorderRunning ? '正在批量调整…' : '尝试调整全部方案趟序' }}</button><button @click="openSaveSplitCurrentRoute" :disabled="!selectedMultiRoute || assignmentShowReturn || loading || assignmentTripReorderRunning">另存当前路线</button><button @click="openSaveSplitGroup" :disabled="!multiOptimization || loading || assignmentTripReorderRunning">{{ splitFromSavedRoute ? '保存为新版本' : '另存当前方案整组' }}</button><button @click="exportAssignmentVersions" :disabled="assignmentBatchRunning || assignmentTripReorderRunning || loading || fixedMasterRunning || (!assignmentVersions.some(version => version.result) && !fixedMasterFresh)">导出全部方案</button></div></div>
-              <button type="button" class="secondary" :disabled="!multiOptimization?.routes?.length" @click="captureFlowComparisonTemplate(`按排班逐套规划 · ${assignmentActiveVersion?.name || '当前方案'}`, multiOptimization.routes)">以当前方案顺序对照一天流水</button>
+              <button type="button" class="secondary" :disabled="flowComparisonCaptureLoading || !multiOptimization?.routes?.length" @click="captureFlowComparisonTemplate(`按排班逐套规划 · ${assignmentActiveVersion?.name || '当前方案'}`, multiOptimization.routes, assignmentOverviewLayers, assignmentIncludeReturn ? assignmentActiveReturnTrip : null)">{{ flowComparisonCaptureLoading ? '正在读取规划道路…' : '以当前方案顺序对照一天流水' }}</button><p v-if="flowComparisonCaptureError" class="warning">{{ flowComparisonCaptureError }}</p>
               <p v-if="assignmentActiveVersion?.applicableDays?.length" class="assignment-applicable-dates">{{ assignmentActiveVersion.name }}适用：{{ assignmentApplicableDaysLabel(assignmentActiveVersion) }}<template v-if="assignmentActiveVersion.applicableDays.length > 1">。修改这套点位会影响所有适用天数。</template></p>
               <div v-if="assignmentVersions.some(version => version.status !== 'IDLE')" class="assignment-result-summary"><button v-for="version in assignmentVersions" :key="'result-'+version.id" type="button" class="assignment-result-version" :class="{ active: assignmentActiveVersionId === version.id }" :aria-pressed="assignmentActiveVersionId === version.id" :disabled="assignmentBatchRunning || assignmentTripReorderRunning" @click="selectAssignmentVersion(version.id)"><strong>{{ version.name }}<template v-if="version.applicableDays?.length > 1"> · 适用{{ version.applicableDays.length }}天</template><template v-else-if="version.cycleDay"> · 第{{ version.cycleDay }}天</template></strong><span>{{ assignmentVersionStatusLabel(version) }}</span><small v-if="version.error">{{ version.error }}</small><small v-else-if="version.status === 'RUNNING'">{{ version.message }}<template v-if="version.percent"> · {{ version.percent }}%</template></small><small v-else-if="version.result">{{ version.result.routeCount || 0 }} 趟 · 已分配 {{ version.result.assignedPointCount || 0 }} 点</small></button></div>
               <p v-if="assignmentVersions.some(version => version.result)" class="assignment-save-scope">点击上方方案切换结果；“当前路线”和“当前方案整组”仅保存所选方案，“导出全部方案”包含本次所有方案及其状态。</p>
@@ -2539,6 +2539,8 @@ const flowComparisonTemplate = ref(null)
 const flowCompareMode = ref(false)
 const flowCompareDate = ref('')
 const flowCompareMessage = ref('')
+const flowComparisonCaptureLoading = ref(false)
+const flowComparisonCaptureError = ref('')
 const flowComparePreviousFilters = ref(null)
 function leaveFlowExecutionCompare(view) {
   if (flowCompareMode.value) {
@@ -2561,7 +2563,37 @@ const flowComparisonMismatch = computed(() => {
   if (template.routeId && String(template.routeId) !== String(flowAnalysisRouteId.value || '')) return '规划模板与当前所选岗位不一致，不能输出顺序拟合结论；请选回来源岗位。'
   return ''
 })
-async function captureFlowComparisonTemplate(label, routes) {
+async function captureFlowComparisonTemplate(label, routes, mapLayers = [], returnTrip = null) {
+  if (flowComparisonCaptureLoading.value) return
+  flowComparisonCaptureLoading.value = true
+  flowComparisonCaptureError.value = ''
+  let plannedLayers
+  try {
+    const sourceLayers = mapLayers.length ? mapLayers : buildRouteOverviewLayers(
+      routes || [], route => route.points || [], route => route.roadSegments || [], returnTrip)
+    plannedLayers = []
+    for (const [index, layer] of sourceLayers.entries()) {
+      const layerPoints = layer.points || []
+      if (layerPoints.length < 2) continue
+      let segments = layer.segments || []
+      if (!hasCompleteRoadGeometry(layerPoints, segments)) {
+        const response = await api('/api/optimize/route-segments', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ points: layerPoints, displayRoadPath: true })
+        })
+        segments = response.segments || []
+      }
+      if (!hasCompleteRoadGeometry(layerPoints, segments)) throw new Error(`${layer.label || `第${index + 1}段`}缺少完整道路折线`)
+      plannedLayers.push({ key: `plan-${index}`, label: `规划 · ${layer.label || `第${index + 1}段`}`,
+        color: '#64748b', points: deepClone(layerPoints), segments: deepClone(segments), templateReference: true })
+    }
+    if (!plannedLayers.length) throw new Error('当前规划没有可展示的道路折线')
+  } catch (error) {
+    flowComparisonCaptureError.value = `规划道路读取失败：${error.message || String(error)}`
+    return
+  } finally {
+    flowComparisonCaptureLoading.value = false
+  }
   const seen = new Set()
   const points = (routes || []).flatMap(route => route.points || []).filter(point => point.role === 'MIDDLE' && !point.scheduleSkipped && point.facilityId != null).filter(point => {
     const id = String(point.facilityId)
@@ -2573,9 +2605,10 @@ async function captureFlowComparisonTemplate(label, routes) {
     frequencyLabel: assignmentFrequencyLabel(point), frequencyTitle: assignmentFrequencyTitle(point) }))
   if (!points.length) return
   const template = { label, unitId: selectedSplitCompany.value?.id, routeId: selectedSplitRoute.value?.id,
-    vehicleCode: assignmentVehicleCode.value, parkingId: optimizeOptions.startFacilityId, points }
+    vehicleCode: assignmentVehicleCode.value, parkingId: optimizeOptions.startFacilityId, points, mapLayers: plannedLayers }
   if (!flowCompareMode.value) flowComparePreviousFilters.value = { startDate: flowAnalysisFilters.startDate, endDate: flowAnalysisFilters.endDate }
   flowComparisonTemplate.value = template
+  flowShowPlanLayer.value = true
   flowCompareMode.value = true
   flowCompareMessage.value = ''
   flowCompareDate.value = filters.endDate || toDateInput(new Date())
@@ -2656,10 +2689,13 @@ const flowVehicleReport = ref(null)
 const flowGpsTrack = ref(null)
 const flowShowRouteLayer = ref(true)
 const flowShowGpsLayer = ref(true)
-const flowDisplayChoices = computed(() => [{ key: 'flow', label: '流水', checked: flowShowRouteLayer.value }, { key: 'gps', label: 'GPS', checked: flowShowGpsLayer.value }])
+const flowShowPlanLayer = ref(true)
+const flowDisplayChoices = computed(() => [{ key: 'flow', label: '流水', checked: flowShowRouteLayer.value }, { key: 'gps', label: 'GPS', checked: flowShowGpsLayer.value },
+  ...(flowCompareMode.value && flowComparisonTemplate.value ? [{ key: 'plan', label: '规划路线', checked: flowShowPlanLayer.value }] : [])])
 function toggleFlowDisplayChoice(key) {
   if (key === 'flow') flowShowRouteLayer.value = !flowShowRouteLayer.value
   if (key === 'gps') flowShowGpsLayer.value = !flowShowGpsLayer.value
+  if (key === 'plan') flowShowPlanLayer.value = !flowShowPlanLayer.value
 }
 const flowHiddenGpsLayerKeys = ref(new Set())
 const flowVehicleQueryLoading = ref(false)
@@ -2758,7 +2794,7 @@ function flowLegendMarkerPoints(layers) {
   }
   const rows = flowMapTripRows.value.filter(row => selectedTrips.has(row.index))
   const markers = rows.length ? buildFlowActualMap(rows, flowShowCollectedOnly.value).markers : []
-  if (!rows.length) markers.push(...layers.filter(layer => layer.templateReference).flatMap(layer => layer.points))
+  if (!rows.length && layers.some(layer => layer.templateReference)) markers.push(...(flowComparisonTemplate.value?.points || []))
   if (layers.some(layer => String(layer.key).startsWith('flow-')) && flowSelectedParking.value) markers.push({
     ...flowSelectedParking.value, flowMapMarker: true, flowCollectionCount: 0, flowThroughCount: 0,
     flowVisitLabel: '车场', flowVisitTitle: '所选停车场；出场及返场路段是道路推算', routeColor: '#8b5cf6'
@@ -2829,19 +2865,17 @@ const flowResolvedLayers = computed(() => {
   if (layers.some(layer => layer.points.length >= 2 && !cache.has(flowRoadKey(layer.points)))) return flowGpsVisibleLayers.value
   return [...layers.map(layer => ({ ...layer, segments: layer.points.length >= 2 ? cache.get(flowRoadKey(layer.points)) : [] })), ...flowGpsVisibleLayers.value]
 })
-const flowComparisonMapLayer = computed(() => {
-  if (!flowCompareMode.value || !flowComparisonTemplate.value || flowComparisonMismatch.value) return null
-  const points = flowComparisonTemplate.value.points.filter(point => point.longitude != null && point.latitude != null && Number.isFinite(Number(point.longitude)) && Number.isFinite(Number(point.latitude)))
-  return points.length >= 2 ? { key: 'comparison-template', label: '规划顺序参考', color: '#64748b', points, segments: [], templateReference: true } : null
-})
+const flowComparisonMapLayers = computed(() =>
+  flowCompareMode.value && !flowComparisonMismatch.value && flowShowPlanLayer.value
+    ? flowComparisonTemplate.value?.mapLayers || [] : [])
 const flowDisplayedLayers = computed(() => [
   ...flowResolvedLayers.value.filter(layer => layer.gpsActual ? flowShowGpsLayer.value : flowShowRouteLayer.value),
-  ...(flowComparisonMapLayer.value ? [flowComparisonMapLayer.value] : [])
+  ...flowComparisonMapLayers.value
 ])
 const flowPlaybackChoices = computed(() => buildFlowPlaybackChoices(flowResolvedLayers.value,
   flowGpsVisibleLayers.value, flowGpsCarCode.value, flowMapMode.value))
 const flowDisplayedPoints = computed(() => routeOverviewPoints(flowDisplayedLayers.value))
-const flowMapViewportPoints = computed(() => routeOverviewPoints([...flowBaseAndParkingLayers.value, ...flowGpsEligibleLayers.value]))
+const flowMapViewportPoints = computed(() => routeOverviewPoints([...flowBaseAndParkingLayers.value, ...flowGpsEligibleLayers.value, ...flowComparisonMapLayers.value]))
 const flowRoadTripDistance = computed(() => {
   if (flowMapMode.value !== 'ROAD' || !flowBaseAndParkingLayers.value.length ||
     flowResolvedLayers.value.length <= flowGpsVisibleLayers.value.length) return null
