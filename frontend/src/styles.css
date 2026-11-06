@@ -3722,4 +3722,11 @@ tbody tr.active {
 .flow-compare-sequence li.extra b, .flow-compare-sequence li.extra small { color: #b45309; }
 .flow-compare-sequence > p { padding: 12px; }
 .flow-compare-sequence-note { color: #64798c; }
+.flow-lcs-detail { display: grid; gap: 6px; padding: 10px 12px; border: 1px solid #cbdff0; border-radius: 7px; background: #fff; }
+.flow-lcs-detail > strong { font-size: 13px; }
+.flow-lcs-detail p { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; font-size: 13px; }
+.flow-lcs-detail p span { display: inline-flex; align-items: center; gap: 3px; }
+.flow-lcs-detail p b { color: #165db5; }
+.flow-lcs-detail p small, .flow-lcs-detail > small { color: #64798c; }
+.flow-lcs-detail p i { font-style: normal; color: #94a3b8; margin-left: 5px; }
 @media (max-width: 800px) { .flow-compare-sequences { grid-template-columns: 1fr; } }

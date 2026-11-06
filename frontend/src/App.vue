@@ -203,6 +203,11 @@
                   </div>
                 </div>
                 <small class="flow-compare-sequence-note">蓝色表示共同点相对顺序有变化；灰色表示模板内当天未收；橙色表示模板外收运。序号只按首次收运计算，不含途经点与卸料站。</small>
+                <div class="flow-lcs-detail"><strong>LCS 的 {{ flowComparisonDay.lcsSequence.length }} 个同序点</strong>
+                  <p v-if="flowComparisonDay.lcsSequence.length"><span v-for="(point, index) in flowComparisonDay.lcsSequence" :key="`lcs-${point.id}`"><b>{{ index + 1 }}.</b> {{ point.name }} <small>规划{{ point.planOrder }} / 实际{{ point.actualOrder }}</small><i v-if="index < flowComparisonDay.lcsSequence.length - 1">→</i></span></p>
+                  <p v-else class="muted">没有共同收运点。</p>
+                  <small>最长同序序列可能不止一组；这里展示其中一组，长度与上方 LCS 数值相同。</small>
+                </div>
               </template>
               <p v-else-if="!flowComparisonMismatch" class="muted">请选择一辆车后查看当天拟合情况。</p>
             </div>
@@ -2498,6 +2503,7 @@ import { buildSingleTripExport } from './singleTripExport.js'
 import { buildRouteOverviewLayers, hasCompleteRoadGeometry, routeOverviewPoints } from './routeOverview.js'
 import { buildFlowActualMap, buildFlowParkingAccessLayers, flowRoadKey, normalizeFlowRoadSegments, flowPolylineMeters, flowTripDistanceBreakdown } from './flowActualMap.js'
 import { buildFlowGpsLayers, splitFlowGpsTripLayers, flowTimeMillis } from './flowGpsLayers.js'
+import { flowLcsSequence } from './flowLcs.js'
 import { buildFlowPlaybackChoices } from './flowPlaybackChoices.js'
 import { buildFinalReturnTrip } from './finalReturnTrip.js'
 import { applyGarbageDensity } from './garbageDensity.js'
@@ -2603,18 +2609,6 @@ async function handleFlowCompareDateChange() {
   }
 }
 
-function flowLcsLength(plan, actual) {
-  const dp = Array(actual.length + 1).fill(0)
-  for (const id of plan) {
-    let diagonal = 0
-    for (let i = 1; i <= actual.length; i++) {
-      const previous = dp[i]
-      dp[i] = id === actual[i - 1] ? diagonal + 1 : Math.max(dp[i], dp[i - 1])
-      diagonal = previous
-    }
-  }
-  return dp[actual.length]
-}
 const flowComparisonDay = computed(() => {
   if (!flowCompareMode.value || !flowComparisonTemplate.value || flowComparisonMismatch.value || !flowGpsCarCode.value || !flowMapSelectedDay.value) return null
   const plan = flowComparisonTemplate.value.points.map(point => point.facilityId)
@@ -2637,6 +2631,9 @@ const flowComparisonDay = computed(() => {
   const sharedActualPosition = new Map(shared.map((id, index) => [id, index]))
   const actualPosition = new Map(actual.map((id, index) => [id, index + 1]))
   const planPosition = new Map(plan.map((id, index) => [id, index + 1]))
+  const lcsIds = flowLcsSequence(planShared, shared)
+  const lcsSequence = lcsIds.map(id => ({ id, name: planNames.get(id) || id,
+    planOrder: planPosition.get(id), actualOrder: actualPosition.get(id) }))
   const planSequence = flowComparisonTemplate.value.points.map((point, index) => {
     const id = String(point.facilityId)
     return { id, name: point.facilityName || id, order: index + 1, actualOrder: actualPosition.get(id),
@@ -2649,8 +2646,8 @@ const flowComparisonDay = computed(() => {
       status: !planSet.has(id) ? 'extra' : position.get(id) === sharedActualPosition.get(id) ? 'matched' : 'moved' }
   })
   return { sharedCount: shared.length, correctPairs, pairCount, orderRate: pairCount ? correctPairs / pairCount : null,
-    lcsLength: flowLcsLength(planShared, shared), notCollected: plan.filter(id => !seen.has(id)), extra: actual.filter(id => !planSet.has(id)),
-    planSequence, actualSequence }
+    lcsLength: lcsIds.length, notCollected: plan.filter(id => !seen.has(id)), extra: actual.filter(id => !planSet.has(id)),
+    planSequence, actualSequence, lcsSequence }
 })
 const flowVehicleReport = ref(null)
 const flowGpsTrack = ref(null)
