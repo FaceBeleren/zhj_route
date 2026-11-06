@@ -1,19 +1,19 @@
 <template>
   <div class="manual-test-overlay" role="dialog" aria-modal="true" aria-label="手动调整测试">
     <section class="manual-test-dialog">
-      <header><div><h2>手动调整测试 · {{ title }}</h2><p>只调整趟内点位顺序，不删除点位、不改变起终点和趟次归属；{{ baseStage ? '确认后只更新本次联合规划的基础路线' : '仅计算不会覆盖原方案，点击“保存并替换”才应用' }}。</p></div><button :disabled="busy" @click="$emit('close')">关闭</button></header>
-      <p>只对比完整路线调整前后：道路里程优先，差异不足1米时比较总耗时；标记完整路线时间窗。不计算、不展示每日排班跳点，不保证全局最优。</p>
+      <header><div><h2>手动调整测试 · {{ title }}</h2><p>{{ singleTripMode ? '调整完整基础路线顺序，不受当前卸料分段限制' : '只调整趟内点位顺序，不删除点位、不改变起终点和趟次归属' }}；{{ singleTripMode ? '确认应用后才重算卸料与每日跳点' : baseStage ? '确认后只更新本次联合规划的基础路线' : '仅计算不会覆盖原方案，点击“保存并替换”才应用' }}。</p></div><button :disabled="busy" @click="$emit('close')">关闭</button></header>
+      <p>{{ singleTripMode ? '调整阶段只比较完整基础路线的道路里程与耗时；时间窗是未计中途卸料的乐观预检。应用最终顺序后，才重算卸料分段、每日跳点和最终时间窗。' : '只对比完整路线调整前后：道路里程优先，差异不足1米时比较总耗时；标记完整路线时间窗。不计算、不展示每日排班跳点，不保证全局最优。' }}</p>
       <div class="manual-test-controls">
         <label>调整模式 <select v-model="adjustmentMode" :disabled="busy" @change="changeAdjustmentContext"><option value="manual">手动拖动</option><option value="selected">选点自动调整</option><option value="twoOpt">2-opt 自动调整</option></select></label>
-        <label>选择编辑趟次 <select v-model.number="tripIndex" :disabled="busy" @change="clearDrag"><option v-for="(route,index) in draft.routes" :key="index" :value="index">{{ route.vehicleName || '车辆' }} 第{{ route.tripNo || route.routeNo }}趟</option></select></label>
+        <label>{{ singleTripMode ? '编辑完整顺序' : '选择编辑趟次' }} <select v-model.number="tripIndex" :disabled="busy" @change="clearDrag"><option v-for="(route,index) in draft.routes" :key="index" :value="index">{{ route.vehicleName || '车辆' }} 第{{ route.tripNo || route.routeNo }}趟</option></select></label>
         <button :disabled="busy" @click="reset">恢复系统顺序</button>
         <button v-if="adjustmentMode === 'manual'" :disabled="busy" @click="calculate">{{ busy ? '正在计算…' : '确定并计算对比' }}</button>
-        <button :disabled="busy || (adjustmentMode !== 'manual' && (!comparison || !selectedComparison))" @click="applyManual">{{ baseStage ? '更新基础路线（全部趟次）' : '保存并替换当前方案（全部趟次）' }}</button>
-        <button v-if="!baseStage" :disabled="busy || (adjustmentMode !== 'manual' && (!comparison || !selectedComparison))" @click="saveManual">另存到方案库</button>
+        <button :disabled="busy || (adjustmentMode !== 'manual' && (!comparison || !selectedComparison))" @click="applyManual">{{ singleTripMode ? '应用最终顺序并重算卸料' : baseStage ? '更新基础路线（全部趟次）' : '保存并替换当前方案（全部趟次）' }}</button>
+        <button v-if="!baseStage && !singleTripMode" :disabled="busy || (adjustmentMode !== 'manual' && (!comparison || !selectedComparison))" @click="saveManual">另存到方案库</button>
       </div>
       <div v-if="adjustmentMode === 'selected'" class="manual-test-selection">
-        <p>已选{{ selectedTokens.size }}点：{{ selectedNames.join('、') || '请勾选疑似不合理的收运点' }}。只做趟内调整，不改变趟次归属；未选点保持相对顺序，不能跨越固定锚点。</p>
-        <button :disabled="busy" @click="selectTripPoints">全选当前趟收运点</button>
+        <p>已选{{ selectedTokens.size }}点：{{ selectedNames.join('、') || '请勾选疑似不合理的收运点' }}。{{ singleTripMode ? '可在完整基础顺序的任意收运点间重排；中途卸料位置稍后重算。' : '只做趟内调整，不改变趟次归属；未选点保持相对顺序，不能跨越固定锚点。' }}</p>
+        <button :disabled="busy" @click="selectTripPoints">{{ singleTripMode ? '全选完整路线收运点' : '全选当前趟收运点' }}</button>
         <button :disabled="busy" @click="selectedTokens = new Set()">清空选择</button>
         <button :disabled="busy || !selectedTokens.size" @click="optimizeSelection">开始优化所选点</button>
         <button v-if="autoRunning" @click="cancelSelection">取消计算</button>
@@ -21,9 +21,9 @@
         <p v-if="autoMessage">{{ autoMessage }}</p>
       </div>
       <div v-if="adjustmentMode === 'twoOpt'" class="manual-test-selection">
-        <p>优化当前选中趟次：逐个尝试连续区段反转，采用里程更短（差异不足1米时耗时更少）且通过完整路线时间窗、载重和工作时长检查的候选；不跨固定锚点。</p>
+        <p>{{ singleTripMode ? '在完整基础路线尝试区段反转；此阶段不按卸料分段和载重约束候选，时间窗仅是未卸料的乐观预检。' : '优化当前选中趟次：逐个尝试连续区段反转，采用里程更短（差异不足1米时耗时更少）且通过完整路线时间窗、载重和工作时长检查的候选；不跨固定锚点。' }}</p>
         <label>搜索时限 <select v-model.number="twoOptMinutes" :disabled="busy"><option :value="1">1分钟</option><option :value="5">5分钟</option><option :value="10">10分钟</option><option :value="30">30分钟</option></select></label>
-        <button :disabled="busy" @click="optimizeTwoOptRoute">开始 2-opt 优化当前趟</button>
+        <button :disabled="busy" @click="optimizeTwoOptRoute">{{ singleTripMode ? '开始 2-opt 优化完整路线' : '开始 2-opt 优化当前趟' }}</button>
         <button v-if="autoRunning" @click="cancelSelection">取消计算</button>
         <button v-if="autoCandidate" :disabled="busy" @click="adoptSelectedCandidate">采用候选到编辑列表</button>
         <p>按所选时限搜索，不限制候选数量；没有进一步改善会提前结束。基准复算及在途道路请求另计；达到时限返回已检查结果，不保证全局最优。</p>
@@ -36,8 +36,8 @@
         <p>已运行{{ Math.floor(autoElapsed / 1000) }}秒。{{ adjustmentMode === 'twoOpt' ? '有改善就继续搜索；' : '不进行多轮完整路线候选搜索；' }}取消不会采用部分结果。</p>
         <progress v-if="autoRunning" aria-label="正在搜索选点调整"></progress>
       </div>
-      <p>{{ adjustmentMode === 'twoOpt' ? '固定当前趟次起终点和中间锚点，尝试区段反转；其他趟次保持顺序，完整路线统一复算。' : adjustmentMode === 'selected' ? '取出所选点，按道路增程最小的位置逐个重新插入一次；未选点保持相对顺序，不跨趟、不跨固定锚点。只展示完整路线前后对比，不进行多轮候选搜索，也不计算每日跳点。' : '拖动点位到目标行的上方或下方调整顺序，也可使用前移／后移按钮。固定锚点不能移动或跨越；拖动后需点击“确定并计算对比”。' }}</p>
-      <p>{{ baseStage ? '更新后的基础路线将用于第二阶段插入时间窗点；当前正式方案不会改变。仅在开始插入之前可以修改。' : '“保存并替换”会将手动路线应用到当前方案的地图、统计与导出；“另存到方案库”独立持久保存。不论是否更优、是否超窗都允许操作，超窗提示仍保留。' }}{{ adjustmentMode === 'twoOpt' ? '请先点击“开始 2-opt 优化当前趟”生成预览，再保存或采用到编辑列表。' : adjustmentMode === 'selected' ? '请先点击“开始优化所选点”取得候选；采用到编辑列表后会切回手动拖动模式，可继续编辑和复算。' : '尚未计算时会先计算，失败则保留编辑内容。' }}</p>
+      <p>{{ adjustmentMode === 'twoOpt' ? (singleTripMode ? '固定完整路线起终点，在全部收运点之间尝试区段反转；不按当前卸料分段限制。' : '固定当前趟次起终点和中间锚点，尝试区段反转；其他趟次保持顺序，完整路线统一复算。') : adjustmentMode === 'selected' ? (singleTripMode ? '取出所选点，按基础道路增程最小的位置重新插入；未选点保持相对顺序。' : '取出所选点，按道路增程最小的位置逐个重新插入一次；未选点保持相对顺序，不跨趟、不跨固定锚点。') : '拖动点位到目标行的上方或下方调整顺序，也可使用前移／后移按钮。固定锚点不能移动或跨越；拖动后需点击“确定并计算对比”。' }}</p>
+      <p>{{ singleTripMode ? '应用时将重新计算完整模板和每日跳点的卸料段、道路与时间窗；最终仍有超窗会标记，不会冒充通过。' : baseStage ? '更新后的基础路线将用于第二阶段插入时间窗点；当前正式方案不会改变。仅在开始插入之前可以修改。' : '“保存并替换”会将手动路线应用到当前方案的地图、统计与导出；“另存到方案库”独立持久保存。不论是否更优、是否超窗都允许操作，超窗提示仍保留。' }}{{ adjustmentMode === 'twoOpt' ? '请先点击“开始 2-opt 优化当前趟”生成预览，再保存或采用到编辑列表。' : adjustmentMode === 'selected' ? '请先点击“开始优化所选点”取得候选；采用到编辑列表后会切回手动拖动模式，可继续编辑和复算。' : '尚未计算时会先计算，失败则保留编辑内容。' }}</p>
       <div class="manual-test-editor">
         <div v-for="(point,index) in draft.routes[tripIndex].points" :key="point.manualToken" class="manual-test-point" :class="{ 'is-dragging': dragging?.index === index, 'drop-before': dropTarget?.index === index && !dropTarget.after, 'drop-after': dropTarget?.index === index && dropTarget.after }" :draggable="adjustmentMode === 'manual' && !busy && movable(index)" @dragstart="startDrag($event,index)" @dragover="overDrag($event,index)" @drop="dropPoint($event,index)" @dragend="clearDrag">
           <span><input v-if="adjustmentMode === 'selected'" type="checkbox" :checked="selectedTokens.has(point.manualToken)" :disabled="busy || !movable(index)" @change="toggleSelected(point.manualToken)" /><span v-if="movable(index)" class="drag-handle" aria-hidden="true">⠿</span>{{ index + 1 }}. {{ point.facilityName || point.facilityId }} <small>{{ windowLabel(point) }}</small></span>
@@ -47,14 +47,14 @@
       <p v-if="busy">{{ progress }}</p><p v-if="error" class="manual-test-error">{{ error }}</p>
       <template v-if="comparison">
         <h3>{{ comparison.verdict.message }}</h3>
-        <p>模板及所校验场景合计：{{ selectedComparison ? '基准' : '系统' }}{{ comparison.generatedConflicts }}次冲突，{{ selectedComparison ? '候选' : '手动' }}{{ comparison.manualConflicts }}次冲突。绿色/红色表示相对比较结果，不能代替时间窗校验；红色点位为到达超窗。</p>
+        <p>{{ singleTripMode ? '未计中途卸料的基础路线预检：' : '模板及所校验场景合计：' }}{{ selectedComparison ? '基准' : '系统' }}{{ comparison.generatedConflicts }}次冲突，{{ selectedComparison ? '候选' : '手动' }}{{ comparison.manualConflicts }}次冲突。绿色/红色表示相对比较结果；{{ singleTripMode ? '应用后才会重算卸料和每日时间窗，此处通过不代表最终通过。' : '不能代替时间窗校验；红色点位为到达超窗。' }}</p>
         <label v-if="comparison.scenarios.length > 1">对比场景 <select v-model.number="scenarioIndex"><option v-for="(scenario,index) in comparison.scenarios" :value="index" :key="scenario.day">{{ scenario.label }} · 系统{{ scenario.generated.violations }} / 手动{{ scenario.manual.violations }}处冲突</option></select></label>
         <p>本场景总里程差（手动－系统）：{{ signedDistance(scenario.manual.distance - scenario.generated.distance) }}；总耗时差：{{ signedMinutes(scenario.manual.duration - scenario.generated.duration) }}。</p>
         <p>两侧地图拖动、缩放同步。右侧紫色点标记本次勾选、亲手挪动或2-opt改变位置的点；若这些点超窗，则加红色描边。路线颜色仍表示比较结果。</p>
         <div class="manual-test-results">
           <article v-for="side in ['generated','manual']" :key="side" :style="{ borderColor: color(side) }">
             <h3 :style="{ color: color(side) }">{{ baseStage ? (side === 'generated' ? '原基础路线' : '调整后基础路线') : selectedComparison ? (side === 'generated' ? '调整前路线（本次编辑基准）' : (adjustmentMode === 'twoOpt' ? '2-opt 调整候选' : '选点调整候选')) : (side === 'generated' ? '系统生成路线（原序道路复算）' : '手动调整路线') }}</h3>
-            <p>全部趟次合计：{{ distance(scenario[side].distance) }} · {{ minutes(scenario[side].duration) }} · 时间窗冲突{{ scenario[side].violations }}处<template v-if="scenario[side].missing"> · 应收未分配{{ scenario[side].missing }}点</template></p>
+            <p>{{ singleTripMode ? '基础路线（未计卸料）：' : '全部趟次合计：' }}{{ distance(scenario[side].distance) }} · {{ minutes(scenario[side].duration) }} · 时间窗冲突{{ scenario[side].violations }}处<template v-if="scenario[side].missing"> · 应收未分配{{ scenario[side].missing }}点</template></p>
             <p>当前展示第{{ selectedRoute(side).tripNo || selectedRoute(side).routeNo }}趟：{{ distance(selectedRoute(side).distance) }} · {{ minutes(selectedRoute(side).durationMinutes) }}</p>
             <RouteMapPanel :key="`${calculationId}-${scenarioIndex}-${tripIndex}-${side}`" :view-link="comparisonViewLink" :original-points="[]" :optimized-points="mapPoints(side)" :optimized-segments="selectedRoute(side).roadSegments" :show-original="false" :optimized-label="selectedComparison ? (side === 'generated' ? '调整前基准' : (adjustmentMode === 'twoOpt' ? '2-opt 候选' : '选点候选')) : (side === 'generated' ? '系统路线' : '手动路线')" :optimized-color="color(side)" :marker-color="color(side)" />
             <div class="manual-test-arrivals"><table><thead><tr><th>顺序</th><th>点位</th><th>时间窗</th><th>到达</th><th>校验</th></tr></thead><tbody><tr v-for="point in selectedRoute(side).points" :key="point.manualToken" :class="{ conflict: point.timeWindowViolation }"><td>{{ point.order }}</td><td>{{ point.facilityName || point.facilityId }}</td><td>{{ windowLabel(point) || '—' }}</td><td>{{ point.comparisonArrivalTime }}</td><td>{{ point.timeWindowViolation ? '超窗' : point.role === 'MIDDLE' ? '通过' : '起终点' }}</td></tr></tbody></table></div>
@@ -73,7 +73,7 @@ import { buildManualComparison, buildManualSavePayload, COMPARISON_COLORS, creat
 import { optimizeTwoOpt } from '../twoOptAdjustment.js'
 import { adjustablePoint, adjustSelectedOnce } from '../selectedPointAdjustment.js'
 
-const props = defineProps({ result: Object, options: Object, saveContext: Object, applyResult: Function, baseStage: { type: Boolean, default: false }, scheduleDays: { type: Array, default: () => [] }, title: String, initialRouteNo: Number, resolveRoad: Function, resolveSelection: Function, buildSchedules: Function, isViolation: Function })
+const props = defineProps({ singleTripMode: { type: Boolean, default: false }, result: Object, options: Object, saveContext: Object, applyResult: Function, baseStage: { type: Boolean, default: false }, scheduleDays: { type: Array, default: () => [] }, title: String, initialRouteNo: Number, resolveRoad: Function, resolveSelection: Function, buildSchedules: Function, isViolation: Function })
 const emit = defineEmits(['close', 'save'])
 const original = createManualDraft(props.result)
 const draft = ref(createManualDraft(props.result))
@@ -129,7 +129,7 @@ async function optimizeTwoOptRoute() {
   autoTimer = setInterval(() => { autoElapsed.value = Date.now() - started }, 1000)
   try {
     const result = await optimizeTwoOpt({ draft: before, routeIndex: activeTrip, options: props.options, timeLimitMs: twoOptMinutes.value * 60000,
-      resolveRoad: props.resolveRoad, buildSchedules: props.buildSchedules, isViolation: props.isViolation, signal: autoController.signal,
+      resolveRoad: props.resolveRoad, buildSchedules: props.buildSchedules, isViolation: props.isViolation, singleTripMode: props.singleTripMode, signal: autoController.signal,
       onProgress: value => { if (id === requestId) { autoProgress.value = value; progress.value = value.message } } })
     if (id !== requestId) return
     comparison.value = result.comparison; selectedComparison.value = true; scenarioIndex.value = 0; calculationId.value++
@@ -206,7 +206,9 @@ async function applyManual() {
   if (adjustmentMode.value !== 'manual' && (!comparison.value || !selectedComparison.value)) { error.value = '请先点击当前模式的优化按钮生成候选'; return }
   if (!comparison.value) await calculate()
   if (!comparison.value) return
-  if (comparison.value.manualConflicts && !window.confirm(`当前候选在所校验场景有${comparison.value.manualConflicts}次时间窗冲突，仍要替换当前方案吗？`)) return
+  if (comparison.value.manualConflicts && !window.confirm(props.singleTripMode
+    ? `基础路线预检有${comparison.value.manualConflicts}处时间窗冲突。应用后将重新计算卸料和每日时间窗，仍要应用吗？`
+    : `当前候选在所校验场景有${comparison.value.manualConflicts}次时间窗冲突，仍要替换当前方案吗？`)) return
   busy.value = true; error.value = ''; progress.value = props.baseStage ? '正在更新第一阶段基础路线…' : '正在替换当前方案并刷新每日路线…'
   try {
     // Always apply the full manual result, never the currently selected daily mask.
@@ -223,6 +225,7 @@ async function calculate() {
   try {
     const result = await buildManualComparison({ original, draft: draft.value, scheduleDays: [], options: props.options, resolveRoad: props.resolveRoad, buildSchedules: props.buildSchedules, isViolation: props.isViolation, onProgress: message => { if (id === requestId) progress.value = message } })
     if (id !== requestId) return
+    if (props.singleTripMode) result.verdict.message = '完整基础路线对比完成；时间窗仅为未卸料的乐观预检，应用后按实际卸料与每日跳点复核。'
     comparison.value = result; scenarioIndex.value = 0; calculationId.value++
   } catch (err) { if (id === requestId) error.value = `对比失败，原方案未改变：${err.message || String(err)}` }
   finally { if (id === requestId) busy.value = false }

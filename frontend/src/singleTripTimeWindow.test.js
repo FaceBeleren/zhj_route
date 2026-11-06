@@ -38,3 +38,19 @@ test('时间窗修正同时检查完整模板和每日卸料后的到达与收�
   assert.equal(result.complete.route.points[1].facilityId, 'D')
   assert.deepEqual(result.days[1].route.points.filter(stop => stop.role === 'MIDDLE').map(stop => stop.facilityId), ['D', 'A', 'C'])
 })
+
+
+test('完整顺序跨过原卸料边界后，重新划分完整模板和每日路线', async () => {
+  const original = { routeNo: 1, tripNo: 1, points: [
+    point('S', 0, 0, 'START'), point('A', 1, 6), point('B', 2, 6), point('C', 3, 2), point('T', 4, 0, 'END')
+  ] }
+  const before = await buildSingleTripScenario(original, null, ...args)
+  assert.deepEqual(before.detours.breaks, [1])
+  const edited = { ...before.route, points: [before.route.points[0], before.route.points[3], before.route.points[1], before.route.points[2], before.route.points[4]] }
+  const complete = await buildSingleTripScenario(edited, null, ...args)
+  const day = await buildSingleTripScenario(edited, new Set(['B', 'C']), ...args)
+  assert.deepEqual(complete.route.points.map(stop => stop.facilityId), ['S', 'C', 'A', 'B', 'T'])
+  assert.deepEqual(complete.detours.breaks, [2])
+  assert.deepEqual(day.route.points.map(stop => stop.facilityId), ['S', 'C', 'B', 'T'])
+  assert.deepEqual(day.detours.breaks, [])
+})

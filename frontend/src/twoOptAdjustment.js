@@ -20,14 +20,14 @@ export function* twoOptCandidates(input, routeIndex) {
   }
 }
 
-export async function optimizeTwoOpt({ draft, routeIndex, options, resolveRoad, buildSchedules, isViolation, signal, onProgress = () => {}, timeLimitMs = 300000, maxEvaluations = Infinity }) {
+export async function optimizeTwoOpt({ draft, routeIndex, options, resolveRoad, buildSchedules, isViolation, singleTripMode = false, signal, onProgress = () => {}, timeLimitMs = 300000, maxEvaluations = Infinity }) {
   const baseline = clone(draft), started = Date.now()
   if (!baseline.routes[routeIndex]) throw new Error('请选择有效趟次')
   for (const route of baseline.routes) {
-    if (!Number.isFinite(Number(route.maxCapacityKg)) || Number(route.maxCapacityKg) <= 0) throw new Error('车辆最大载重缺失或无效，不能确认调整可行性')
+    if (!singleTripMode && (!Number.isFinite(Number(route.maxCapacityKg)) || Number(route.maxCapacityKg) <= 0)) throw new Error('车辆最大载重缺失或无效，不能确认调整可行性')
     if (route.points.some(p => p.role === 'MIDDLE' && (p.estimatedWeightKg == null || !Number.isFinite(Number(p.estimatedWeightKg)) || Number(p.estimatedWeightKg) < 0))) throw new Error('点位重量缺失或无效')
   }
-  if (options.workHours != null && (!Number.isFinite(Number(options.workHours)) || Number(options.workHours) <= 0)) throw new Error('工作时长必须为正数')
+  if (!singleTripMode && options.workHours != null && (!Number.isFinite(Number(options.workHours)) || Number(options.workHours) <= 0)) throw new Error('工作时长必须为正数')
   const check = () => { if (signal?.aborted) throw new DOMException('已取消，未采用部分结果', 'AbortError') }
   const edges = new Map()
   const edgeKey = (a, b) => JSON.stringify([a.manualToken, a.longitude, a.latitude, b.manualToken, b.longitude, b.latitude])
@@ -76,7 +76,7 @@ export async function optimizeTwoOpt({ draft, routeIndex, options, resolveRoad, 
       const checked = await evaluate(candidate)
       check(); evaluations++
       const next = checked.scenarios[0].manual
-      if (better(next, metrics) && checked.manualConflicts === 0 && operationallyFeasible(checked, options)) {
+      if (better(next, metrics) && (singleTripMode || (checked.manualConflicts === 0 && operationallyFeasible(checked, options)))) {
         current = candidate; comparison = checked; metrics = next; accepted++; found = true
       }
       report(`已检查${evaluations}个区段反转，采用${accepted}次改善；第${rounds}轮`)
@@ -88,9 +88,9 @@ export async function optimizeTwoOpt({ draft, routeIndex, options, resolveRoad, 
   check()
   const changedTokens = new Set()
   current.routes[routeIndex].points.forEach((point, index) => { if (point.manualToken !== baseline.routes[routeIndex].points[index].manualToken) changedTokens.add(point.manualToken) })
-  const feasible = operationallyFeasible(comparison, options) && comparison.manualConflicts === 0
+  const feasible = singleTripMode || (operationallyFeasible(comparison, options) && comparison.manualConflicts === 0)
   if (!feasible && comparison.verdict.manual === 'green') comparison.verdict.manual = 'yellow'
-  const message = `2-opt完成：检查${evaluations}次，采用${accepted}次改善；${limited ? '达到搜索上限，返回已检查结果' : '允许范围内未找到进一步改善'}。仅调整当前趟次，不跨固定锚点；完整路线时间窗冲突${comparison.manualConflicts}次，未检查每日跳点。${!feasible ? '当前结果未通过完整路线约束检查。' : ''}`
+  const message = `2-opt完成：检查${evaluations}次，采用${accepted}次改善；${limited ? '达到搜索上限，返回已检查结果' : '允许范围内未找到进一步改善'}。${singleTripMode ? '只按完整基础路线道路增程搜索，不以卸料段、载重、时间窗筛选候选' : '仅调整当前趟次，不跨固定锚点'}；基础路线时间窗预检冲突${comparison.manualConflicts}次，未检查每日跳点。${!feasible ? '当前结果未通过完整路线约束检查。' : ''}`
   report(message)
   return { candidate: current, comparison, changedTokens: [...changedTokens], message, evaluations, rounds, accepted, limited, elapsedMs: Date.now() - started }
 }
