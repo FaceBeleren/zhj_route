@@ -361,7 +361,7 @@ public class RouteMapPathService {
         params.put("ak", baiduAk);
         params.put("origin", from.getLatitude() + "," + from.getLongitude());
         params.put("destination", to.getLatitude() + "," + to.getLongitude());
-        params.put("tactics", "0");
+        params.put("tactics", "3");
         params.put("timestamp", String.valueOf(System.currentTimeMillis()));
         if (!isBlank(baiduSk)) {
             String sn = sign(params);
