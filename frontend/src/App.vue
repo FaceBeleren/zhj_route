@@ -187,11 +187,12 @@
               <strong>单日规划顺序对照 · {{ flowComparisonTemplate.label }}</strong>
               <p class="muted">模板 {{ flowComparisonTemplate.points.length }} 点；地图灰色虚线为规划道路折线，按来源方案分段展示。选择上方日期和一辆车；当天未收的模板点只标记为未收，不判为漏收，处理厂和卸料趟界不参与顺序比较。</p>
               <p v-if="flowComparisonMismatch" class="flow-warning">{{ flowComparisonMismatch }}</p>
-              <template v-else-if="flowGpsCarCode && flowComparisonDay">
-                <div class="flow-actual-distance-grid">
-                  <div><span>当天顺序拟合度</span><strong>{{ flowComparisonDay.sharedCount < 3 ? '证据不足' : (flowComparisonDay.orderRate * 100).toFixed(1) + '%' }}</strong><small>共同收运 {{ flowComparisonDay.sharedCount }} 点 · 符合顺序 {{ flowComparisonDay.correctPairs }}/{{ flowComparisonDay.pairCount }} 对 · LCS {{ flowComparisonDay.lcsLength }}/{{ flowComparisonDay.sharedCount }}</small></div>
-                  <div><span>当天所选 GPS 图层里程</span><strong>{{ flowGpsMileage ? (flowGpsMileage.totalMeters / 1000).toFixed(2) + ' km' : '请查询轨迹并选择图层' }}</strong><small>按下方勾选的 GPS 图层逐段测距；首趟前及末趟后默认不计入。</small></div>
-                </div>
+              <div v-if="flowComparisonTemplate.plannedMileage || (!flowComparisonMismatch && flowGpsCarCode && flowComparisonDay)" class="flow-actual-distance-grid" :class="{ 'flow-compare-metrics': flowComparisonTemplate.plannedMileage }">
+                <div v-if="!flowComparisonMismatch && flowGpsCarCode && flowComparisonDay"><span>当天顺序拟合度</span><strong>{{ flowComparisonDay.sharedCount < 3 ? '证据不足' : (flowComparisonDay.orderRate * 100).toFixed(1) + '%' }}</strong><small>共同收运 {{ flowComparisonDay.sharedCount }} 点 · 符合顺序 {{ flowComparisonDay.correctPairs }}/{{ flowComparisonDay.pairCount }} 对 · LCS {{ flowComparisonDay.lcsLength }}/{{ flowComparisonDay.sharedCount }}</small></div>
+                <PlannedMileageCard v-if="flowComparisonTemplate.plannedMileage" :mileage="flowComparisonTemplate.plannedMileage" />
+                <div v-if="!flowComparisonMismatch && flowGpsCarCode && flowComparisonDay"><span>当天所选 GPS 图层里程</span><strong>{{ flowGpsMileage ? (flowGpsMileage.totalMeters / 1000).toFixed(2) + ' km' : '请查询轨迹并选择图层' }}</strong><small>按下方勾选的 GPS 图层逐段测距；首趟前及末趟后默认不计入。</small></div>
+              </div>
+              <template v-if="!flowComparisonMismatch && flowGpsCarCode && flowComparisonDay">
                 <p class="muted">模板内当天未收 {{ flowComparisonDay.notCollected.length }} 点；模板外收运 {{ flowComparisonDay.extra.length }} 点。{{ flowComparisonDay.sharedCount < 3 ? '共同点不足 3 个，不据此判断是否按顺序执行。' : '' }}</p>
                 <div class="flow-compare-sequences">
                   <div class="flow-compare-sequence"><h3>规划顺序 <small>{{ flowComparisonDay.planSequence.length }} 点</small></h3>
@@ -1336,9 +1337,10 @@
               <p v-if="singleTripSelected?.disabled">第{{ singleTripDay }}天已停排，无收运路线。</p>
               <p v-if="singleTripSelected?.error" style="color:red">第{{ singleTripDay }}天道路计算失败：{{ singleTripSelected.error }}</p>
               <template v-else-if="singleTripSelected?.route && !singleTripSelected.disabled">
-                <button type="button" class="secondary" @click="captureFlowComparisonTemplate(`全点单趟 · ${singleTripDay === 0 ? '完整模板' : `第${singleTripDay}天`}`, [singleTripSelected.route], singleTripOverviewLayers)" :disabled="flowComparisonCaptureLoading">{{ flowComparisonCaptureLoading ? '正在读取规划道路…' : '以当前日期顺序对照一天流水' }}</button><p v-if="flowComparisonCaptureError" class="warning">{{ flowComparisonCaptureError }}</p>
+                <button type="button" class="secondary" @click="captureFlowComparisonTemplate(`全点单趟 · ${singleTripDay === 0 ? '完整模板' : `第${singleTripDay}天`}`, [singleTripSelected.route], singleTripOverviewLayers, null, singleTripMileage)" :disabled="flowComparisonCaptureLoading">{{ flowComparisonCaptureLoading ? '正在读取规划道路…' : '以当前日期顺序对照一天流水' }}</button><p v-if="flowComparisonCaptureError" class="warning">{{ flowComparisonCaptureError }}</p>
                 <p>{{ singleTripDay === 0 ? '完整模板点位' : '当天收运点' }} {{ singleTripSelected.route.pointCount }} 个<template v-if="singleTripIncludeDetours">；中途卸料 {{ singleTripSelected.detours.breaks.length }} 次；目标装载量 {{ singleTripSelected.detours.thresholdKg.toFixed(1) }} kg</template>。</p>
-                <p>里程：基础 {{ formatDistance(singleTripDisplay.baseDistance) }} + 中途卸料增量 {{ formatDistance(singleTripDisplay.detourDistance) }} + 最终返场 {{ formatDistance(singleTripDisplay.returnDistance) }} = {{ formatDistance(singleTripDisplay.totalDistance) }}；耗时：基础 {{ formatDuration(singleTripDisplay.baseDurationMinutes) }} + 中途卸料增量 {{ formatDuration(singleTripDisplay.detourDurationMinutes) }} + 最终返场 {{ formatDuration(singleTripDisplay.returnDurationMinutes) }} = {{ formatDuration(singleTripDisplay.totalDurationMinutes) }}。紫色为已开启的新增道路；中途卸料增量已扣除被替换的原路段。</p>
+                <div class="flow-actual-distance-grid"><PlannedMileageCard :mileage="singleTripMileage" /></div>
+                <p>耗时：基础 {{ formatDuration(singleTripDisplay.baseDurationMinutes) }} + 中途卸料增量 {{ formatDuration(singleTripDisplay.detourDurationMinutes) }} + 最终返场 {{ formatDuration(singleTripDisplay.returnDurationMinutes) }} = {{ formatDuration(singleTripDisplay.totalDurationMinutes) }}。紫色为已开启的新增道路。</p>
                 <p>按当前估重分段：{{ singleTripSelectedTimeline.legs.length }} 段；当前展示场景时间窗冲突 {{ singleTripPlannedTimeline.violationCount }} 处。时间窗按到达与收完校验；关闭中途卸料开关时，地图与行程时间不计卸料，修正校验仍按开启状态计算。</p>
                 <div class="route-display-toggle"><span>行程地图</span><button type="button" :class="{ active: singleTripOverview }" @click="singleTripOverview = true">全部行程总览</button><button type="button" :class="{ active: !singleTripOverview }" @click="singleTripOverview = false">单段详情</button></div>
                 <div class="multi-route-cards">
@@ -2527,7 +2529,8 @@ import ClusterMapPanel from './components/ClusterMapPanel.vue'
 import FlowAnalysisPdfReport from './components/FlowAnalysisPdfReport.vue'
 import { balanceAssignmentPhases } from './assignmentPhases.js'
 import { maskFixedTripTemplate, buildFixedDailyRouteResult } from './fixedTripTemplate.js'
-import { buildSingleTripDetours, composeSingleTripDisplay } from './singleTripDetours.js'
+import { buildSingleTripDetours, composeSingleTripDisplay, summarizeSingleTripMileage } from './singleTripDetours.js'
+import PlannedMileageCard from './components/PlannedMileageCard.vue'
 import { singleTripTimeline, repairSingleTripPlan, buildSingleTripScenario } from './singleTripTimeWindow.js'
 import { buildSingleTripExport } from './singleTripExport.js'
 import { buildRouteOverviewLayers, hasCompleteRoadGeometry, routeOverviewPoints } from './routeOverview.js'
@@ -2593,7 +2596,7 @@ const flowComparisonMismatch = computed(() => {
   if (template.routeId && String(template.routeId) !== String(flowAnalysisRouteId.value || '')) return '规划模板与当前所选岗位不一致，不能输出顺序拟合结论；请选回来源岗位。'
   return ''
 })
-async function captureFlowComparisonTemplate(label, routes, mapLayers = [], returnTrip = null) {
+async function captureFlowComparisonTemplate(label, routes, mapLayers = [], returnTrip = null, plannedMileage = null) {
   if (flowComparisonCaptureLoading.value) return
   flowComparisonCaptureLoading.value = true
   flowComparisonCaptureError.value = ''
@@ -2635,7 +2638,8 @@ async function captureFlowComparisonTemplate(label, routes, mapLayers = [], retu
     frequencyLabel: assignmentFrequencyLabel(point), frequencyTitle: assignmentFrequencyTitle(point) }))
   if (!points.length) return
   const template = { label, unitId: selectedSplitCompany.value?.id, routeId: selectedSplitRoute.value?.id,
-    vehicleCode: assignmentVehicleCode.value, parkingId: optimizeOptions.startFacilityId, points, mapLayers: plannedLayers }
+    vehicleCode: assignmentVehicleCode.value, parkingId: optimizeOptions.startFacilityId, points, mapLayers: plannedLayers,
+    plannedMileage: plannedMileage ? deepClone(plannedMileage) : null }
   if (!flowCompareMode.value) flowComparePreviousFilters.value = { startDate: flowAnalysisFilters.startDate, endDate: flowAnalysisFilters.endDate }
   flowComparisonTemplate.value = template
   flowShowPlanLayer.value = true
@@ -3473,6 +3477,7 @@ const singleTripLegs = computed(() => {
   const returnTrip = singleTripIncludeReturn.value ? singleTripSelected.value?.detours?.returnTrip : null
   return returnTrip?.roadSegments?.length ? [...legs, { no: legs.length + 1, points: returnTrip.points, segments: returnTrip.roadSegments, distance: returnTrip.distance, durationMinutes: returnTrip.durationMinutes, pointCount: 0, violationCount: 0, returnOnly: true }] : legs
 })
+const singleTripMileage = computed(() => summarizeSingleTripMileage(singleTripLegs.value))
 const singleTripSelectedLeg = computed(() => singleTripLegs.value.find(leg => leg.no === singleTripLegNo.value) || singleTripLegs.value[0])
 const singleTripOverviewLayers = computed(() => singleTripLegs.value.map((leg, index) => ({ key: leg.no, label: leg.returnOnly ? '最终返场' : `第${leg.no}段`, color: leg.returnOnly ? '#8b5cf6' : ['#1976d2', '#f97316', '#10b981', '#d946ef', '#eab308'][index % 5], points: leg.points, segments: leg.segments })))
 const singleTripOverviewPlaybackChoices = computed(() => [{ key: 'optimized', label: '全部行程',

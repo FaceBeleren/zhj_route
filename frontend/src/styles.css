@@ -3705,6 +3705,7 @@ tbody tr.active {
 
 .flow-one-day-compare { display: grid; gap: 8px; padding: 12px; border: 1px solid #b9d5ef; border-radius: 8px; background: #f7fbff; }
 .flow-one-day-compare p { margin: 0; }
+.flow-compare-metrics { grid-template-columns: repeat(auto-fit, minmax(min(100%, 250px), 1fr)); align-items: start; }
 .flow-compare-sequences { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
 .flow-compare-sequence { min-width: 0; border: 1px solid #dce7f1; border-radius: 7px; background: #fff; overflow: hidden; }
 .flow-compare-sequence h3 { margin: 0; padding: 9px 12px; font-size: 14px; border-bottom: 1px solid #e5edf5; }

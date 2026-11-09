@@ -61,6 +61,30 @@ export async function buildSingleTripDetours(route, ratedCapacityKg, targetLoadR
     expandedSegments, detourSegments, returnTrip }
 }
 
+export function summarizeSingleTripMileage(legs) {
+  const rows = []
+  for (const leg of legs) {
+    const distance = segments => segments.reduce((sum, segment) => sum + Number(segment.distance), 0)
+    const add = (label, segments) => rows.push({ label, meters: distance(segments) })
+    if (leg.returnOnly) {
+      add('最终返场', leg.segments)
+      continue
+    }
+    const label = '第' + leg.no + '段'
+    const collectionIndices = leg.points.flatMap((point, index) => point.role === 'MIDDLE' && !point.scheduleSkipped ? [index] : [])
+    if (!collectionIndices.length) {
+      add(label + ' · 场站间行驶（无收运点）', leg.segments)
+      continue
+    }
+    const first = collectionIndices[0]
+    const last = collectionIndices.at(-1)
+    add(label + ' · 出发到首点', leg.segments.slice(0, first))
+    add(label + ' · 首点到末点', leg.segments.slice(first, last))
+    add(label + ' · 末点到场站', leg.segments.slice(last))
+  }
+  return { rows, totalMeters: rows.reduce((sum, row) => sum + row.meters, 0) }
+}
+
 export function composeSingleTripDisplay(route, detours, includeDetours, includeReturn) {
   const returnTrip = includeReturn ? detours.returnTrip : null
   const detourDistance = includeDetours ? detours.extraDistance : 0
