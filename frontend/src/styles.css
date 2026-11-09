@@ -3732,3 +3732,20 @@ tbody tr.active {
 .flow-lcs-detail p small, .flow-lcs-detail > small { color: #64798c; }
 .flow-lcs-detail p i { font-style: normal; color: #94a3b8; margin-left: 5px; }
 @media (max-width: 800px) { .flow-compare-sequences { grid-template-columns: 1fr; } }
+
+.flow-batch-compare { display: grid; gap: 10px; margin: 14px 0; padding: 14px; border: 1px solid #b9d5ef; border-radius: 8px; background: #f7fbff; }
+.flow-batch-compare h3 { margin: 0 0 3px; font-size: 16px; }
+.flow-batch-compare p { margin: 0; }
+.flow-batch-controls { display: flex; flex-wrap: wrap; gap: 10px; }
+.flow-batch-controls label { display: grid; gap: 4px; min-width: 150px; font-size: 13px; }
+.flow-batch-controls input { min-width: 150px; }
+.flow-batch-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
+.flow-batch-table-scroll { max-height: 430px; overflow: auto; border: 1px solid #d7e3ed; border-radius: 6px; background: white; }
+.flow-batch-table { width: 100%; min-width: 1250px; border-collapse: collapse; font-size: 12px; }
+.flow-batch-table th { position: sticky; top: 0; z-index: 1; padding: 8px; text-align: left; color: white; background: #356481; white-space: nowrap; }
+.flow-batch-table td { padding: 7px 8px; border-bottom: 1px solid #e7eef4; vertical-align: top; }
+.flow-batch-table tbody tr:nth-child(even) { background: #f5f8fb; }
+.flow-batch-table td:nth-child(10), .flow-batch-table td:nth-child(11) { min-width: 190px; }
+.flow-batch-summary { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+.flow-batch-summary > div { display: grid; gap: 4px; padding: 10px; border: 1px solid #d7e3ed; border-radius: 6px; background: white; }
+@media (max-width: 800px) { .flow-batch-summary { grid-template-columns: 1fr; } }

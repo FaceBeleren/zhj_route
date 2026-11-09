@@ -211,6 +211,36 @@
               </template>
               <p v-else-if="!flowComparisonMismatch" class="muted">请选择一辆车后查看当天拟合情况。</p>
             </div>
+            <section v-if="flowCompareMode && flowComparisonTemplate" class="flow-batch-compare">
+              <div class="panel-head"><div><h3>批量统计交付前后</h3><small class="muted">同一规划模板、同一岗位和车辆；每天按该车全部趟次首次收运顺序计分。</small></div></div>
+              <div class="flow-batch-controls">
+                <label>交付前开始<input v-model="flowBatchDates.beforeStart" type="date" :disabled="flowBatchLoading" @change="clearFlowBatch" /></label>
+                <label>交付前结束<input v-model="flowBatchDates.beforeEnd" type="date" :disabled="flowBatchLoading" @change="clearFlowBatch" /></label>
+                <label>交付后开始<input v-model="flowBatchDates.afterStart" type="date" :disabled="flowBatchLoading" @change="clearFlowBatch" /></label>
+                <label>交付后结束<input v-model="flowBatchDates.afterEnd" type="date" :disabled="flowBatchLoading" @change="clearFlowBatch" /></label>
+              </div>
+              <p class="muted">GPS 口径：先在上方查询一天并勾选分段；批量统计沿用这些分段类型，自动覆盖各天对应的所有趟次。当前选择：{{ flowBatchTypeLabels }}。<span v-if="flowBatchMeta">本次结果采用：{{ flowBatchMeta.segmentLabels }}。</span>未查到的日期保留空值，不按零里程计算。</p>
+              <div class="flow-batch-actions">
+                <button type="button" :disabled="flowBatchLoading || !flowComparisonTemplate || !!flowComparisonMismatch || !flowGpsCarCode || !flowBatchSelectedTypes.size" @click="startFlowBatchCompare">批量统计并生成表格</button>
+                <button v-if="flowBatchLoading" type="button" class="secondary" @click="cancelFlowBatch">取消批量统计</button>
+                <button v-if="flowBatchMeta" type="button" class="secondary" @click="exportFlowBatchCompare">导出 Excel</button>
+                <span v-if="flowBatchProgress" class="muted">{{ flowBatchProgress }}</span>
+              </div>
+              <p v-if="flowBatchError" class="flow-warning">{{ flowBatchError }}</p>
+              <template v-if="flowBatchRows.length">
+                <div class="flow-batch-table-scroll">
+                  <table class="flow-batch-table"><thead><tr><th>阶段</th><th>日期</th><th>车辆</th><th>实际趟数</th><th>共同收运点</th><th>符合/可比顺序</th><th>拟合度</th><th>LCS</th><th>所选 GPS 里程</th><th>分段里程</th><th>备注</th></tr></thead>
+                    <tbody><tr v-for="row in flowBatchRows" :key="row.phase + row.date"><td>{{ row.phase }}</td><td>{{ row.date }}</td><td>{{ row.carCode }}</td><td>{{ row.tripCount || '—' }}</td><td>{{ row.tripCount ? row.sharedCount : '—' }}</td><td>{{ row.pairCount == null ? '—' : row.correctPairs + '/' + row.pairCount }}</td><td>{{ row.orderRate == null ? '证据不足' : (row.orderRate * 100).toFixed(1) + '%' }}</td><td>{{ row.lcsLength == null ? '—' : row.lcsLength + '/' + row.sharedCount }}</td><td>{{ row.gpsMeters == null ? '—' : (row.gpsMeters / 1000).toFixed(2) + ' km' }}</td><td>{{ row.segmentBreakdown || '—' }}</td><td>{{ row.note || '—' }}</td></tr></tbody>
+                  </table>
+                </div>
+                <div v-if="flowBatchMeta" class="flow-batch-summary">
+                  <div><strong>交付前</strong><span>有效顺序 {{ flowBatchBeforeSummary.scoreDays }}/{{ flowBatchBeforeSummary.days }} 天 · {{ flowBatchBeforeSummary.correctPairs }}/{{ flowBatchBeforeSummary.pairCount }} 对 · {{ flowBatchBeforeSummary.orderRate == null ? '—' : (flowBatchBeforeSummary.orderRate * 100).toFixed(1) + '%' }}</span><span>GPS 有效 {{ flowBatchBeforeSummary.gpsDays }} 天 · 日均 {{ flowBatchBeforeSummary.averageGpsKm == null ? '—' : flowBatchBeforeSummary.averageGpsKm.toFixed(2) + ' km' }}</span></div>
+                  <div><strong>交付后</strong><span>有效顺序 {{ flowBatchAfterSummary.scoreDays }}/{{ flowBatchAfterSummary.days }} 天 · {{ flowBatchAfterSummary.correctPairs }}/{{ flowBatchAfterSummary.pairCount }} 对 · {{ flowBatchAfterSummary.orderRate == null ? '—' : (flowBatchAfterSummary.orderRate * 100).toFixed(1) + '%' }}</span><span>GPS 有效 {{ flowBatchAfterSummary.gpsDays }} 天 · 日均 {{ flowBatchAfterSummary.averageGpsKm == null ? '—' : flowBatchAfterSummary.averageGpsKm.toFixed(2) + ' km' }}</span></div>
+                  <div><strong>交付后－交付前</strong><span>拟合度变化 {{ flowBatchBeforeSummary.orderRate == null || flowBatchAfterSummary.orderRate == null ? '—' : ((flowBatchAfterSummary.orderRate - flowBatchBeforeSummary.orderRate) * 100).toFixed(1) + ' 个百分点' }}</span><span>日均所选 GPS 里程变化 {{ flowBatchBeforeSummary.averageGpsKm == null || flowBatchAfterSummary.averageGpsKm == null ? '—' : (flowBatchAfterSummary.averageGpsKm - flowBatchBeforeSummary.averageGpsKm).toFixed(2) + ' km' }}</span><span>日均共同点 {{ flowBatchBeforeSummary.averageSharedCount == null || flowBatchAfterSummary.averageSharedCount == null ? '—' : flowBatchBeforeSummary.averageSharedCount.toFixed(2) + ' → ' + flowBatchAfterSummary.averageSharedCount.toFixed(2) }}</span></div>
+                </div>
+                <small class="muted">拟合度按各天有效顺序对数汇总；GPS 日均只计成功取得所选分段的日期。不同日期收运点与任务可能不同，里程变化不直接等于规划节约里程。疑似临时任务需核实后单列，原始值保留。</small>
+              </template>
+            </section>
             <p v-if="!flowGpsCarCode" class="muted">请先选择一辆车，才能查询它当天的日报与 GPS 轨迹或播放路线。</p>
             <p v-if="flowVehicleQueryError" class="flow-warning">车辆运行数据查询失败：{{ flowVehicleQueryError }}</p>
             <p v-if="flowGpsTrack?.points?.length" class="muted">GPS 图层先按流水趟次时间划分，再以首点到达、末点离开时间就近匹配 GPS 定位点；不是按 GPS 精确判定点位或场站。各小段共享边界定位点，避免测距漏段；点位时间不足时保留整趟。仅展示 GPS 时的收运点仍来自流水记录。首趟前、末趟后默认不计入，可自行勾选。</p>
@@ -2503,7 +2533,7 @@ import { buildSingleTripExport } from './singleTripExport.js'
 import { buildRouteOverviewLayers, hasCompleteRoadGeometry, routeOverviewPoints } from './routeOverview.js'
 import { buildFlowActualMap, buildFlowParkingAccessLayers, flowRoadKey, normalizeFlowRoadSegments, flowPolylineMeters, flowTripDistanceBreakdown } from './flowActualMap.js'
 import { buildFlowGpsLayers, splitFlowGpsTripLayers, flowTimeMillis } from './flowGpsLayers.js'
-import { flowLcsSequence } from './flowLcs.js'
+import { buildFlowOrderComparison, gpsLayerType, measureSelectedGpsLayers, summarizeFlowBatch } from './flowBatchCompare.js'
 import { buildFlowPlaybackChoices } from './flowPlaybackChoices.js'
 import { buildFinalReturnTrip } from './finalReturnTrip.js'
 import { applyGarbageDensity } from './garbageDensity.js'
@@ -2646,44 +2676,7 @@ async function handleFlowCompareDateChange() {
 
 const flowComparisonDay = computed(() => {
   if (!flowCompareMode.value || !flowComparisonTemplate.value || flowComparisonMismatch.value || !flowGpsCarCode.value || !flowMapSelectedDay.value) return null
-  const plan = flowComparisonTemplate.value.points.map(point => point.facilityId)
-  const planSet = new Set(plan)
-  const planNames = new Map(flowComparisonTemplate.value.points.map(point => [String(point.facilityId), point.facilityName || String(point.facilityId)]))
-  const seen = new Set()
-  const actualPoints = (flowMapSelectedDay.value.trips || []).filter(trip => String(trip.carCode || '') === flowGpsCarCode.value)
-    .flatMap(trip => trip.points || []).filter(point => Number(point.matchType) === 0 && point.facilityId != null)
-    .filter(point => { const id = String(point.facilityId); if (seen.has(id)) return false; seen.add(id); return true })
-  const actual = actualPoints.map(point => String(point.facilityId))
-  const shared = actual.filter(id => planSet.has(id))
-  const sharedSet = new Set(shared)
-  const planShared = plan.filter(id => sharedSet.has(id))
-  const position = new Map(planShared.map((id, index) => [id, index]))
-  let correctPairs = 0
-  for (let i = 0; i < shared.length; i++) for (let j = i + 1; j < shared.length; j++) {
-    if (position.get(shared[i]) < position.get(shared[j])) correctPairs++
-  }
-  const pairCount = shared.length * (shared.length - 1) / 2
-  const sharedActualPosition = new Map(shared.map((id, index) => [id, index]))
-  const actualPosition = new Map(actual.map((id, index) => [id, index + 1]))
-  const planPosition = new Map(plan.map((id, index) => [id, index + 1]))
-  const lcsIds = flowLcsSequence(planShared, shared)
-  const lcsSequence = lcsIds.map(id => ({ id, name: planNames.get(id) || id,
-    planOrder: planPosition.get(id), actualOrder: actualPosition.get(id) }))
-  const planSequence = flowComparisonTemplate.value.points.map((point, index) => {
-    const id = String(point.facilityId)
-    return { id, name: point.facilityName || id, order: index + 1, actualOrder: actualPosition.get(id),
-      frequencyLabel: point.frequencyLabel || '未提供', frequencyTitle: point.frequencyTitle || '',
-      status: !seen.has(id) ? 'not-collected' : position.get(id) === sharedActualPosition.get(id) ? 'matched' : 'moved' }
-  })
-  const actualSequence = actualPoints.map((point, index) => {
-    const id = String(point.facilityId)
-    return { id, name: planNames.get(id) || point.facilityName || id, actualName: point.facilityName || id,
-      order: index + 1, planOrder: planPosition.get(id),
-      status: !planSet.has(id) ? 'extra' : position.get(id) === sharedActualPosition.get(id) ? 'matched' : 'moved' }
-  })
-  return { sharedCount: shared.length, correctPairs, pairCount, orderRate: pairCount ? correctPairs / pairCount : null,
-    lcsLength: lcsIds.length, notCollected: plan.filter(id => !seen.has(id)), extra: actual.filter(id => !planSet.has(id)),
-    planSequence, actualSequence, lcsSequence }
+  return buildFlowOrderComparison(flowComparisonTemplate.value, flowMapSelectedDay.value, flowGpsCarCode.value)
 })
 const flowVehicleReport = ref(null)
 const flowGpsTrack = ref(null)
@@ -2783,6 +2776,166 @@ function toggleFlowGpsLayer(key) {
   else hidden.add(key)
   flowHiddenGpsLayerKeys.value = hidden
 }
+const flowBatchDates = reactive({ beforeStart: '', beforeEnd: '', afterStart: '', afterEnd: '' })
+const flowBatchRows = ref([])
+const flowBatchLoading = ref(false)
+const flowBatchProgress = ref('')
+const flowBatchError = ref('')
+const flowBatchMeta = ref(null)
+let flowBatchRunId = 0
+let flowBatchTaskId = ''
+let flowBatchAbortController = null
+const flowBatchSelectedTypes = computed(() => new Set(flowGpsVisibleLayers.value.map(gpsLayerType)))
+const flowBatchTypeLabels = computed(() => {
+  const labels = { before: '首趟前', 'to-first': '出发到首点', work: '首点到末点',
+    'to-station': '末点到场站', trip: '未细分整趟', between: '趟间未归属',
+    after: '末趟后', unassigned: '时间未归属' }
+  return [...flowBatchSelectedTypes.value].map(type => labels[type] || type).join('、') || '尚未选择'
+})
+const flowBatchBeforeSummary = computed(() => summarizeFlowBatch(flowBatchRows.value, '交付前'))
+const flowBatchAfterSummary = computed(() => summarizeFlowBatch(flowBatchRows.value, '交付后'))
+function flowBatchDateList(start, end) {
+  const dates = []
+  const cursor = new Date(start + 'T00:00:00Z')
+  const last = new Date(end + 'T00:00:00Z')
+  while (cursor <= last) {
+    dates.push(cursor.toISOString().slice(0, 10))
+    cursor.setUTCDate(cursor.getUTCDate() + 1)
+  }
+  return dates
+}
+function clearFlowBatch() {
+  if (flowBatchLoading.value) cancelFlowBatch()
+  flowBatchRows.value = []
+  flowBatchMeta.value = null
+  flowBatchError.value = ''
+  flowBatchProgress.value = ''
+}
+function cancelFlowBatch() {
+  flowBatchRunId++
+  flowBatchAbortController?.abort()
+  const taskId = flowBatchTaskId
+  flowBatchTaskId = ''
+  if (taskId) api('/api/flow-analysis/tasks/' + taskId + '/cancel', { method: 'POST' }).catch(() => {})
+  flowBatchLoading.value = false
+  flowBatchMeta.value = null
+  flowBatchProgress.value = '已取消；部分结果不作为完整对比'
+}
+async function loadFlowBatchTrips(start, end, carCode, signal, runId) {
+  const response = await api('/api/flow-analysis/tasks', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, signal,
+    body: JSON.stringify({ unitId: flowAnalysisCompanyId.value, routeId: flowAnalysisRouteId.value,
+      carCodes: [carCode], startDate: start, endDate: end, dailyOnly: true })
+  })
+  flowBatchTaskId = response.taskId
+  while (true) {
+    if (runId !== flowBatchRunId) throw new DOMException('批量统计已取消', 'AbortError')
+    const task = await api('/api/flow-analysis/tasks/' + response.taskId, { signal })
+    if (task.status === 'DONE') { flowBatchTaskId = ''; return task.result?.dailyTrips || [] }
+    if (['FAILED', 'CANCELLED', 'NOT_FOUND'].includes(task.status)) throw new Error(task.message || '区间流水查询失败')
+    flowBatchProgress.value = '正在读取 ' + start + ' 至 ' + end + ' 的流水：' + (task.message || '')
+    await new Promise(resolve => window.setTimeout(resolve, 1000))
+  }
+}
+async function startFlowBatchCompare() {
+  if (flowBatchLoading.value) return
+  const { beforeStart, beforeEnd, afterStart, afterEnd } = flowBatchDates
+  if (!beforeStart || !beforeEnd || !afterStart || !afterEnd) {
+    flowBatchError.value = '请填完整交付前、交付后的日期范围'
+    return
+  }
+  if (beforeStart > beforeEnd || afterStart > afterEnd || beforeEnd >= afterStart) {
+    flowBatchError.value = '日期范围有误；交付前区间应早于交付后区间'
+    return
+  }
+  const periods = [
+    { phase: '交付前', dates: flowBatchDateList(beforeStart, beforeEnd), start: beforeStart, end: beforeEnd },
+    { phase: '交付后', dates: flowBatchDateList(afterStart, afterEnd), start: afterStart, end: afterEnd }
+  ]
+  if (periods.reduce((sum, period) => sum + period.dates.length, 0) > 90) {
+    flowBatchError.value = '两个日期区间合计最多 90 天；请缩小范围分批统计'
+    return
+  }
+  const carCode = flowGpsCarCode.value
+  const template = flowComparisonTemplate.value
+  const selectedTypes = new Set(flowBatchSelectedTypes.value)
+  if (!template || flowComparisonMismatch.value || !carCode || !selectedTypes.size) {
+    flowBatchError.value = '请先选对应岗位和车辆，查询一天 GPS，并勾选要统计的 GPS 分段'
+    return
+  }
+  clearFlowBatch()
+  const runId = ++flowBatchRunId
+  const controller = new AbortController()
+  flowBatchAbortController = controller
+  flowBatchLoading.value = true
+  const totalDays = periods.reduce((sum, period) => sum + period.dates.length, 0)
+  try {
+    for (const period of periods) {
+      flowBatchProgress.value = '正在读取' + period.phase + '流水'
+      const days = await loadFlowBatchTrips(period.start, period.end, carCode, controller.signal, runId)
+      const dayMap = new Map(days.map(day => [String(day.date), day]))
+      for (const date of period.dates) {
+        if (runId !== flowBatchRunId) throw new DOMException('批量统计已取消', 'AbortError')
+        const day = dayMap.get(date)
+        const trips = (day?.trips || []).filter(trip => String(trip.carCode || '') === carCode)
+        const comparison = trips.length ? buildFlowOrderComparison(template, day, carCode) : null
+        const row = { phase: period.phase, date, carCode, tripCount: trips.length,
+          sharedCount: comparison?.sharedCount || 0, correctPairs: comparison?.correctPairs ?? null,
+          pairCount: comparison?.pairCount ?? null, orderRate: comparison?.sharedCount >= 3 ? comparison.orderRate : null,
+          lcsLength: comparison?.lcsLength ?? null, gpsMeters: null, segmentBreakdown: '',
+          note: trips.length ? (comparison.sharedCount < 3 ? '共同收运点不足 3 个' : '') : '当天无该车岗位流水' }
+        if (trips.length) {
+          flowBatchProgress.value = '正在测量 ' + date + ' GPS（' + (flowBatchRows.value.length + 1) + '/' + totalDays + '）'
+          try {
+            const params = new URLSearchParams({ unitId: flowAnalysisCompanyId.value,
+              routeId: String(flowAnalysisRouteId.value), carCode, day: date })
+            const track = await api('/api/flow-analysis/vehicle-gps-track?' + params, { signal: controller.signal })
+            const tripRows = (day.trips || []).map((trip, index) => ({ trip, index })).filter(item => String(item.trip.carCode || '') === carCode)
+            const layers = splitFlowGpsTripLayers(buildFlowGpsLayers(track.points || [], tripRows), tripRows)
+            const measured = measureSelectedGpsLayers(layers, selectedTypes, coordinateDistance)
+            if (measured) {
+              row.gpsMeters = measured.meters
+              row.segmentBreakdown = measured.segments.map(item => item.label + ' ' + (item.meters / 1000).toFixed(2) + ' km').join('；')
+            } else row.note += (row.note ? '；' : '') + '无匹配的 GPS 分段'
+          } catch (error) {
+            if (error?.name === 'AbortError') throw error
+            row.note += (row.note ? '；' : '') + 'GPS 查询失败：' + (error.message || String(error))
+          }
+        }
+        flowBatchRows.value = [...flowBatchRows.value, row]
+      }
+    }
+    flowBatchMeta.value = { label: template.label, carCode, segmentTypes: [...selectedTypes], segmentLabels: flowBatchTypeLabels.value,
+      ranges: { beforeStart, beforeEnd, afterStart, afterEnd } }
+    flowBatchProgress.value = '已完成 ' + totalDays + ' 天；缺失或证据不足的日期已单列'
+  } catch (error) {
+    if (error?.name !== 'AbortError') flowBatchError.value = error.message || String(error)
+  } finally {
+    if (runId === flowBatchRunId) {
+      flowBatchTaskId = ''
+      flowBatchAbortController = null
+      flowBatchLoading.value = false
+    }
+  }
+}
+async function exportFlowBatchCompare() {
+  if (!flowBatchMeta.value || flowBatchLoading.value) return
+  try {
+    const response = await fetch('/api/flow-analysis/batch-comparison-export', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ...flowBatchMeta.value, rows: flowBatchRows.value,
+        before: flowBatchBeforeSummary.value, after: flowBatchAfterSummary.value })
+    })
+    if (!response.ok) {
+      const body = await response.json().catch(() => null)
+      throw new Error(body?.message || response.status + ' ' + response.statusText)
+    }
+    downloadBlob(await response.blob(), '规划执行前后对比-' + flowBatchMeta.value.carCode + '.xlsx')
+  } catch (error) {
+    flowBatchError.value = '导出失败：' + (error.message || String(error))
+  }
+}
+watch([flowComparisonTemplate, flowGpsCarCode, flowAnalysisCompanyId, flowAnalysisRouteId], clearFlowBatch)
 const flowParkingAccessLayers = computed(() => flowShowReturnToParking.value
   ? buildFlowParkingAccessLayers(flowDayTripRows.value, flowMapTripRows.value, flowSelectedParking.value) : [])
 const flowBaseAndParkingLayers = computed(() => [...flowActualMap.value.layers, ...flowParkingAccessLayers.value])

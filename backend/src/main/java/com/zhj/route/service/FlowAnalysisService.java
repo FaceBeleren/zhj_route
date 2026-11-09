@@ -141,8 +141,15 @@ public class FlowAnalysisService {
             Map<Long, List<Event>> events = loadEvents(records, range, task);
             task.update("RUNNING", "SPLIT_TRIPS", "正在按中转站和处置场切分实际趟次");
             List<Trip> trips = buildTrips(records, events, task.request);
-            task.update("RUNNING", "CLUSTER", "正在归纳历史岗位分堆");
-            Map<String, Object> result = buildResult(task.request, range, records, trips);
+            Map<String, Object> result;
+            if (Boolean.TRUE.equals(task.request.get("dailyOnly"))) {
+                task.update("RUNNING", "CLUSTER", "正在整理每天的实际趟次");
+                result = new LinkedHashMap<String, Object>();
+                result.put("dailyTrips", dailyTrips(trips));
+            } else {
+                task.update("RUNNING", "CLUSTER", "正在归纳历史岗位分堆");
+                result = buildResult(task.request, range, records, trips);
+            }
             task.result = result;
             task.status = "DONE";
             task.phase = "DONE";

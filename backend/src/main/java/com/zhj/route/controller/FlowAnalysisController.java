@@ -2,6 +2,10 @@ package com.zhj.route.controller;
 
 import com.zhj.route.service.FlowAnalysisService;
 import com.zhj.route.service.ClyxVehicleDayService;
+import com.zhj.route.service.FlowBatchCompareExportService;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.MediaType;
+import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -18,10 +22,13 @@ import java.util.Map;
 public class FlowAnalysisController {
     private final FlowAnalysisService flowAnalysisService;
     private final ClyxVehicleDayService clyxVehicleDayService;
+    private final FlowBatchCompareExportService batchCompareExportService;
 
-    public FlowAnalysisController(FlowAnalysisService flowAnalysisService, ClyxVehicleDayService clyxVehicleDayService) {
+    public FlowAnalysisController(FlowAnalysisService flowAnalysisService, ClyxVehicleDayService clyxVehicleDayService,
+            FlowBatchCompareExportService batchCompareExportService) {
         this.flowAnalysisService = flowAnalysisService;
         this.clyxVehicleDayService = clyxVehicleDayService;
+        this.batchCompareExportService = batchCompareExportService;
     }
 
     @GetMapping("/vehicle-daily-report")
@@ -36,6 +43,13 @@ public class FlowAnalysisController {
         return clyxVehicleDayService.track(unitId, routeId, carCode, day);
     }
 
+    @PostMapping("/batch-comparison-export")
+    public ResponseEntity<byte[]> exportBatchComparison(@RequestBody Map<String, Object> request) {
+        return ResponseEntity.ok()
+                .header(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=flow-batch-comparison.xlsx")
+                .contentType(MediaType.parseMediaType("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"))
+                .body(batchCompareExportService.export(request));
+    }
     @GetMapping("/vehicles")
     public List<Map<String, Object>> flowAnalysisVehicles(
             @RequestParam String unitId,
