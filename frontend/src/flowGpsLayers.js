@@ -12,6 +12,37 @@ export function flowTimeMillis(value) {
   return Number.isFinite(parsed) ? parsed : null
 }
 
+export function nearestGpsTrackSample(layers, click, project, radius = 12) {
+  let nearest = null
+  let bestSquared = radius * radius
+  for (const layer of layers) {
+    let previous = null
+    for (const sample of layer.points) {
+      const pixel = project(sample)
+      const time = flowTimeMillis(sample.equipmentTime)
+      if (!pixel || !Number.isFinite(pixel.x) || !Number.isFinite(pixel.y) || time == null) {
+        previous = null
+        continue
+      }
+      const current = { pixel, time }
+      const start = previous || current
+      const dx = pixel.x - start.pixel.x
+      const dy = pixel.y - start.pixel.y
+      const lengthSquared = dx * dx + dy * dy
+      const offsetX = click.x - start.pixel.x
+      const offsetY = click.y - start.pixel.y
+      const ratio = lengthSquared ? Math.max(0, Math.min(1, (offsetX * dx + offsetY * dy) / lengthSquared)) : 0
+      const squared = (offsetX - ratio * dx) ** 2 + (offsetY - ratio * dy) ** 2
+      if (squared <= radius * radius && (!nearest || squared < bestSquared)) {
+        nearest = { layer, time: ratio <= 0.5 ? start.time : current.time }
+        bestSquared = squared
+      }
+      previous = current
+    }
+  }
+  return nearest
+}
+
 function tripWindow(row) {
   const trip = row.trip || {}
   const first = trip.points?.[0]

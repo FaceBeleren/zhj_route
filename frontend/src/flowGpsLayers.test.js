@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { buildFlowGpsLayers, splitFlowGpsTripLayers } from './flowGpsLayers.js'
+import { buildFlowGpsLayers, splitFlowGpsTripLayers, nearestGpsTrackSample } from './flowGpsLayers.js'
 import { flowPolylineMeters, flowTripDistanceBreakdown } from './flowActualMap.js'
 
 const stamp = minute => `2026-11-01 06:${String(minute).padStart(2, '0')}:00`
@@ -36,4 +36,19 @@ test('flow road distance separates point-to-point legs from station legs', () =>
   const result = flowTripDistanceBreakdown([layer])
   assert.ok(result.journeyMeters > 0 && result.stationMeters > result.journeyMeters)
   assert.ok(Math.abs(result.journeyMeters + result.stationMeters - flowPolylineMeters([layer])) < 0.001)
+})
+
+test('GPS click finds the closest sample on the hit segment and leaves gaps between layers empty', () => {
+  const start = Date.parse('2026-11-04T03:40:00+08:00')
+  const point = (x, y, seconds) => ({ x, y, equipmentTime: start + seconds * 1000 })
+  const layers = [
+    { label: 'first', points: [point(0, 0, 0), point(100, 0, 10)] },
+    { label: 'second', points: [point(200, 0, 30), point(300, 0, 40)] }
+  ]
+  const hit = (x, y) => nearestGpsTrackSample(layers, { x, y }, sample => sample)
+  assert.equal(hit(36, 8)?.time, start)
+  assert.equal(hit(70, 8)?.time, start + 10000)
+  assert.equal(hit(220, 0)?.layer, layers[1])
+  assert.equal(hit(150, 0), null)
+  assert.equal(hit(70, 13), null)
 })

@@ -101,13 +101,21 @@
       </div>
     </div>
 
+    <div v-if="clickableGpsLayers.length" class="route-gps-time" role="status">
+      <template v-if="visibleGpsSample">
+        <strong>GPS 定位时间</strong>
+        <time>{{ gpsTimeFormatter.format(visibleGpsSample.time) }}</time>
+        <span>{{ visibleGpsSample.layer.label }} · 北京时间</span>
+      </template>
+      <span v-else>点击 GPS 轨迹查看最近定位点的时间</span>
+    </div>
     <div v-show="baiduReady" ref="mapEl" class="baidu-route-map"></div>
 
     <div v-if="!baiduReady && !routePlot && props.viewportPoints.length" class="route-plot fallback-plot"><div class="plot-card wide">流水与 GPS 图层已隐藏，可在“展示路线”中重新勾选。</div></div>
     <div v-if="!baiduReady && routePlot" class="route-plot fallback-plot">
       <div ref="fallbackMapEl" class="plot-card wide">
         <div class="plot-title">坐标预览</div>
-        <svg :viewBox="fallbackFocusViewBox" role="img" aria-label="路线坐标预览叠加对比">
+        <svg :viewBox="fallbackFocusViewBox" role="img" aria-label="路线坐标预览叠加对比" @click="inspectFallbackGps">
           <polyline
             v-if="showOriginalLine && routePlot.compare.originalLine"
             :points="routePlot.compare.originalLine"
@@ -160,7 +168,7 @@
         </div>
         <div v-if="showOptimizedLine" class="plot-card">
           <div class="plot-title">{{ optimizedLabel }}顺序</div>
-          <svg :viewBox="fallbackFocusViewBox" role="img" aria-label="优化后路线坐标预览">
+          <svg :viewBox="fallbackFocusViewBox" role="img" aria-label="优化后路线坐标预览" @click="inspectFallbackGps">
             <polyline v-if="!overviewLayers.length" :points="routePlot.optimized.line" class="plot-line optimized" :style="{ stroke: props.optimizedColor }" />
             <polyline v-for="layer in fallbackOverviewLayers" v-if="showOptimizedLine" :key="`overview-detail-${layer.key}`" :points="layer.line" class="plot-line optimized" :style="{ stroke: layer.color, strokeDasharray: layer.gpsActual || layer.templateReference ? '8 5' : undefined, strokeWidth: legendLayerSelected(layer) ? 2.3 : undefined, opacity: legendLayerVisible(layer) ? 1 : 0.14 }" />
             <polyline v-for="(line, index) in fallbackHighlightLines" v-if="!hasLegendSelection" :key="`optimized-highlight-${index}`" :points="line" class="plot-line optimized" style="stroke:#8b5cf6;stroke-width:1.5" />
@@ -180,9 +188,10 @@
 </template>
 
 <script setup>
-import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, shallowRef, watch } from 'vue'
 import { distanceAtSlider, playbackMetersPerSecond, playbackPathsDistance, playbackPointAtDistance, wheelZoomTarget } from '../routeMapMotion.js'
 import { drawProjectedRoute, mapCaptureCrop, mapScreenshotName } from '../mapScreenshot.js'
+import { nearestGpsTrackSample } from '../flowGpsLayers.js'
 
 const props = defineProps({
   viewLink: { type: Object, default: null },
@@ -288,6 +297,15 @@ const selectedLegendLayers = computed(() => overviewLayers.value.filter(layer =>
 const hasLegendSelection = computed(() => props.multiSelectLegend ? selectedLayerKeys.value.size > 0 : focusedLayerKey.value !== null)
 const legendLayerSelected = layer => props.multiSelectLegend ? selectedLayerKeys.value.has(String(layer.key)) : focusedLayerKey.value === String(layer.key)
 const legendLayerVisible = layer => !hasLegendSelection.value || legendLayerSelected(layer)
+const clickableGpsLayers = computed(() => showOptimizedLine.value
+  ? overviewLayers.value.filter(layer => layer.gpsActual && legendLayerVisible(layer)) : [])
+const selectedGpsSample = shallowRef(null)
+const visibleGpsSample = computed(() => clickableGpsLayers.value.includes(selectedGpsSample.value?.layer)
+  ? selectedGpsSample.value : null)
+const gpsTimeFormatter = new Intl.DateTimeFormat('zh-CN', {
+  timeZone: 'Asia/Shanghai', year: 'numeric', month: '2-digit', day: '2-digit',
+  hour: '2-digit', minute: '2-digit', second: '2-digit', hourCycle: 'h23'
+})
 const focusedLayer = computed(() => overviewLayers.value.find(layer => String(layer.key) === focusedLayerKey.value) || null)
 const fallbackFocusViewBox = computed(() => {
   const geometry = props.multiSelectLegend ? selectedLegendLayers.value.flatMap(layer => layer.geometry) : focusedLayer.value?.geometry || []
@@ -545,6 +563,7 @@ onBeforeUnmount(() => {
   unlinkView?.()
   pausePlayback()
   mapEl.value?.removeEventListener('wheel', handleMapWheel)
+  mapInstance?.removeEventListener('click', inspectBaiduGps)
   if (mapInstance?.clearOverlays) {
     mapInstance.clearOverlays()
   }
@@ -590,6 +609,25 @@ async function renderMap() {
   }
 }
 
+function inspectBaiduGps(event) {
+  if (!clickableGpsLayers.value.length || !mapInstance || !window.BMap) return
+  const project = point => mapInstance.pointToPixel(new window.BMap.Point(point.longitude, point.latitude))
+  const click = event.pixel || (event.point ? mapInstance.pointToPixel(event.point) : null)
+  if (click) selectedGpsSample.value = nearestGpsTrackSample(clickableGpsLayers.value, click, project)
+}
+
+function inspectFallbackGps(event) {
+  if (!clickableGpsLayers.value.length) return
+  const matrix = event.currentTarget.getScreenCTM()
+  if (!matrix) return
+  const bounds = boundsFor([...originalAllPoints.value, ...optimizedAllPoints.value, ...pendingAllPoints.value])
+  const project = point => {
+    const { x, y } = projectPoint(point, bounds)
+    return new DOMPoint(x, y).matrixTransform(matrix)
+  }
+  selectedGpsSample.value = nearestGpsTrackSample(clickableGpsLayers.value, { x: event.clientX, y: event.clientY }, project)
+}
+
 function drawBaiduMap(BMap) {
   if (!mapInstance) {
     mapInstance = new BMap.Map(mapEl.value)
@@ -597,6 +635,7 @@ function drawBaiduMap(BMap) {
     mapInstance.centerAndZoom(new BMap.Point(center.longitude, center.latitude), zoomLevel(allPoints.value))
     mapInstance.disableScrollWheelZoom()
     mapEl.value.addEventListener('wheel', handleMapWheel, { passive: false })
+    mapInstance.addEventListener('click', inspectBaiduGps)
     addMapControls(BMap)
   } else if (mapInstance.clearOverlays) {
     mapInstance.clearOverlays()
@@ -609,7 +648,10 @@ function drawBaiduMap(BMap) {
     drawPolyline(BMap, originalGeometryPoints.value, '#d84f4f', 4, 0.8, 'dashed')
   }
   if (showOptimizedLine.value) {
-    if (overviewLayers.value.length) overviewLayers.value.forEach(layer => drawPolyline(BMap, layer.geometry, layer.color, legendLayerSelected(layer) ? 7 : layer.gpsActual || layer.templateReference ? 3 : 5, legendLayerVisible(layer) ? 0.9 : 0.14, layer.gpsActual || layer.templateReference ? 'dashed' : 'solid'))
+    if (overviewLayers.value.length) overviewLayers.value.forEach(layer => {
+      const line = drawPolyline(BMap, layer.geometry, layer.color, legendLayerSelected(layer) ? 7 : layer.gpsActual || layer.templateReference ? 3 : 5, legendLayerVisible(layer) ? 0.9 : 0.14, layer.gpsActual || layer.templateReference ? 'dashed' : 'solid')
+      if (layer.gpsActual) line?.addEventListener('click', inspectBaiduGps)
+    })
     else drawPolyline(BMap, optimizedGeometryPoints.value, props.optimizedColor, 5, 0.9, 'solid')
     if (!hasLegendSelection.value) props.highlightSegments.forEach(segment => drawPolyline(BMap, normalizeRoutePoints(segment.path || []), '#8b5cf6', 7, 0.95, 'solid'))
   }
@@ -781,6 +823,7 @@ function drawPolyline(BMap, points, color, weight, opacity, style) {
     }
   )
   mapInstance.addOverlay(line)
+  return line
 }
 
 function loadBaiduMap() {
@@ -831,6 +874,7 @@ function normalizeRoutePoints(points) {
     .map((point, index) => ({
       facilityId: point.facilityId,
       facilityName: point.facilityName,
+      equipmentTime: point.equipmentTime,
       comparisonSelected: Boolean(point.comparisonSelected),
       longitude: Number(point.longitude),
       latitude: Number(point.latitude),
