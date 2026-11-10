@@ -230,8 +230,8 @@
               <p v-if="flowBatchError" class="flow-warning">{{ flowBatchError }}</p>
               <template v-if="flowBatchRows.length">
                 <div class="flow-batch-table-scroll">
-                  <table class="flow-batch-table"><thead><tr><th>阶段</th><th>日期</th><th>车辆</th><th>实际趟数</th><th>共同收运点</th><th>符合/可比顺序</th><th>拟合度</th><th>LCS</th><th>所选 GPS 里程</th><th>分段里程</th><th>备注</th></tr></thead>
-                    <tbody><tr v-for="row in flowBatchRows" :key="row.phase + row.date"><td>{{ row.phase }}</td><td>{{ row.date }}</td><td>{{ row.carCode }}</td><td>{{ row.tripCount || '—' }}</td><td>{{ row.tripCount ? row.sharedCount : '—' }}</td><td>{{ row.pairCount == null ? '—' : row.correctPairs + '/' + row.pairCount }}</td><td>{{ row.orderRate == null ? '证据不足' : (row.orderRate * 100).toFixed(1) + '%' }}</td><td>{{ row.lcsLength == null ? '—' : row.lcsLength + '/' + row.sharedCount }}</td><td>{{ row.gpsMeters == null ? '—' : (row.gpsMeters / 1000).toFixed(2) + ' km' }}</td><td>{{ row.segmentBreakdown || '—' }}</td><td>{{ row.note || '—' }}</td></tr></tbody>
+                  <table class="flow-batch-table"><thead><tr><th>阶段</th><th>日期</th><th>车辆</th><th>实际趟数</th><th>共同收运点</th><th>符合/可比顺序</th><th>拟合度</th><th>LCS</th><th>所选 GPS 里程</th><th v-for="column in flowBatchSegmentColumns" :key="column">{{ column }}</th><th>备注</th></tr></thead>
+                    <tbody><tr v-for="row in flowBatchRows" :key="row.phase + row.date"><td>{{ row.phase }}</td><td>{{ row.date }}</td><td>{{ row.carCode }}</td><td>{{ row.tripCount || '—' }}</td><td>{{ row.tripCount ? row.sharedCount : '—' }}</td><td>{{ row.pairCount == null ? '—' : row.correctPairs + '/' + row.pairCount }}</td><td>{{ row.orderRate == null ? '证据不足' : (row.orderRate * 100).toFixed(1) + '%' }}</td><td>{{ row.lcsLength == null ? '—' : row.lcsLength + '/' + row.sharedCount }}</td><td>{{ row.gpsMeters == null ? '—' : (row.gpsMeters / 1000).toFixed(2) + ' km' }}</td><td v-for="column in flowBatchSegmentColumns" :key="column">{{ row.segmentMeters[column] == null ? '' : (row.segmentMeters[column] / 1000).toFixed(2) + ' km' }}</td><td>{{ row.note || '—' }}</td></tr></tbody>
                   </table>
                 </div>
                 <div v-if="flowBatchMeta" class="flow-batch-summary">
@@ -2536,7 +2536,7 @@ import { buildSingleTripExport } from './singleTripExport.js'
 import { buildRouteOverviewLayers, hasCompleteRoadGeometry, routeOverviewPoints } from './routeOverview.js'
 import { buildFlowActualMap, buildFlowParkingAccessLayers, flowRoadKey, normalizeFlowRoadSegments, flowPolylineMeters, flowTripDistanceBreakdown } from './flowActualMap.js'
 import { buildFlowGpsLayers, splitFlowGpsTripLayers, flowTimeMillis } from './flowGpsLayers.js'
-import { buildFlowOrderComparison, gpsLayerType, measureSelectedGpsLayers, summarizeFlowBatch } from './flowBatchCompare.js'
+import { buildFlowOrderComparison, gpsLayerType, measureSelectedGpsLayers, flowBatchMileageColumns, flowBatchMileageByColumn, summarizeFlowBatch } from './flowBatchCompare.js'
 import { buildFlowPlaybackChoices } from './flowPlaybackChoices.js'
 import { buildFinalReturnTrip } from './finalReturnTrip.js'
 import { applyGarbageDensity } from './garbageDensity.js'
@@ -2782,6 +2782,8 @@ function toggleFlowGpsLayer(key) {
 }
 const flowBatchDates = reactive({ beforeStart: '', beforeEnd: '', afterStart: '', afterEnd: '' })
 const flowBatchRows = ref([])
+const flowBatchMeasuredTypes = ref(new Set())
+const flowBatchSegmentColumns = computed(() => flowBatchMileageColumns(flowBatchRows.value, flowBatchMeasuredTypes.value))
 const flowBatchLoading = ref(false)
 const flowBatchProgress = ref('')
 const flowBatchError = ref('')
@@ -2811,6 +2813,7 @@ function flowBatchDateList(start, end) {
 function clearFlowBatch() {
   if (flowBatchLoading.value) cancelFlowBatch()
   flowBatchRows.value = []
+  flowBatchMeasuredTypes.value = new Set()
   flowBatchMeta.value = null
   flowBatchError.value = ''
   flowBatchProgress.value = ''
@@ -2868,6 +2871,7 @@ async function startFlowBatchCompare() {
     return
   }
   clearFlowBatch()
+  flowBatchMeasuredTypes.value = selectedTypes
   const runId = ++flowBatchRunId
   const controller = new AbortController()
   flowBatchAbortController = controller
@@ -2886,7 +2890,7 @@ async function startFlowBatchCompare() {
         const row = { phase: period.phase, date, carCode, tripCount: trips.length,
           sharedCount: comparison?.sharedCount || 0, correctPairs: comparison?.correctPairs ?? null,
           pairCount: comparison?.pairCount ?? null, orderRate: comparison?.sharedCount >= 3 ? comparison.orderRate : null,
-          lcsLength: comparison?.lcsLength ?? null, gpsMeters: null, segmentBreakdown: '',
+          lcsLength: comparison?.lcsLength ?? null, gpsMeters: null, segmentMeters: {},
           note: trips.length ? (comparison.sharedCount < 3 ? '共同收运点不足 3 个' : '') : '当天无该车岗位流水' }
         if (trips.length) {
           flowBatchProgress.value = '正在测量 ' + date + ' GPS（' + (flowBatchRows.value.length + 1) + '/' + totalDays + '）'
@@ -2894,12 +2898,12 @@ async function startFlowBatchCompare() {
             const params = new URLSearchParams({ unitId: flowAnalysisCompanyId.value,
               routeId: String(flowAnalysisRouteId.value), carCode, day: date })
             const track = await api('/api/flow-analysis/vehicle-gps-track?' + params, { signal: controller.signal })
-            const tripRows = (day.trips || []).map((trip, index) => ({ trip, index })).filter(item => String(item.trip.carCode || '') === carCode)
+            const tripRows = trips.map((trip, index) => ({ trip, index }))
             const layers = splitFlowGpsTripLayers(buildFlowGpsLayers(track.points || [], tripRows), tripRows)
             const measured = measureSelectedGpsLayers(layers, selectedTypes, coordinateDistance)
             if (measured) {
               row.gpsMeters = measured.meters
-              row.segmentBreakdown = measured.segments.map(item => item.label + ' ' + (item.meters / 1000).toFixed(2) + ' km').join('；')
+              row.segmentMeters = flowBatchMileageByColumn(measured.segments)
             } else row.note += (row.note ? '；' : '') + '无匹配的 GPS 分段'
           } catch (error) {
             if (error?.name === 'AbortError') throw error
@@ -2927,7 +2931,7 @@ async function exportFlowBatchCompare() {
   try {
     const response = await fetch('/api/flow-analysis/batch-comparison-export', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ ...flowBatchMeta.value, rows: flowBatchRows.value,
+      body: JSON.stringify({ ...flowBatchMeta.value, segmentColumns: flowBatchSegmentColumns.value, rows: flowBatchRows.value,
         before: flowBatchBeforeSummary.value, after: flowBatchAfterSummary.value })
     })
     if (!response.ok) {

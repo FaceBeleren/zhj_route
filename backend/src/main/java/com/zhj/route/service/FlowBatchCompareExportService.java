@@ -6,6 +6,8 @@ import org.springframework.stereotype.Service;
 
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
+import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
 
@@ -43,8 +45,22 @@ public class FlowBatchCompareExportService {
             summary(sheet, 6, "交付前", before, decimal, percent);
             summary(sheet, 7, "交付后", after, decimal, percent);
             summary(sheet, 8, "变化（后－前）", difference(before, after), decimal, points);
-            String[] headers = {"阶段", "日期", "车辆", "实际趟数", "共同收运点", "符合顺序对", "可比顺序对", "拟合度", "LCS点数", "所选GPS里程(km)", "分段里程", "备注"};
-            header(sheet, 10, headers, header);
+            List<String> headers = new ArrayList<>(Arrays.asList("阶段", "日期", "车辆", "实际趟数", "共同收运点",
+                    "符合顺序对", "可比顺序对", "拟合度", "LCS点数", "所选GPS里程(km)"));
+            int segmentStart = headers.size();
+            Object requestedColumns = request.get("segmentColumns");
+            List<?> segmentColumns = requestedColumns instanceof List ? (List<?>) requestedColumns : null;
+            if (segmentColumns == null) {
+                headers.add("分段里程");
+            } else {
+                if (segmentColumns.size() > org.apache.poi.ss.SpreadsheetVersion.EXCEL2007.getMaxColumns() - segmentStart - 1) {
+                    throw new IllegalArgumentException("分段里程列数超过 Excel 上限");
+                }
+                for (Object column : segmentColumns) headers.add(text(column) + " (km)");
+            }
+            int noteColumn = headers.size();
+            headers.add("备注");
+            header(sheet, 10, headers.toArray(new String[0]), header);
             int index = 11;
             for (Map<String, Object> data : rows) {
                 Row row = sheet.createRow(index++);
@@ -59,13 +75,23 @@ public class FlowBatchCompareExportService {
                 number(row, 8, data.get("lcsLength"), null);
                 Double meters = numeric(data.get("gpsMeters"));
                 number(row, 9, meters == null ? null : meters / 1000D, decimal);
-                string(row, 10, data.get("segmentBreakdown"));
-                string(row, 11, data.get("note"));
+                if (segmentColumns == null) {
+                    string(row, segmentStart, data.get("segmentBreakdown"));
+                } else {
+                    Map<String, Object> segmentMeters = map(data.get("segmentMeters"));
+                    for (int i = 0; i < segmentColumns.size(); i++) {
+                        Double segment = numeric(segmentMeters.get(text(segmentColumns.get(i))));
+                        number(row, segmentStart + i, segment == null ? null : segment / 1000D, decimal);
+                    }
+                }
+                string(row, noteColumn, data.get("note"));
             }
             line(sheet, index + 1, new String[] {"口径", "同一规划模板；每车每天全部趟次首次收运点计分。所选GPS分段逐段测距，不跨图层连线。"});
             line(sheet, index + 2, new String[] {"说明", "缺失数据留空，不当作零。疑似额外任务未核实前不扣除原始里程；里程变化不直接等于规划节约。"});
-            int[] widths = {14, 18, 17, 14, 18, 16, 16, 14, 14, 22, 60, 35};
+            int[] widths = {14, 18, 17, 14, 18, 16, 16, 14, 14, 22};
             for (int i = 0; i < widths.length; i++) sheet.setColumnWidth(i, widths[i] * 256);
+            for (int i = segmentStart; i < noteColumn; i++) sheet.setColumnWidth(i, (segmentColumns == null ? 60 : 27) * 256);
+            sheet.setColumnWidth(noteColumn, 35 * 256);
             sheet.createFreezePane(0, 11);
             workbook.write(out);
             return out.toByteArray();

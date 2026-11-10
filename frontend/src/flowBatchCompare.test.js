@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { buildFlowOrderComparison, gpsLayerType, measureSelectedGpsLayers, summarizeFlowBatch } from './flowBatchCompare.js'
+import { buildFlowOrderComparison, gpsLayerType, measureSelectedGpsLayers, flowBatchMileageColumns, flowBatchMileageByColumn, summarizeFlowBatch } from './flowBatchCompare.js'
 
 test('batch and single-day scoring use the same first-collection sequence across trips', () => {
   const template = { points: ['A', 'B', 'C', 'D'].map(facilityId => ({ facilityId, facilityName: facilityId })) }
@@ -46,4 +46,15 @@ test('summary excludes missing mileage and insufficient order evidence', () => {
   assert.equal(result.correctPairs,8)
   assert.equal(result.pairCount,9)
   assert.equal(result.averageGpsKm,15)
+})
+test('batch mileage columns align two-trip days with one-trip days and preserve measured zero', () => {
+  const types = new Set(['before', 'work', 'to-station', 'after'])
+  const columns = flowBatchMileageColumns([{ tripCount: 1 }, { tripCount: 2 }], types)
+  assert.deepEqual(columns, ['首趟流水前', '第1趟 · 首点到末点', '第1趟 · 末点到场站', '第2趟 · 首点到末点', '第2趟 · 末点到场站', '末趟流水后'])
+  const mileage = flowBatchMileageByColumn([
+    { type: 'work', tripNo: 1, meters: 1000 },
+    { type: 'work', tripNo: 1, meters: 2000 },
+    { type: 'after', tripNo: null, meters: 0 }
+  ])
+  assert.deepEqual(columns.map(column => mileage[column]), [undefined, 3000, undefined, undefined, undefined, 0])
 })

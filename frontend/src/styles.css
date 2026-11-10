@@ -3746,7 +3746,8 @@ tbody tr.active {
 .flow-batch-table th { position: sticky; top: 0; z-index: 1; padding: 8px; text-align: left; color: white; background: #356481; white-space: nowrap; }
 .flow-batch-table td { padding: 7px 8px; border-bottom: 1px solid #e7eef4; vertical-align: top; }
 .flow-batch-table tbody tr:nth-child(even) { background: #f5f8fb; }
-.flow-batch-table td:nth-child(10), .flow-batch-table td:nth-child(11) { min-width: 190px; }
+.flow-batch-table td:not(:last-child) { white-space: nowrap; }
+.flow-batch-table td:last-child { min-width: 140px; }
 .flow-batch-summary { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
 .flow-batch-summary > div { display: grid; gap: 4px; padding: 10px; border: 1px solid #d7e3ed; border-radius: 6px; background: white; }
 @media (max-width: 800px) { .flow-batch-summary { grid-template-columns: 1fr; } }

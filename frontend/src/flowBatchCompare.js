@@ -54,10 +54,47 @@ export function measureSelectedGpsLayers(layers, selectedTypes, distance) {
   if (!selected.length) return null
   const segments = selected.map(layer => ({
     label: layer.label,
+    type: gpsLayerType(layer),
+    tripNo: layer.kind === 'trip' ? layer.tripIndex + 1 : null,
     meters: (layer.points || []).reduce((sum, point, index, points) =>
       index ? sum + distance(points[index - 1], point) : sum, 0)
   }))
   return { meters: segments.reduce((sum, item) => sum + item.meters, 0), segments }
+}
+
+const tripMileageTypes = ['to-first', 'work', 'to-station', 'trip']
+const mileageLabels = {
+  before: '首趟流水前', 'to-first': '出发到首点', work: '首点到末点', 'to-station': '末点到场站',
+  trip: '未细分整趟', between: '趟间未归属', after: '末趟流水后', unassigned: '时间未归属'
+}
+
+function mileageColumn(type, tripNo) {
+  const label = mileageLabels[type]
+  return tripMileageTypes.includes(type) ? '第' + tripNo + '趟 · ' + label : label
+}
+
+export function flowBatchMileageColumns(rows, selectedTypes) {
+  const columns = []
+  if (selectedTypes.has('before')) columns.push(mileageColumn('before'))
+  const tripCount = rows.reduce((max, row) => Math.max(max, row.tripCount), 0)
+  for (let tripNo = 1; tripNo <= tripCount; tripNo += 1) {
+    for (const type of tripMileageTypes) {
+      if (selectedTypes.has(type)) columns.push(mileageColumn(type, tripNo))
+    }
+  }
+  for (const type of ['between', 'after', 'unassigned']) {
+    if (selectedTypes.has(type)) columns.push(mileageColumn(type))
+  }
+  return columns
+}
+
+export function flowBatchMileageByColumn(segments) {
+  const values = {}
+  for (const { type, tripNo, meters } of segments) {
+    const column = mileageColumn(type, tripNo)
+    values[column] = (values[column] ?? 0) + meters
+  }
+  return values
 }
 
 export function summarizeFlowBatch(rows, phase) {
