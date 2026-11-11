@@ -13,7 +13,7 @@
       </div>
       <p v-if="exactDisabledReason" class="muted">全排列不可用：{{ exactDisabledReason }}。</p>
       <div v-if="adjustmentMode === 'exact'" class="manual-test-selection">
-        <p>当前趟次 {{ exactPointCount }} 个可排序收运点。固定起终点和中间锚点，枚举全部允许顺序，按道路总里程最短选择。时间窗在最终对比中标记。</p>
+        <p>当前趟次 {{ exactPointCount }} 个可排序收运点。固定起终点和中间锚点，一次计算两种最短路线。时间窗按完整模板检查当前趟及同车后续趟次，不自动等待。</p>
         <button :disabled="busy || !!exactDisabledReason" @click="optimizeExactRouteOrder">开始全排列计算</button>
         <button v-if="autoRunning" @click="cancelSelection">取消计算</button>
         <button v-if="autoCandidate" :disabled="busy" @click="adoptSelectedCandidate">采用候选到编辑列表</button>
@@ -53,7 +53,26 @@
         </div>
       </div>
       <p v-if="busy">{{ progress }}</p><p v-if="error" class="manual-test-error">{{ error }}</p>
-      <template v-if="comparison">
+      <template v-if="adjustmentMode === 'exact' && exactResult">
+        <div class="manual-test-results exact-test-results">
+          <article v-for="card in exactCards" :key="card.key" :class="{ 'exact-original': card.key === 'original', 'exact-active': exactChoice === card.key }">
+            <h3>{{ card.label }}</h3>
+            <template v-if="card.route">
+              <p>{{ distance(card.route.distance) }} · {{ minutes(card.route.durationMinutes) }} · 当前趟超窗{{ card.route.points.filter(point => point.timeWindowViolation).length }}处 · 完整模板超窗{{ card.violations }}处</p>
+              <p v-if="card.key !== 'original'">比原路线 {{ signedDistance(card.route.distance - exactCards[0].route.distance) }}</p>
+              <label v-if="card.key !== 'original'" class="exact-choice">
+                <input type="radio" name="exact-route-candidate" :checked="exactChoice === card.key" :disabled="busy" @change="chooseExactCandidate(card.key)" />选用此候选
+              </label>
+              <RouteMapPanel :key="calculationId + '-' + card.key" :view-link="comparisonViewLink" :original-points="[]" :optimized-points="card.points" :optimized-segments="card.route.roadSegments" :show-original="false" :optimized-label="card.label" />
+              <div class="manual-test-arrivals"><table><thead><tr><th>顺序</th><th>点位</th><th>时间窗</th><th>到达</th><th>校验</th></tr></thead>
+                <tbody><tr v-for="point in card.route.points" :key="point.manualToken" :class="{ conflict: point.timeWindowViolation }"><td>{{ point.order }}</td><td>{{ point.facilityName || point.facilityId }}</td><td>{{ windowLabel(point) || '—' }}</td><td>{{ point.comparisonArrivalTime }}</td><td>{{ point.timeWindowViolation ? '超窗' : point.role === 'MIDDLE' ? '通过' : '起终点' }}</td></tr></tbody>
+              </table></div>
+            </template>
+            <p v-else>当前发车时间下，没有满足本趟及同车后续趟次时间窗的顺序。</p>
+          </article>
+        </div>
+      </template>
+      <template v-else-if="comparison">
         <h3>{{ comparison.verdict.message }}</h3>
         <p>{{ singleTripMode ? '未计中途卸料的基础路线预检：' : '模板及所校验场景合计：' }}{{ selectedComparison ? '基准' : '系统' }}{{ comparison.generatedConflicts }}次冲突，{{ selectedComparison ? '候选' : '手动' }}{{ comparison.manualConflicts }}次冲突。绿色/红色表示相对比较结果；{{ singleTripMode ? '应用后才会重算卸料和每日时间窗，此处通过不代表最终通过。' : '不能代替时间窗校验；红色点位为到达超窗。' }}</p>
         <label v-if="comparison.scenarios.length > 1">对比场景 <select v-model.number="scenarioIndex"><option v-for="(scenario,index) in comparison.scenarios" :value="index" :key="scenario.day">{{ scenario.label }} · 系统{{ scenario.generated.violations }} / 手动{{ scenario.manual.violations }}处冲突</option></select></label>
@@ -91,6 +110,21 @@ const busy = ref(false), progress = ref(''), error = ref(''), comparison = ref(n
 let requestId = 0
 const twoOptMinutes = ref(5)
 const adjustmentMode = ref('manual'), selectedTokens = ref(new Set()), autoRunning = ref(false), autoCandidate = ref(null), autoProgress = ref(null), autoMessage = ref(''), selectedComparison = ref(false), autoElapsed = ref(0)
+const exactResult = ref(null), exactChoice = ref('')
+const exactCards = computed(() => {
+  if (!exactResult.value) return []
+  const { distance, timeWindow } = exactResult.value
+  const makeCard = (key, label, summary, changedTokens = []) => {
+    const route = summary?.result.routes[tripIndex.value]
+    return { key, label, route, violations: summary?.violations,
+      points: route ? markSelectedPoints(route.points, new Set(changedTokens)) : [] }
+  }
+  return [
+    makeCard('original', '原路线（本次编辑基准）', distance.comparison.scenarios[0].generated),
+    makeCard('distance', '不考虑时间窗 · 里程最短', distance.comparison.scenarios[0].manual, distance.changedTokens),
+    makeCard('timeWindow', '满足时间窗 · 里程最短', timeWindow?.comparison.scenarios[0].manual, timeWindow?.changedTokens)
+  ]
+})
 const exactPointCount = computed(() => draft.value.routes[tripIndex.value].points.slice(1, -1).filter(adjustablePoint).length)
 const exactDisabledReason = computed(() => exactOrderUnavailableReason(draft.value.routes[tripIndex.value]))
 const candidateLabel = computed(() => adjustmentMode.value === 'exact' ? '全排列最短路线候选'
@@ -100,7 +134,14 @@ let autoController = null, autoTimer = null
 const selectedNames = computed(() => draft.value.routes.flatMap(route => route.points).filter(point => selectedTokens.value.has(point.manualToken)).map(point => point.facilityName || point.facilityId))
 function toggleSelected(token) { const next = new Set(selectedTokens.value); next.has(token) ? next.delete(token) : next.add(token); selectedTokens.value = next }
 function selectTripPoints() { selectedTokens.value = new Set([...selectedTokens.value, ...draft.value.routes[tripIndex.value].points.slice(1,-1).filter(adjustablePoint).map(point => point.manualToken)]) }
-function clearAutoResult() { autoCandidate.value = null; autoMessage.value = ''; autoProgress.value = null; selectedComparison.value = false }
+function clearAutoResult() {
+  autoCandidate.value = null
+  autoMessage.value = ''
+  autoProgress.value = null
+  selectedComparison.value = false
+  exactResult.value = null
+  exactChoice.value = ''
+}
 function cancelSelection() { autoController?.abort() }
 function adoptSelectedCandidate() {
   if (busy.value || !autoCandidate.value) return
@@ -141,6 +182,16 @@ function changeTrip() {
   changeAdjustmentContext()
   if (exactDisabledReason.value) adjustmentMode.value = 'manual'
 }
+function chooseExactCandidate(key) {
+  const selected = exactResult.value?.[key]
+  if (!selected) return
+  exactChoice.value = key
+  comparison.value = selected.comparison
+  selectedComparison.value = true
+  scenarioIndex.value = 0
+  markedTokens.value = new Set(selected.changedTokens)
+  autoCandidate.value = selected.candidate
+}
 async function optimizeExactRouteOrder() {
   if (busy.value || exactDisabledReason.value) return
   const id = ++requestId
@@ -157,18 +208,14 @@ async function optimizeExactRouteOrder() {
     const result = await optimizeExactRoute({
       draft: before, routeIndex: tripIndex.value, options: props.options,
       resolveExact: props.resolveExact, resolveRoad: props.resolveRoad,
-      buildSchedules: props.buildSchedules, isViolation: props.isViolation, signal: autoController.signal,
+      buildSchedules: props.buildSchedules, isViolation: props.isViolation, singleTripMode: props.singleTripMode, signal: autoController.signal,
       onProgress: value => { if (id === requestId) { autoProgress.value = value; progress.value = value.message } }
     })
     if (id !== requestId) return
-    comparison.value = result.comparison
-    comparison.value.verdict.message = result.message
-    selectedComparison.value = true
-    scenarioIndex.value = 0
+    exactResult.value = result
+    chooseExactCandidate(result.timeWindow ? 'timeWindow' : 'distance')
+    autoProgress.value = { message: result.message }
     calculationId.value++
-    markedTokens.value = new Set(result.changedTokens)
-    autoMessage.value = result.message
-    autoCandidate.value = result.candidate
   } catch (err) {
     if (id === requestId) {
       error.value = err.name === 'AbortError' ? '全排列已取消，编辑内容保留。' : '全排列计算失败：' + (err.message || String(err))
@@ -307,6 +354,10 @@ h2,h3 { margin:8px 0; } p { margin:10px 0; line-height:1.6; }
 .manual-test-point.is-dragging { opacity:.45; } .manual-test-point.drop-before { box-shadow:inset 0 3px #2563eb; } .manual-test-point.drop-after { box-shadow:inset 0 -3px #2563eb; }
 .manual-test-results { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:16px; margin-top:12px; }
 .manual-test-results article { min-width:0; padding:12px; border:2px solid; border-radius:8px; }
+.exact-test-results article { border-color:#dbe3ee; }
+.exact-test-results .exact-original { grid-column:1 / -1; }
+.exact-test-results .exact-active { border-color:#2563eb; }
+.exact-choice { display:inline-flex; gap:6px; align-items:center; margin:0 0 8px; }
 .manual-test-arrivals { overflow:auto; max-height:350px; } table { width:100%; border-collapse:collapse; } td,th { padding:8px; text-align:left; border-bottom:1px solid #e2e8f0; }
 .conflict,.manual-test-error { color:#dc2626; } .conflict { background:#fff1f2; }
 @media(max-width:1000px) { .manual-test-results { grid-template-columns:1fr; } }

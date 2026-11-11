@@ -21,6 +21,7 @@ import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
+import java.util.function.DoublePredicate;
 import java.util.concurrent.CancellationException;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
@@ -492,22 +493,41 @@ public class RouteOptimizeService {
         DistanceContext context = new DistanceContext(true, true);
         context.preload(points);
         double[][] distances = new double[points.size()][points.size()];
+        double[][] travel = new double[points.size()][points.size()];
+        SpeedProfile profile = speedProfile(request);
         int begin = 0;
         for (int end = 1; end < points.size(); end++) {
             if (!fixed[end]) continue;
             for (int from = begin; from < end; from++) {
                 for (int to = begin + 1; to <= end; to++) {
                     if (from != to && !(from == begin && to == end && end > begin + 1)) {
-                        distances[from][to] = adjustmentDistance(context, points.get(from), points.get(to));
+                        double distance = adjustmentDistance(context, points.get(from), points.get(to));
+                        distances[from][to] = distance;
+                        SpeedDecision speed = profile.forEdge(points, points.get(from), points.get(to),
+                                from == 0 || to == points.size() - 1, distance);
+                        travel[from][to] = round(minutes(distance, speed.kmh));
                     }
                 }
             }
             begin = end;
         }
-        ExactRouteOptimizer.Result best = new ExactRouteOptimizer().optimize(distances, fixed);
+        ExactRouteOptimizer.Timing timing = exactRouteTiming(request, rows, points, travel);
+        ExactRouteOptimizer.Result best = new ExactRouteOptimizer().optimize(distances, fixed, timing);
+        int[] order = best.getOrder();
+        Map<String, Object> result = exactCandidate(order, rows, points, context, profile);
+        result.put("evaluated", best.getEvaluated());
+        result.put("distance", best.getDistance());
+        result.put("originalSegments", segmentViews(points, profile, context, true));
+        int[] feasible = best.getFeasibleOrder();
+        result.put("timeWindowCandidate", feasible == null ? null : exactCandidate(feasible, rows, points, context, profile));
+        return result;
+    }
+
+    private Map<String, Object> exactCandidate(int[] order, List<Map<String, Object>> rows, List<RoutePoint> points,
+                                               DistanceContext context, SpeedProfile profile) {
         List<Map<String, Object>> reordered = new ArrayList<>();
         List<RoutePoint> adjusted = new ArrayList<>();
-        for (int index : best.getOrder()) {
+        for (int index : order) {
             Map<String, Object> row = new LinkedHashMap<>(rows.get(index));
             row.put("order", reordered.size() + 1);
             row.put("orderNum", reordered.size() + 1);
@@ -516,11 +536,54 @@ public class RouteOptimizeService {
         }
         Map<String, Object> result = new LinkedHashMap<>();
         result.put("points", reordered);
-        result.put("evaluated", best.getEvaluated());
-        result.put("distance", best.getDistance());
-        result.put("originalSegments", segmentViews(points, speedProfile(request), context, true));
-        result.put("adjustedSegments", segmentViews(adjusted, speedProfile(request), context, true));
+        result.put("adjustedSegments", segmentViews(adjusted, profile, context, true));
         return result;
+    }
+
+    private ExactRouteOptimizer.Timing exactRouteTiming(Map<String, Object> request, List<Map<String, Object>> rows,
+                                                       List<RoutePoint> points, double[][] travel) {
+        Double start = toDouble(request.get("tripStartMinutes"));
+        if (start == null) return null;
+        if (!Double.isFinite(start) || start < 0D) throw new IllegalArgumentException("趟次出发时间无效");
+        boolean checkDeparture = Boolean.TRUE.equals(request.get("checkDeparture"));
+        double[] operation = new double[points.size()];
+        DoublePredicate[] allowedArrival = new DoublePredicate[points.size()];
+        for (int i = 0; i < points.size(); i++) {
+            operation[i] = exactOperationMinutes(rows.get(i));
+            allowedArrival[i] = exactWindowCheck(rows.get(i), points.get(i), operation[i], checkDeparture);
+        }
+        List<Map<String, Object>> downstream = maps(request.get("downstreamWindows"));
+        List<RoutePoint> downstreamPoints = toRoutePoints(downstream);
+        List<DoublePredicate> finishChecks = new ArrayList<>();
+        for (int i = 0; i < downstream.size(); i++) {
+            Map<String, Object> row = downstream.get(i);
+            Double offset = toDouble(row.get("arrivalOffsetMinutes"));
+            if (offset == null || !Double.isFinite(offset) || offset < 0D) throw new IllegalArgumentException("后续趟次时间偏移无效");
+            DoublePredicate allowed = exactWindowCheck(row, downstreamPoints.get(i), exactOperationMinutes(row), checkDeparture);
+            if (allowed != null) finishChecks.add(finish -> allowed.test(finish + offset));
+        }
+        return new ExactRouteOptimizer.Timing(travel, operation, start, allowedArrival, finish -> {
+            for (DoublePredicate check : finishChecks) if (!check.test(finish)) return false;
+            return true;
+        });
+    }
+
+    private double exactOperationMinutes(Map<String, Object> row) {
+        Double operation = toDouble(row.get("operationDurationMinutes"));
+        if (operation == null || !Double.isFinite(operation) || operation < 0D) throw new IllegalArgumentException("点位作业时间缺失或无效");
+        return operation;
+    }
+
+    private DoublePredicate exactWindowCheck(Map<String, Object> row, RoutePoint point, double operation, boolean checkDeparture) {
+        if (!"MIDDLE".equals(row.get("role")) || Boolean.TRUE.equals(row.get("scheduleSkipped"))) return null;
+        if (point.getAllowTimeBeginMinutes() == null && point.getAllowTimeEndMinutes() == null
+                && (point.getBarredTimeBeginMinutes() == null || point.getBarredTimeEndMinutes() == null)) return null;
+        return arrival -> exactEntryAllowed(point, arrival) && (!checkDeparture || exactEntryAllowed(point, arrival + operation));
+    }
+
+    private boolean exactEntryAllowed(RoutePoint point, double minutes) {
+        int clock = (int) Math.floorMod(Math.round(minutes), 1440L);
+        return FacilityTimeWindow.allowsEntry(point, clock);
     }
 
     /** One greedy reinsertion pass, using a single OD context; not a multi-round route search. */
@@ -1853,14 +1916,18 @@ public class RouteOptimizeService {
         }
 
         private SpeedDecision forSegment(List<RoutePoint> points, int index, double distanceMeters) {
-            if (index == 0 || index == points.size() - 2) {
+            return forEdge(points, points.get(index), points.get(index + 1),
+                    index == 0 || index == points.size() - 2, distanceMeters);
+        }
+
+        private SpeedDecision forEdge(List<RoutePoint> points, RoutePoint from, RoutePoint to,
+                                      boolean terminalEdge, double distanceMeters) {
+            if (terminalEdge) {
                 return new SpeedDecision(transferSpeedKmh, "TRANSFER", "起点/终点场站转场");
             }
             if (distanceMeters >= transferDistanceMeters) {
                 return new SpeedDecision(transferSpeedKmh, "TRANSFER", "长距离转场");
             }
-            RoutePoint from = points.get(index);
-            RoutePoint to = points.get(index + 1);
             if (!from.hasCoordinate() || !to.hasCoordinate()) {
                 return new SpeedDecision(normalSpeedKmh, "NORMAL", "普通收运路段");
             }

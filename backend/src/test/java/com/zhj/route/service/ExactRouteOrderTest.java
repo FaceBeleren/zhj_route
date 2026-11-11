@@ -25,7 +25,15 @@ class ExactRouteOrderTest {
         RouteOptimizeService service = new RouteOptimizeService(null, paths, mock(RouteOptimizeTraceService.class));
         List<Map<String, Object>> points = Arrays.asList(point(0, "START"), point(1, "MIDDLE"),
                 point(2, "MIDDLE"), point(3, "MIDDLE"), point(9, "END"));
-        Map<String, Object> result = service.exactRouteOrder(map("points", points));
+        points.get(1).put("allowTimeEnd", "06:01");
+        Map<String, Object> request = map("points", points, "tripStartMinutes", 360D);
+        Map<String, Object> result = service.exactRouteOrder(request);
+        Map<?, ?> feasible = (Map<?, ?>) result.get("timeWindowCandidate");
+        assertNotNull(feasible);
+        List<Map<String, Object>> windowPoints = SmallWindowPlanningService.maps(feasible.get("points"));
+        assertEquals("p1", windowPoints.get(1).get("manualToken"));
+        assertEquals(301D, SmallWindowPlanningService.maps(feasible.get("adjustedSegments")).stream()
+                .mapToDouble(segment -> ((Number) segment.get("distance")).doubleValue()).sum());
         List<Map<String, Object>> adjusted = SmallWindowPlanningService.maps(result.get("points"));
         assertEquals(Arrays.asList("p0", "p3", "p1", "p2", "p9"),
                 adjusted.stream().map(p -> p.get("manualToken")).collect(Collectors.toList()));
@@ -36,6 +44,10 @@ class ExactRouteOrderTest {
         assertEquals("p1", points.get(1).get("manualToken"));
         verify(paths, times(1)).preloadCachedDistances(anyList());
         verify(paths, times(12)).resolveWithoutCache(any(), any());
+
+        request.put("downstreamWindows", Collections.singletonList(map("role", "MIDDLE", "allowTimeBegin", "07:00",
+                "arrivalOffsetMinutes", 0D, "operationDurationMinutes", 0D)));
+        assertNull(service.exactRouteOrder(request).get("timeWindowCandidate"));
     }
 
     @Test

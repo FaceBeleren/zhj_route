@@ -6370,9 +6370,9 @@ async function resolveManualTestRoad(points, options, signal) {
     body: JSON.stringify({ ...options, points, displayRoadPath: true })
   })
 }
-async function resolveExactRouteOrder(points, options, signal) {
+async function resolveExactRouteOrder(points, options, signal, timing) {
   return api('/api/optimize/exact-route-order', { method: 'POST', signal,
-    headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ...options, points }) })
+    headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ...options, ...timing, points }) })
 }
 async function resolveSelectedPointsOnce(routes, selectedTokens, options, signal) {
   return api('/api/optimize/selected-points-once', { method: 'POST', signal, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ...options, routes, selectedTokens }) })
