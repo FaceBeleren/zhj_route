@@ -1,6 +1,7 @@
 package com.zhj.route.service;
 
 import com.zhj.route.algorithm.FacilityTimeWindow;
+import com.zhj.route.algorithm.ExactRouteOptimizer;
 import com.zhj.route.algorithm.RouteOptimizationResult;
 import com.zhj.route.algorithm.RoutePoint;
 import com.zhj.route.algorithm.SingleRouteOptimizer;
@@ -463,6 +464,62 @@ public class RouteOptimizeService {
         result.put("durationMinutes", round(sumSegmentDuration(segments)));
         result.put("pathSource", displayRoadPath ? "OD_OR_BAIDU" : "DIRECT");
         result.put("stats", context.summary());
+        return result;
+    }
+
+    public Map<String, Object> exactRouteOrder(Map<String, Object> request) {
+        List<Map<String, Object>> rows = maps(request.get("points"));
+        if (rows.size() < 2) throw new IllegalArgumentException("路线缺少起终点");
+        boolean[] fixed = new boolean[rows.size()];
+        int movable = 0;
+        Set<String> tokens = new HashSet<>();
+        for (int i = 0; i < rows.size(); i++) {
+            Map<String, Object> row = rows.get(i);
+            Object token = row.get("manualToken");
+            if (!(token instanceof String) || ((String) token).isEmpty() || !tokens.add((String) token)) {
+                throw new IllegalArgumentException("点位出现标识缺失或重复");
+            }
+            fixed[i] = i == 0 || i == rows.size() - 1 || fixedAdjustmentAnchor(row);
+            if (!fixed[i]) movable++;
+        }
+        if (movable > 10) throw new IllegalArgumentException("当前趟次有" + movable + "个可排序收运点，全排列最多支持10个");
+        List<RoutePoint> points = toRoutePoints(rows);
+        for (RoutePoint point : points) {
+            if (!point.hasCoordinate() || !Double.isFinite(point.getLongitude()) || !Double.isFinite(point.getLatitude())) {
+                throw new IllegalArgumentException("点位坐标缺失或无效");
+            }
+        }
+        DistanceContext context = new DistanceContext(true, true);
+        context.preload(points);
+        double[][] distances = new double[points.size()][points.size()];
+        int begin = 0;
+        for (int end = 1; end < points.size(); end++) {
+            if (!fixed[end]) continue;
+            for (int from = begin; from < end; from++) {
+                for (int to = begin + 1; to <= end; to++) {
+                    if (from != to && !(from == begin && to == end && end > begin + 1)) {
+                        distances[from][to] = adjustmentDistance(context, points.get(from), points.get(to));
+                    }
+                }
+            }
+            begin = end;
+        }
+        ExactRouteOptimizer.Result best = new ExactRouteOptimizer().optimize(distances, fixed);
+        List<Map<String, Object>> reordered = new ArrayList<>();
+        List<RoutePoint> adjusted = new ArrayList<>();
+        for (int index : best.getOrder()) {
+            Map<String, Object> row = new LinkedHashMap<>(rows.get(index));
+            row.put("order", reordered.size() + 1);
+            row.put("orderNum", reordered.size() + 1);
+            reordered.add(row);
+            adjusted.add(points.get(index));
+        }
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("points", reordered);
+        result.put("evaluated", best.getEvaluated());
+        result.put("distance", best.getDistance());
+        result.put("originalSegments", segmentViews(points, speedProfile(request), context, true));
+        result.put("adjustedSegments", segmentViews(adjusted, speedProfile(request), context, true));
         return result;
     }
 

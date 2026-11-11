@@ -87,6 +87,11 @@ public class RouteOptimizeController {
         return routeOptimizeService.routeSegmentsPreview(request);
     }
 
+    @PostMapping("/exact-route-order")
+    public Map<String, Object> exactRouteOrder(@RequestBody Map<String, Object> request) {
+        return routeOptimizeService.exactRouteOrder(request);
+    }
+
     @PostMapping("/selected-points-once")
     public Map<String,Object> adjustSelectedOnce(@RequestBody Map<String,Object> request) { return routeOptimizeService.adjustSelectedOnce(request); }
 

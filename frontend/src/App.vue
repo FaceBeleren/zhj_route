@@ -2487,9 +2487,9 @@
       </div>
     </section>
   </div>
-  <ManualRouteTest v-if="smallWindowBaseTest" :result="smallWindowBaseTest.result" :options="smallWindowBaseTest.options" :apply-result="smallWindowBaseTest.applyResult" :base-stage="true" :title="'第一阶段无时间窗基础路线'" :initial-route-no="smallWindowBaseTest.initialRouteNo" :resolve-road="resolveManualTestRoad" :resolve-selection="resolveSelectedPointsOnce" :build-schedules="buildRouteSchedules" :is-violation="arrivalViolatesTimeWindow" @close="smallWindowBaseTest = null" />
-  <ManualRouteTest v-if="singleTripManualTest" :single-trip-mode="true" :result="singleTripManualTest.result" :options="singleTripManualTest.options" :apply-result="singleTripManualTest.applyResult" :title="'全点单趟完整基础路线'" :initial-route-no="singleTripManualTest.routeNo" :resolve-road="resolveManualTestRoad" :resolve-selection="resolveSelectedPointsOnce" :build-schedules="buildRouteSchedules" :is-violation="singleTripOptimisticViolation" @close="singleTripManualTest = null" />
-  <ManualRouteTest v-if="manualTest" :result="manualTest.result" :options="manualTest.options" :save-context="manualTest.saveContext" :apply-result="manualTest.applyResult" :schedule-days="manualTest.scheduleDays" :title="manualTest.title" :initial-route-no="manualTest.initialRouteNo" :resolve-road="resolveManualTestRoad" :resolve-selection="resolveSelectedPointsOnce" :build-schedules="buildRouteSchedules" :is-violation="arrivalViolatesTimeWindow" @save="saveManualTestPlan" @close="manualTest = null" />
+  <ManualRouteTest v-if="smallWindowBaseTest" :result="smallWindowBaseTest.result" :options="smallWindowBaseTest.options" :apply-result="smallWindowBaseTest.applyResult" :base-stage="true" :title="'第一阶段无时间窗基础路线'" :initial-route-no="smallWindowBaseTest.initialRouteNo" :resolve-road="resolveManualTestRoad" :resolve-selection="resolveSelectedPointsOnce" :resolve-exact="resolveExactRouteOrder" :build-schedules="buildRouteSchedules" :is-violation="arrivalViolatesTimeWindow" @close="smallWindowBaseTest = null" />
+  <ManualRouteTest v-if="singleTripManualTest" :single-trip-mode="true" :result="singleTripManualTest.result" :options="singleTripManualTest.options" :apply-result="singleTripManualTest.applyResult" :title="'全点单趟完整基础路线'" :initial-route-no="singleTripManualTest.routeNo" :resolve-road="resolveManualTestRoad" :resolve-selection="resolveSelectedPointsOnce" :resolve-exact="resolveExactRouteOrder" :build-schedules="buildRouteSchedules" :is-violation="singleTripOptimisticViolation" @close="singleTripManualTest = null" />
+  <ManualRouteTest v-if="manualTest" :result="manualTest.result" :options="manualTest.options" :save-context="manualTest.saveContext" :apply-result="manualTest.applyResult" :schedule-days="manualTest.scheduleDays" :title="manualTest.title" :initial-route-no="manualTest.initialRouteNo" :resolve-road="resolveManualTestRoad" :resolve-selection="resolveSelectedPointsOnce" :resolve-exact="resolveExactRouteOrder" :build-schedules="buildRouteSchedules" :is-violation="arrivalViolatesTimeWindow" @save="saveManualTestPlan" @close="manualTest = null" />
   <div v-if="timeRepairVisible" style="position:fixed;inset:0;background:#0008;z-index:1000;display:flex;align-items:center;justify-content:center">
     <section style="background:white;padding:24px;border-radius:12px;width:min(900px,90vw);max-height:85vh;overflow:auto">
       <h2>时间窗修正路线 · {{ timeRepairVersion?.name }}</h2>
@@ -6369,6 +6369,10 @@ async function resolveManualTestRoad(points, options, signal) {
     method: 'POST', signal, headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ ...options, points, displayRoadPath: true })
   })
+}
+async function resolveExactRouteOrder(points, options, signal) {
+  return api('/api/optimize/exact-route-order', { method: 'POST', signal,
+    headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ...options, points }) })
 }
 async function resolveSelectedPointsOnce(routes, selectedTokens, options, signal) {
   return api('/api/optimize/selected-points-once', { method: 'POST', signal, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ...options, routes, selectedTokens }) })
