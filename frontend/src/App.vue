@@ -1157,7 +1157,7 @@
                 <small v-if="assignmentSelectedVehicle" class="assignment-vehicle-hint">{{ assignmentSelectedVehicleHint }}</small>
                 <small v-else-if="assignmentVehicleError" class="assignment-vehicle-hint error-text">{{ assignmentVehicleError }}</small>
               </label>
-              <label>额定载重 kg<input v-model.number="optimizeOptions.ratedCapacityKg" type="number" min="1" step="100" /><small class="assignment-vehicle-hint">可按车辆自动回填，也可手工修改</small></label>
+              <label>额定载重 kg<input v-model.number="optimizeOptions.ratedCapacityKg" type="number" min="1" step="100" /><small class="assignment-vehicle-hint">可按车辆自动回填，也可手工修改。全点单趟可不选车</small></label>
               <label>垃圾密度 kg/m³<input v-model.number="optimizeOptions.garbageDensityKgM3" type="number" min="0.01" step="1" :placeholder="garbageDensityPlaceholder" :disabled="loading || assignmentBatchRunning || assignmentTripReorderRunning || fixedMasterRunning" /><small>{{ garbageDensityError || '留空沿用原配置；重量=桶容积÷1000×密度，修改后重新生成方案' }}</small></label>
               <label>目标装载率<input v-model.number="optimizeOptions.targetLoadRate" type="number" min="0.1" max="1" step="0.05" /></label>
               <label>最大趟数<input v-model.number="optimizeOptions.maxRoutes" type="number" min="1" step="1" /></label>
@@ -3765,7 +3765,7 @@ async function runSingleTripTimeWindowRepair() {
   const owner = singleTripPlan.value
   const fingerprint = singleTripFingerprint.value
   const options = { ...optimizeOptions }
-  const vehicle = normalizedAssignmentVehicles()[0]
+  const vehicle = normalizedAssignmentVehicles({ singleTrip: true })[0]
   const controller = new AbortController()
   singleTripRepairController = controller
   singleTripRepairRunning.value = true
@@ -3816,7 +3816,7 @@ function openSingleTripManualTest() {
       if (owner !== singleTripPlan.value || fingerprint !== singleTripFingerprint.value || !singleTripFresh.value) throw new Error('原方案或规划参数已变化，请重新打开调整窗口')
       if (manualResult.routes?.length !== 1) throw new Error('单趟基础路线只能有一条')
       const options = { ...optimizeOptions }
-      const vehicle = normalizedAssignmentVehicles()[0]
+      const vehicle = normalizedAssignmentVehicles({ singleTrip: true })[0]
       const capacityKg = Number(vehicle?.ratedCapacityKg)
       const loadRate = Number(options.targetLoadRate)
       const unloadMinutes = Number(options.terminalUnloadMinutes || 0)
@@ -3869,13 +3869,13 @@ async function generateSingleTripPlan() {
   const originals = deepClone(splitPlanPoints.value)
   const options = { ...optimizeOptions }
   const schemes = assignmentVersions.value.map(item => ({ indices: [...item.selectedIndices], days: [...(item.applicableDays || [])], disabled: Boolean(item.scheduleDisabled) }))
-  const vehicles = normalizedAssignmentVehicles().map(vehicle => ({ ...vehicle, tripCount: 1 }))
+  const vehicles = normalizedAssignmentVehicles({ singleTrip: true })
   singleTripRunning.value = true
   singleTripMessage.value = '正在规划不受载重限制的完整单趟顺序…'
   let taskId = null
   try {
     if (new Set(originals.map(point => String(point.facilityId))).size !== originals.length) throw new Error('岗位存在重复点位，请先核对')
-    if (vehicles.length !== 1) throw new Error('请选择一辆车并确认额定载重')
+    if (vehicles.length !== 1) throw new Error('请输入大于 0 的额定载重')
     const request = { ...options, maxRoutes: 1, singleUncappedTrip: true,
       startLongitude: options.startLongitude ?? originals[0]?.longitude, startLatitude: options.startLatitude ?? originals[0]?.latitude,
       endLongitude: options.endLongitude ?? originals.at(-1)?.longitude, endLatitude: options.endLatitude ?? originals.at(-1)?.latitude,
@@ -5208,17 +5208,18 @@ async function loadAssignmentVehicles() {
   }
 }
 
-function normalizedAssignmentVehicles() {
+function normalizedAssignmentVehicles({ singleTrip = false } = {}) {
   const vehicle = assignmentSelectedVehicle.value
-  if (!vehicle) return []
-  const rated = Math.max(1, Number(optimizeOptions.ratedCapacityKg || vehicle.ratedCapacityKg || 5000))
+  if (!vehicle && !singleTrip) return []
+  const rated = singleTrip ? Number(optimizeOptions.ratedCapacityKg) : Math.max(1, Number(optimizeOptions.ratedCapacityKg || vehicle.ratedCapacityKg || 5000))
+  if (singleTrip && (!Number.isFinite(rated) || rated <= 0)) return []
   return [{
-    vehicleId: vehicle.vehicleId || vehicle.carCode,
-    vehicleName: vehicle.carCode,
-    vehicleType: vehicle.vehicleType || '',
+    vehicleId: vehicle?.vehicleId || vehicle?.carCode || 'single-trip-manual',
+    vehicleName: vehicle?.carCode || '手填载重试算',
+    vehicleType: vehicle?.vehicleType || '',
     ratedCapacityKg: rated,
     maxCapacityKg: rated,
-    tripCount: Math.max(1, Number(optimizeOptions.maxRoutes || 1)),
+    tripCount: singleTrip ? 1 : Math.max(1, Number(optimizeOptions.maxRoutes || 1)),
     startLongitude: optimizeOptions.startLongitude,
     startLatitude: optimizeOptions.startLatitude,
     startFacilityId: optimizeOptions.startFacilityId,
