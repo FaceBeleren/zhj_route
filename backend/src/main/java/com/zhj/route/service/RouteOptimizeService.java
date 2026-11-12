@@ -471,6 +471,15 @@ public class RouteOptimizeService {
     public Map<String, Object> exactRouteOrder(Map<String, Object> request) {
         List<Map<String, Object>> rows = maps(request.get("points"));
         if (rows.size() < 2) throw new IllegalArgumentException("路线缺少起终点");
+        Object rangeValue = request.get("reorderRange");
+        Map<?, ?> range = rangeValue instanceof Map ? (Map<?, ?>) rangeValue : Collections.emptyMap();
+        boolean partial = request.containsKey("reorderRange");
+        Integer start = partial ? toInteger(range.get("startIndex")) : Integer.valueOf(1);
+        Integer rangeEnd = partial ? toInteger(range.get("endIndex")) : Integer.valueOf(rows.size() - 1);
+        if (partial && (start == null || rangeEnd == null || start < 1 || rangeEnd >= rows.size()
+                || rangeEnd - start < 2 || rangeEnd - start > 10)) {
+            throw new IllegalArgumentException("分段全排列需要固定终点和其前方连续2至10个收运点");
+        }
         boolean[] fixed = new boolean[rows.size()];
         int movable = 0;
         Set<String> tokens = new HashSet<>();
@@ -480,7 +489,10 @@ public class RouteOptimizeService {
             if (!(token instanceof String) || ((String) token).isEmpty() || !tokens.add((String) token)) {
                 throw new IllegalArgumentException("点位出现标识缺失或重复");
             }
-            fixed[i] = i == 0 || i == rows.size() - 1 || fixedAdjustmentAnchor(row);
+            boolean inRange = i >= start && i < rangeEnd;
+            boolean anchor = fixedAdjustmentAnchor(row);
+            if (partial && inRange && anchor) throw new IllegalArgumentException("分段全排列不能跨越固定锚点");
+            fixed[i] = !inRange || anchor;
             if (!fixed[i]) movable++;
         }
         if (movable > 10) throw new IllegalArgumentException("当前趟次有" + movable + "个可排序收运点，全排列最多支持10个");

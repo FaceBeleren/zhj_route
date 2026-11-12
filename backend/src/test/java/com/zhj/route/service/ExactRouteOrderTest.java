@@ -75,6 +75,41 @@ class ExactRouteOrderTest {
         verifyNoInteractions(paths);
     }
 
+    @Test
+    void reordersOnlyTheSelectedPrefixSegmentOnThirtyPointRoute() {
+        RouteMapPathService paths = mock(RouteMapPathService.class);
+        when(paths.preloadCachedDistances(anyList())).thenReturn(Collections.emptyMap());
+        Set<String> shortEdges = new HashSet<>(Arrays.asList("9:12", "12:10", "10:11", "11:13"));
+        when(paths.resolveWithoutCache(any(), any())).thenAnswer(call -> {
+            RoutePoint from = call.getArgument(0), to = call.getArgument(1);
+            double distance = shortEdges.contains(from.getFacilityId() + ":" + to.getFacilityId()) ? 1D : 100D;
+            return new RouteMapPathService.ResolvedPath(Arrays.asList(
+                    map("longitude", from.getLongitude(), "latitude", from.getLatitude()),
+                    map("longitude", to.getLongitude(), "latitude", to.getLatitude())), distance, 1D, "OD_CACHE");
+        });
+        RouteOptimizeService service = new RouteOptimizeService(null, paths, mock(RouteOptimizeTraceService.class));
+        List<Map<String, Object>> points = new ArrayList<>();
+        points.add(point(0, "START"));
+        for (int i = 1; i <= 30; i++) points.add(point(i, "MIDDLE"));
+        points.add(point(31, "END"));
+        Map<String, Object> request = map("points", points, "reorderRange", map("startIndex", 10, "endIndex", 13),
+                "tripStartMinutes", 360D);
+        Map<String, Object> result = service.exactRouteOrder(request);
+        List<String> actual = SmallWindowPlanningService.maps(result.get("points")).stream()
+                .map(p -> (String) p.get("manualToken")).collect(Collectors.toList());
+        List<String> expected = points.stream().map(p -> (String) p.get("manualToken")).collect(Collectors.toList());
+        expected.subList(10, 13).clear();
+        expected.addAll(10, Arrays.asList("p12", "p10", "p11"));
+        assertEquals(expected, actual);
+        assertEquals(6L, result.get("evaluated"));
+        assertNotNull(result.get("timeWindowCandidate"));
+
+        points.get(11).put("weightSource", "ANCHOR");
+        assertThrows(IllegalArgumentException.class, () -> service.exactRouteOrder(request));
+        request.put("reorderRange", map("startIndex", 1, "endIndex", 12));
+        assertThrows(IllegalArgumentException.class, () -> service.exactRouteOrder(request));
+    }
+
     private static Map<String, Object> map(Object... pairs) {
         Map<String, Object> result = new LinkedHashMap<>();
         for (int i = 0; i < pairs.length; i += 2) result.put((String) pairs[i], pairs[i + 1]);

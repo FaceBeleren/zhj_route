@@ -2,19 +2,31 @@
   <div class="manual-test-overlay" role="dialog" aria-modal="true" aria-label="手动调整测试">
     <section class="manual-test-dialog">
       <header><div><h2>手动调整测试 · {{ title }}</h2><p>{{ singleTripMode ? '调整完整基础路线顺序，不受当前卸料分段限制' : '只调整趟内点位顺序，不删除点位、不改变起终点和趟次归属' }}；{{ singleTripMode ? '确认应用后才重算卸料与每日跳点' : baseStage ? '确认后只更新本次联合规划的基础路线' : '仅计算不会覆盖原方案，点击“保存并替换”才应用' }}。</p></div><button :disabled="busy" @click="$emit('close')">关闭</button></header>
-      <p v-if="adjustmentMode !== 'exact'">{{ singleTripMode ? '调整阶段只比较完整基础路线的道路里程与耗时；时间窗是未计中途卸料的乐观预检。应用最终顺序后，才重算卸料分段、每日跳点和最终时间窗。' : '只对比完整路线调整前后：道路里程优先，差异不足1米时比较总耗时；标记完整路线时间窗。不计算、不展示每日排班跳点，不保证全局最优。' }}</p>
+      <p v-if="!isExactMode">{{ singleTripMode ? '调整阶段只比较完整基础路线的道路里程与耗时；时间窗是未计中途卸料的乐观预检。应用最终顺序后，才重算卸料分段、每日跳点和最终时间窗。' : '只对比完整路线调整前后：道路里程优先，差异不足1米时比较总耗时；标记完整路线时间窗。不计算、不展示每日排班跳点，不保证全局最优。' }}</p>
       <div class="manual-test-controls">
-        <label>调整模式 <select v-model="adjustmentMode" :disabled="busy" @change="changeAdjustmentContext"><option value="manual">手动拖动</option><option value="selected">选点自动调整</option><option value="twoOpt">2-opt 自动调整</option><option value="exact" :disabled="!!exactDisabledReason" :title="exactDisabledReason">全排列最短路线（≤10点）</option></select></label>
+        <label>调整模式 <select v-model="adjustmentMode" :disabled="busy" @change="changeAdjustmentContext"><option value="manual">手动拖动</option><option value="selected">选点自动调整</option><option value="twoOpt">2-opt 自动调整</option><option value="exact" :disabled="!!exactDisabledReason" :title="exactDisabledReason">全排列最短路线（≤10点）</option><option value="exactSegment">分段全排列</option></select></label>
         <label>{{ singleTripMode ? '编辑完整顺序' : '选择编辑趟次' }} <select v-model.number="tripIndex" :disabled="busy" @change="changeTrip"><option v-for="(route,index) in draft.routes" :key="index" :value="index">{{ route.vehicleName || '车辆' }} 第{{ route.tripNo || route.routeNo }}趟</option></select></label>
         <button :disabled="busy" @click="reset">恢复系统顺序</button>
         <button v-if="adjustmentMode === 'manual'" :disabled="busy" @click="calculate">{{ busy ? '正在计算…' : '确定并计算对比' }}</button>
         <button :disabled="busy || (adjustmentMode !== 'manual' && (!comparison || !selectedComparison))" @click="applyManual">{{ singleTripMode ? '应用最终顺序并重算卸料' : baseStage ? '更新基础路线（全部趟次）' : '保存并替换当前方案（全部趟次）' }}</button>
         <button v-if="!baseStage && !singleTripMode" :disabled="busy || (adjustmentMode !== 'manual' && (!comparison || !selectedComparison))" @click="saveManual">另存到方案库</button>
       </div>
-      <p v-if="exactDisabledReason" class="muted">全排列不可用：{{ exactDisabledReason }}。</p>
-      <div v-if="adjustmentMode === 'exact'" class="manual-test-selection">
-        <p>当前趟次 {{ exactPointCount }} 个可排序收运点。固定起终点和中间锚点，一次计算两种最短路线。时间窗按完整模板检查当前趟及同车后续趟次，不自动等待。</p>
-        <button :disabled="busy || !!exactDisabledReason" @click="optimizeExactRouteOrder">开始全排列计算</button>
+      <p v-if="adjustmentMode !== 'exactSegment' && exactDisabledReason" class="muted">整趟全排列不可用：{{ exactDisabledReason }}。</p>
+      <div v-if="isExactMode" class="manual-test-selection">
+        <template v-if="adjustmentMode === 'exactSegment'">
+          <p v-if="segmentEndIndex === null">在下方点位列表中选择一个分段终点。</p>
+          <template v-else>
+            <p>分段终点：第 {{ segmentEndIndex + 1 }} 个点 · {{ exactTrip.points[segmentEndIndex].facilityName || exactTrip.points[segmentEndIndex].facilityId }}。重排第 {{ segmentEndIndex - segmentSize + 1 }}～{{ segmentEndIndex }} 个点。</p>
+            <label>终点前重排点数
+              <select v-model.number="segmentSize" :disabled="busy" @change="changeAdjustmentContext">
+                <option v-for="n in segmentLimit - 1" :key="n" :value="n + 1">{{ n + 1 }} 点</option>
+              </select>
+            </label>
+          </template>
+        </template>
+        <p v-else>当前趟次 {{ exactPointCount }} 个可排序收运点，固定起终点和中间锚点。</p>
+        <p>同时计算两种最短路线。时间窗按完整模板检查当前趟及同车后续趟次，不自动等待。</p>
+        <button :disabled="busy || !canRunExact" @click="optimizeExactRouteOrder">开始全排列计算</button>
         <button v-if="autoRunning" @click="cancelSelection">取消计算</button>
         <button v-if="autoCandidate" :disabled="busy" @click="adoptSelectedCandidate">采用候选到编辑列表</button>
         <p v-if="autoMessage">{{ autoMessage }}</p>
@@ -38,22 +50,22 @@
         <p v-if="autoMessage">{{ autoMessage }}</p>
       </div>
       <div v-if="autoRunning || autoProgress" class="manual-auto-progress" role="status">
-        <strong>{{ autoRunning ? (adjustmentMode === 'exact' ? '全排列最短路线计算（可取消）' : adjustmentMode === 'twoOpt' ? '2-opt 区段反转搜索（可取消）' : '所选点一次重排（只计算完整路线，可取消）') : '本次完整路线对比已完成' }}</strong>
+        <strong>{{ autoRunning ? (isExactMode ? '全排列最短路线计算（可取消）' : adjustmentMode === 'twoOpt' ? '2-opt 区段反转搜索（可取消）' : '所选点一次重排（只计算完整路线，可取消）') : '本次完整路线对比已完成' }}</strong>
         <p>{{ autoProgress?.message }}</p>
         <p v-if="autoProgress?.best">重排后完整路线：{{ distance(autoProgress.best.distance) }} · {{ minutes(autoProgress.best.duration) }}；时间窗冲突{{ autoProgress.best.timeWindowConflicts || 0 }}次（仅提示）。</p>
-        <p>已运行{{ Math.floor(autoElapsed / 1000) }}秒。{{ adjustmentMode === 'exact' ? '' : adjustmentMode === 'twoOpt' ? '有改善就继续搜索；' : '不进行多轮完整路线候选搜索；' }}取消不会采用部分结果。</p>
+        <p>已运行{{ Math.floor(autoElapsed / 1000) }}秒。{{ isExactMode ? '' : adjustmentMode === 'twoOpt' ? '有改善就继续搜索；' : '不进行多轮完整路线候选搜索；' }}取消不会采用部分结果。</p>
         <progress v-if="autoRunning" aria-label="正在计算调整路线"></progress>
       </div>
-      <p v-if="adjustmentMode !== 'exact'">{{ adjustmentMode === 'twoOpt' ? (singleTripMode ? '固定完整路线起终点，在全部收运点之间尝试区段反转；不按当前卸料分段限制。' : '固定当前趟次起终点和中间锚点，尝试区段反转；其他趟次保持顺序，完整路线统一复算。') : adjustmentMode === 'selected' ? (singleTripMode ? '取出所选点，按基础道路增程最小的位置重新插入；未选点保持相对顺序。' : '取出所选点，按道路增程最小的位置逐个重新插入一次；未选点保持相对顺序，不跨趟、不跨固定锚点。') : '拖动点位到目标行的上方或下方调整顺序，也可使用前移／后移按钮。固定锚点不能移动或跨越；拖动后需点击“确定并计算对比”。' }}</p>
-      <p>{{ singleTripMode ? '应用时将重新计算完整模板和每日跳点的卸料段、道路与时间窗；最终仍有超窗会标记，不会冒充通过。' : baseStage ? '更新后的基础路线将用于第二阶段插入时间窗点；当前正式方案不会改变。仅在开始插入之前可以修改。' : '“保存并替换”会将手动路线应用到当前方案的地图、统计与导出；“另存到方案库”独立持久保存。不论是否更优、是否超窗都允许操作，超窗提示仍保留。' }}{{ adjustmentMode === 'exact' ? '请先点击“开始全排列计算”取得候选，再保存或采用到编辑列表。' : adjustmentMode === 'twoOpt' ? '请先点击“开始 2-opt 优化当前趟”生成预览，再保存或采用到编辑列表。' : adjustmentMode === 'selected' ? '请先点击“开始优化所选点”取得候选；采用到编辑列表后会切回手动拖动模式，可继续编辑和复算。' : '尚未计算时会先计算，失败则保留编辑内容。' }}</p>
+      <p v-if="!isExactMode">{{ adjustmentMode === 'twoOpt' ? (singleTripMode ? '固定完整路线起终点，在全部收运点之间尝试区段反转；不按当前卸料分段限制。' : '固定当前趟次起终点和中间锚点，尝试区段反转；其他趟次保持顺序，完整路线统一复算。') : adjustmentMode === 'selected' ? (singleTripMode ? '取出所选点，按基础道路增程最小的位置重新插入；未选点保持相对顺序。' : '取出所选点，按道路增程最小的位置逐个重新插入一次；未选点保持相对顺序，不跨趟、不跨固定锚点。') : '拖动点位到目标行的上方或下方调整顺序，也可使用前移／后移按钮。固定锚点不能移动或跨越；拖动后需点击“确定并计算对比”。' }}</p>
+      <p>{{ singleTripMode ? '应用时将重新计算完整模板和每日跳点的卸料段、道路与时间窗；最终仍有超窗会标记，不会冒充通过。' : baseStage ? '更新后的基础路线将用于第二阶段插入时间窗点；当前正式方案不会改变。仅在开始插入之前可以修改。' : '“保存并替换”会将手动路线应用到当前方案的地图、统计与导出；“另存到方案库”独立持久保存。不论是否更优、是否超窗都允许操作，超窗提示仍保留。' }}{{ isExactMode ? '请先点击“开始全排列计算”取得候选，再保存或采用到编辑列表。' : adjustmentMode === 'twoOpt' ? '请先点击“开始 2-opt 优化当前趟”生成预览，再保存或采用到编辑列表。' : adjustmentMode === 'selected' ? '请先点击“开始优化所选点”取得候选；采用到编辑列表后会切回手动拖动模式，可继续编辑和复算。' : '尚未计算时会先计算，失败则保留编辑内容。' }}</p>
       <div class="manual-test-editor">
-        <div v-for="(point,index) in draft.routes[tripIndex].points" :key="point.manualToken" class="manual-test-point" :class="{ 'is-dragging': dragging?.index === index, 'drop-before': dropTarget?.index === index && !dropTarget.after, 'drop-after': dropTarget?.index === index && dropTarget.after }" :draggable="adjustmentMode === 'manual' && !busy && movable(index)" @dragstart="startDrag($event,index)" @dragover="overDrag($event,index)" @drop="dropPoint($event,index)" @dragend="clearDrag">
+        <div v-for="(point,index) in draft.routes[tripIndex].points" :key="point.manualToken" class="manual-test-point" :class="{ 'is-dragging': dragging?.index === index, 'drop-before': dropTarget?.index === index && !dropTarget.after, 'drop-after': dropTarget?.index === index && dropTarget.after, 'exact-segment-point': isSegmentPoint(index), 'exact-segment-end': adjustmentMode === 'exactSegment' && segmentEndIndex === index }" :draggable="adjustmentMode === 'manual' && !busy && movable(index)" @dragstart="startDrag($event,index)" @dragover="overDrag($event,index)" @drop="dropPoint($event,index)" @dragend="clearDrag">
           <span><input v-if="adjustmentMode === 'selected'" type="checkbox" :checked="selectedTokens.has(point.manualToken)" :disabled="busy || !movable(index)" @change="toggleSelected(point.manualToken)" /><span v-if="movable(index)" class="drag-handle" aria-hidden="true">⠿</span>{{ index + 1 }}. {{ point.facilityName || point.facilityId }} <small>{{ windowLabel(point) }}</small></span>
-          <div><span v-if="!movable(index)">固定锚点</span><template v-else-if="adjustmentMode === 'manual'"><button :disabled="busy || index === 1 || draft.routes[tripIndex].points[index - 1].weightSource === 'ANCHOR'" @click="move(index,-1)">前移</button><button :disabled="busy || index === draft.routes[tripIndex].points.length - 2 || draft.routes[tripIndex].points[index + 1].weightSource === 'ANCHOR'" @click="move(index,1)">后移</button></template></div>
+          <div><button v-if="adjustmentMode === 'exactSegment'" type="button" :disabled="busy || exactSegmentLimit(exactTrip, index) < 2" :aria-pressed="segmentEndIndex === index" :title="exactSegmentLimit(exactTrip, index) < 2 ? '前方不足两个连续可排序点' : ''" @click="chooseSegmentEnd(index)">{{ segmentEndIndex === index ? '分段终点' : '设为分段终点' }}</button><span v-else-if="!movable(index)">固定锚点</span><template v-else-if="adjustmentMode === 'manual'"><button :disabled="busy || index === 1 || draft.routes[tripIndex].points[index - 1].weightSource === 'ANCHOR'" @click="move(index,-1)">前移</button><button :disabled="busy || index === draft.routes[tripIndex].points.length - 2 || draft.routes[tripIndex].points[index + 1].weightSource === 'ANCHOR'" @click="move(index,1)">后移</button></template></div>
         </div>
       </div>
       <p v-if="busy">{{ progress }}</p><p v-if="error" class="manual-test-error">{{ error }}</p>
-      <template v-if="adjustmentMode === 'exact' && exactResult">
+      <template v-if="isExactMode && exactResult">
         <div class="manual-test-results exact-test-results">
           <article v-for="card in exactCards" :key="card.key" :class="{ 'exact-original': card.key === 'original', 'exact-active': exactChoice === card.key }">
             <h3>{{ card.label }}</h3>
@@ -99,7 +111,7 @@ import { createMapViewLink, markSelectedPoints } from '../comparisonMap.js'
 import { buildManualComparison, buildManualSavePayload, COMPARISON_COLORS, createManualDraft, moveManualPoint, reorderManualPoint } from '../manualRouteTest.js'
 import { optimizeTwoOpt } from '../twoOptAdjustment.js'
 import { adjustablePoint, adjustSelectedOnce } from '../selectedPointAdjustment.js'
-import { exactOrderUnavailableReason, optimizeExactRoute } from '../exactRouteAdjustment.js'
+import { exactOrderUnavailableReason, exactSegmentLimit, optimizeExactRoute } from '../exactRouteAdjustment.js'
 
 const props = defineProps({ singleTripMode: { type: Boolean, default: false }, result: Object, options: Object, saveContext: Object, applyResult: Function, baseStage: { type: Boolean, default: false }, scheduleDays: { type: Array, default: () => [] }, title: String, initialRouteNo: Number, resolveRoad: Function, resolveSelection: Function, resolveExact: Function, buildSchedules: Function, isViolation: Function })
 const emit = defineEmits(['close', 'save'])
@@ -110,6 +122,14 @@ const busy = ref(false), progress = ref(''), error = ref(''), comparison = ref(n
 let requestId = 0
 const twoOptMinutes = ref(5)
 const adjustmentMode = ref('manual'), selectedTokens = ref(new Set()), autoRunning = ref(false), autoCandidate = ref(null), autoProgress = ref(null), autoMessage = ref(''), selectedComparison = ref(false), autoElapsed = ref(0)
+const segmentEndIndex = ref(null), segmentSize = ref(5)
+const isExactMode = computed(() => ['exact', 'exactSegment'].includes(adjustmentMode.value))
+const exactTrip = computed(() => draft.value.routes[tripIndex.value])
+const segmentLimit = computed(() => exactSegmentLimit(exactTrip.value, segmentEndIndex.value))
+const canRunExact = computed(() => adjustmentMode.value === 'exactSegment'
+  ? segmentSize.value >= 2 && segmentSize.value <= segmentLimit.value : !exactDisabledReason.value)
+const isSegmentPoint = index => adjustmentMode.value === 'exactSegment' && segmentEndIndex.value !== null
+  && index >= segmentEndIndex.value - segmentSize.value && index < segmentEndIndex.value
 const exactResult = ref(null), exactChoice = ref('')
 const exactCards = computed(() => {
   if (!exactResult.value) return []
@@ -127,7 +147,7 @@ const exactCards = computed(() => {
 })
 const exactPointCount = computed(() => draft.value.routes[tripIndex.value].points.slice(1, -1).filter(adjustablePoint).length)
 const exactDisabledReason = computed(() => exactOrderUnavailableReason(draft.value.routes[tripIndex.value]))
-const candidateLabel = computed(() => adjustmentMode.value === 'exact' ? '全排列最短路线候选'
+const candidateLabel = computed(() => isExactMode.value ? '全排列最短路线候选'
   : adjustmentMode.value === 'twoOpt' ? '2-opt 调整候选' : '选点调整候选')
 const markedTokens = ref(new Set())
 let autoController = null, autoTimer = null
@@ -174,13 +194,21 @@ async function optimizeSelection() {
 function changeAdjustmentContext() {
   clearDrag(); comparison.value = null; clearAutoResult(); error.value = ''
 }
+function chooseSegmentEnd(index) {
+  const limit = exactSegmentLimit(exactTrip.value, index)
+  if (busy.value || limit < 2 || segmentEndIndex.value === index) return
+  segmentEndIndex.value = index
+  segmentSize.value = Math.min(segmentSize.value, limit)
+  changeAdjustmentContext()
+}
 function changeTrip() {
-  if (adjustmentMode.value !== 'exact') {
+  segmentEndIndex.value = null
+  if (!isExactMode.value) {
     clearDrag()
     return
   }
   changeAdjustmentContext()
-  if (exactDisabledReason.value) adjustmentMode.value = 'manual'
+  if (adjustmentMode.value === 'exact' && exactDisabledReason.value) adjustmentMode.value = 'manual'
 }
 function chooseExactCandidate(key) {
   const selected = exactResult.value?.[key]
@@ -193,7 +221,7 @@ function chooseExactCandidate(key) {
   autoCandidate.value = selected.candidate
 }
 async function optimizeExactRouteOrder() {
-  if (busy.value || exactDisabledReason.value) return
+  if (busy.value || !canRunExact.value) return
   const id = ++requestId
   const started = Date.now()
   const before = JSON.parse(JSON.stringify(draft.value))
@@ -207,6 +235,8 @@ async function optimizeExactRouteOrder() {
   try {
     const result = await optimizeExactRoute({
       draft: before, routeIndex: tripIndex.value, options: props.options,
+      reorderRange: adjustmentMode.value === 'exactSegment'
+        ? { startIndex: segmentEndIndex.value - segmentSize.value, endIndex: segmentEndIndex.value } : null,
       resolveExact: props.resolveExact, resolveRoad: props.resolveRoad,
       buildSchedules: props.buildSchedules, isViolation: props.isViolation, singleTripMode: props.singleTripMode, signal: autoController.signal,
       onProgress: value => { if (id === requestId) { autoProgress.value = value; progress.value = value.message } }
@@ -300,7 +330,7 @@ function move(index, direction) {
   const token = draft.value.routes[tripIndex.value].points[index]?.manualToken
   if (moveManualPoint(draft.value, tripIndex.value, index, direction)) { if (token) markedTokens.value = new Set([...markedTokens.value, token]); comparison.value = null; error.value = ''; clearAutoResult() }
 }
-function reset() { if (!busy.value) { clearDrag(); draft.value = createManualDraft(props.result); comparison.value = null; error.value = ''; clearAutoResult(); selectedTokens.value = new Set(); markedTokens.value = new Set() } }
+function reset() { if (!busy.value) { segmentEndIndex.value = null; clearDrag(); draft.value = createManualDraft(props.result); comparison.value = null; error.value = ''; clearAutoResult(); selectedTokens.value = new Set(); markedTokens.value = new Set() } }
 async function saveManual() {
   if (busy.value) return
   if (adjustmentMode.value !== 'manual' && (!comparison.value || !selectedComparison.value)) { error.value = '请先点击当前模式的优化按钮生成候选'; return }
@@ -357,6 +387,8 @@ h2,h3 { margin:8px 0; } p { margin:10px 0; line-height:1.6; }
 .exact-test-results article { border-color:#dbe3ee; }
 .exact-test-results .exact-original { grid-column:1 / -1; }
 .exact-test-results .exact-active { border-color:#2563eb; }
+.manual-test-point.exact-segment-point { background:#eff6ff; }
+.manual-test-point.exact-segment-end { background:#dbeafe; }
 .exact-choice { display:inline-flex; gap:6px; align-items:center; margin:0 0 8px; }
 .manual-test-arrivals { overflow:auto; max-height:350px; } table { width:100%; border-collapse:collapse; } td,th { padding:8px; text-align:left; border-bottom:1px solid #e2e8f0; }
 .conflict,.manual-test-error { color:#dc2626; } .conflict { background:#fff1f2; }

@@ -1,7 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { createManualDraft } from './manualRouteTest.js'
-import { exactOrderUnavailableReason, optimizeExactRoute } from './exactRouteAdjustment.js'
+import { exactOrderUnavailableReason, exactSegmentLimit, optimizeExactRoute } from './exactRouteAdjustment.js'
 
 const point = (id, role = 'MIDDLE') => ({ facilityId: id, role, longitude: id, latitude: 0, operationDurationMinutes: 1 })
 const draft = count => createManualDraft({ routes: [{ routeNo: 1, vehicleId: 'v', tripNo: 1,
@@ -66,4 +66,24 @@ test('over-limit input fails before requesting OD and cancellation discards resp
     buildSchedules, isViolation: () => false,
     resolveExact: async () => { controller.abort(); return {} }
   }), { name: 'AbortError' })
+})
+
+test('segment search accepts a long route and sends only the requested movable range', async () => {
+  const input = draft(30)
+  input.routes[0].points[8].weightSource = 'ANCHOR'
+  assert.equal(exactSegmentLimit(input.routes[0], 11), 2)
+  assert.equal(exactSegmentLimit(input.routes[0], 25), 10)
+  const reorderRange = { startIndex: 9, endIndex: 11 }
+  const result = await optimizeExactRoute({
+    draft: input, routeIndex: 0, reorderRange, options: { plannedStartTime: '06:00' },
+    resolveRoad: async points => ({ segments: road(points) }),
+    buildSchedules, isViolation: () => false,
+    resolveExact: async (points, options, signal, timing) => {
+      assert.equal(points.length, 32)
+      assert.deepEqual(timing.reorderRange, reorderRange)
+      return { points, originalSegments: road(points), adjustedSegments: road(points), evaluated: 2 }
+    }
+  })
+  assert.match(result.message, /2 种/)
+  assert.equal(result.timeWindow, null)
 })

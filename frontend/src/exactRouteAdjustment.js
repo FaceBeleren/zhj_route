@@ -11,6 +11,16 @@ export function exactOrderUnavailableReason(route) {
   return ''
 }
 
+export function exactSegmentLimit(route, endIndex) {
+  if (!Number.isInteger(endIndex) || endIndex < 1 || endIndex >= (route?.points?.length || 0)) return 0
+  let count = 0
+  for (let index = endIndex - 1; index > 0 && count < 10; index--) {
+    if (!adjustablePoint(route.points[index])) break
+    count++
+  }
+  return count
+}
+
 const vehicleKey = route => String(route.vehicleId || route.vehicleName || 'DEFAULT')
 
 function timingForRoute(result, routeIndex, buildSchedules, startTime, checkDeparture) {
@@ -28,8 +38,15 @@ function timingForRoute(result, routeIndex, buildSchedules, startTime, checkDepa
   return { tripStartMinutes: schedule.startMinutes, downstreamWindows, checkDeparture }
 }
 
-export async function optimizeExactRoute({ draft, routeIndex, options, resolveExact, resolveRoad, buildSchedules, isViolation, singleTripMode = false, signal, onProgress = () => {} }) {
-  const reason = exactOrderUnavailableReason(draft.routes[routeIndex])
+export async function optimizeExactRoute({ draft, routeIndex, options, resolveExact, resolveRoad, buildSchedules, isViolation, singleTripMode = false, reorderRange = null, signal, onProgress = () => {} }) {
+  const route = draft.routes[routeIndex]
+  if (reorderRange) {
+    const count = reorderRange.endIndex - reorderRange.startIndex
+    if (!Number.isInteger(count) || count < 2 || count > exactSegmentLimit(route, reorderRange.endIndex)) {
+      throw new Error('请选择固定终点及其前方连续2至10个可排序收运点')
+    }
+  }
+  const reason = reorderRange ? '' : exactOrderUnavailableReason(route)
   if (reason) throw new Error(reason)
   const check = () => { if (signal?.aborted) throw new DOMException('已取消全排列', 'AbortError') }
   const baseline = clone(draft)
@@ -52,6 +69,7 @@ export async function optimizeExactRoute({ draft, routeIndex, options, resolveEx
   check()
   onProgress({ message: '正在枚举当前趟次的全部允许顺序，同时比较两种时间窗口径…' })
   const points = baseline.routes[routeIndex].points
+  if (reorderRange) timing.reorderRange = reorderRange
   const response = await resolveExact(points, options, signal, timing)
   check()
   roads.set(key(points), { segments: response.originalSegments })
