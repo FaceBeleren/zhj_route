@@ -184,6 +184,27 @@ test('fixed repair submits all scheduled days and shows daily conflicts even whe
   assert.equal(scope.timeRepairError.value, '')
 })
 
+test('fixed template without a schedule can repair and apply without joint daily validation', async () => {
+  const { state, scope } = fixture()
+  scope.assignmentScheduleCycleDays.value = 0
+  await state.generateFixedMaster()
+  state.openTimeWindowRepair('FIXED')
+  const previousApi = scope.api
+  scope.api = async (url, options) => {
+    if (url !== '/api/optimize/repair-time-windows') return previousApi(url, options)
+    const body = JSON.parse(options.body)
+    assert.equal('scheduleDays' in body, false)
+    assert.equal(body.result.distanceMode, 'ROAD')
+    return { improved: true, message: '完整模板修正完成', result: body.result }
+  }
+  await state.runTimeWindowRepair()
+  assert.equal(scope.timeRepairError.value, '')
+  await state.applyTimeWindowRepair()
+  assert.equal(scope.timeRepairVisible.value, false)
+  assert.deepEqual(state.fixedMaster.value.days, [])
+  assert.equal(state.fixedMasterMessage.value, '完整模板修正完成')
+})
+
 test('ordinary assignment repair does not opt into joint daily validation', async () => {
   const { state, scope } = fixture()
   await state.generateFixedMaster()

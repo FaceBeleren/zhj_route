@@ -2495,7 +2495,8 @@
       <h2>时间窗修正路线 · {{ timeRepairVersion?.name }}</h2>
       <p>调整同一趟内点位顺序，以时间窗满足度为优先目标，可能增加行驶距离。修正结果是运营调整建议，不代表原距离优化结果。确认应用后更新当前方案。</p>
       <p>本阶段按严格时间窗校验，不自动等待；不设置候选数、轮数或计算时长上限。复杂排班及扩大搜索可能耗时较长，请等待计算完成。</p>
-      <p v-if="timeRepairScope === 'FIXED'">联合检查完整模板和排班周期内每一天：每个候选都按当天应收点重新计算跳点后道路、作业时间及连续趟次到达时间。同一点在不同天冲突分别计数；冲突方向不同则双向尝试。耗时与距离比较采用整个排班周期合计，不是只看全点模板。</p>
+      <p v-if="timeRepairScope === 'FIXED' && timeRepairVersion?.scheduleDays?.length">联合检查完整模板和排班周期内每一天：每个候选都按当天应收点重新计算跳点后道路、作业时间及连续趟次到达时间。同一点在不同天冲突分别计数；冲突方向不同则双向尝试。耗时与距离比较采用整个排班周期合计，不是只看全点模板。</p>
+      <p v-else-if="timeRepairScope === 'FIXED'">当前没有按日排班，仅校验完整模板的时间窗。</p>
       <p>默认只移动冲突收运点：早到向后挪，晚到向前挪；禁止或跨午夜时间窗双向尝试。每轮重新检查全部点位；即使某个候选全部通过，也继续比较本轮剩余插入位置，依次按冲突数、超窗分钟、总完成时间、总距离选优。本轮结束后全部通过或未找到进一步改善则停止；跳过重复顺序，不保证全局最优。</p>
       <button :disabled="assignmentTripReorderRunning" @click="runTimeWindowRepair('CONFLICT_ONLY')">{{ assignmentTripReorderRunning ? '正在计算修正版…' : '开始修正' }}</button>
       <button :disabled="assignmentTripReorderRunning" title="允许移动正常收运点，搜索更广但可能更慢或增加绕行；仍从修正前原方案试算" @click="runTimeWindowRepair('EXPANDED')">扩大搜索</button>
@@ -6384,7 +6385,7 @@ function openTimeWindowRepair(scope = 'ASSIGNMENT') {
   if (timeRepairScope.value === 'FIXED' && !fixedMasterFresh.value) return
   timeRepairFixedOwner.value = timeRepairScope.value === 'FIXED' ? fixedMaster.value : null
   timeRepairVersion.value = timeRepairScope.value === 'FIXED' ? {
-    name: '固定模板＋整个排班周期', fingerprint: fixedMasterFingerprint.value,
+    name: fixedMaster.value.days.length ? '固定模板＋整个排班周期' : '完整模板', fingerprint: fixedMasterFingerprint.value,
     scheduleDays: fixedMaster.value.days.map(day => ({ day: day.day, facilityIds: splitPlanPoints.value.filter((_, index) => day.indices.includes(index)).map(point => point.facilityId) }))
   } : assignmentActiveVersion.value
   timeRepairOriginal.value = deepClone(timeRepairScope.value === 'FIXED' ? fixedMaster.value.template : multiOptimization.value)
@@ -6406,8 +6407,10 @@ async function runTimeWindowRepair(searchMode = 'CONFLICT_ONLY') {
   assignmentTripReorderRunning.value = true
   timeRepairError.value = ''
   try {
-    const joint = timeRepairScope.value === 'FIXED'
-    const validOwner = () => !joint || (timeRepairFixedOwner.value === fixedMaster.value && fixedMasterFresh.value && timeRepairVersion.value.fingerprint === fixedMasterFingerprint.value)
+    const fixed = timeRepairScope.value === 'FIXED'
+    const scheduleDays = fixed ? timeRepairVersion.value.scheduleDays : []
+    const joint = scheduleDays.length > 0
+    const validOwner = () => !fixed || (timeRepairFixedOwner.value === fixedMaster.value && fixedMasterFresh.value && timeRepairVersion.value.fingerprint === fixedMasterFingerprint.value)
     if (!validOwner()) throw new Error('全点模板或排班配置已变化，请重新打开修正窗口')
     timeRepairPreview.value = null
     const preview = await api('/api/optimize/repair-time-windows', {
@@ -6415,7 +6418,7 @@ async function runTimeWindowRepair(searchMode = 'CONFLICT_ONLY') {
       body: JSON.stringify({
         result: compactAssignmentReorderResult(timeRepairOriginal.value),
         searchMode,
-        ...(joint ? { scheduleDays: timeRepairVersion.value.scheduleDays } : {}),
+        ...(joint ? { scheduleDays } : {}),
         plannedStartTime: optimizeOptions.plannedStartTime,
         denseSpeedKmh: optimizeOptions.denseSpeedKmh,
         normalSpeedKmh: optimizeOptions.normalSpeedKmh,
@@ -6435,7 +6438,7 @@ async function runTimeWindowRepair(searchMode = 'CONFLICT_ONLY') {
 async function applyTimeWindowRepair() {
   if (timeRepairScope.value === 'FIXED') {
     const owner = timeRepairFixedOwner.value
-    if (!timeRepairPreview.value?.improved || !timeRepairPreview.value.jointScenarioValidation || owner !== fixedMaster.value || !fixedMasterFresh.value || timeRepairVersion.value.fingerprint !== fixedMasterFingerprint.value) {
+    if (!timeRepairPreview.value?.improved || (timeRepairVersion.value.scheduleDays.length && !timeRepairPreview.value.jointScenarioValidation) || owner !== fixedMaster.value || !fixedMasterFresh.value || timeRepairVersion.value.fingerprint !== fixedMasterFingerprint.value) {
       timeRepairError.value = '全点模板或配置已变化，请重新打开修正窗口'
       return
     }
